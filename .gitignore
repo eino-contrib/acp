@@ -30,3 +30,12 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Root binaries
+/client
+/agent
+
+*.local.md
+
+examples/demo/*
+/bin/*
