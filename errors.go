@@ -18,6 +18,11 @@ type RPCError struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
+type internalErrorData struct {
+	Error       string `json:"error,omitempty"`
+	OriginError string `json:"originError,omitempty"`
+}
+
 func (e *RPCError) Error() string {
 	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
 }
@@ -87,11 +92,12 @@ func ErrInvalidParams(msg string) *RPCError {
 
 // ErrInternalError returns an RPCError with the standard JSON-RPC
 // internal-error code (-32603).
-func ErrInternalError(msg string) *RPCError {
-	return &RPCError{
-		Code:    int(ErrorCodeInternalError),
-		Message: msg,
+func ErrInternalError(msg string, originError ...error) *RPCError {
+	data := internalErrorData{Error: "internal error"}
+	if len(originError) > 0 && originError[0] != nil {
+		data.OriginError = originError[0].Error()
 	}
+	return NewRPCError(int(ErrorCodeInternalError), msg, data)
 }
 
 // ErrServerBusy returns an RPCError with the ACP server-busy code (-32001).

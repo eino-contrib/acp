@@ -205,7 +205,7 @@ func dispatchRequestSafely(ctx context.Context, dispatch func(context.Context, s
 			panicErr := fmt.Errorf("request handler panic: %v\n%s", r, debug.Stack())
 			acplog.OrDefault(logger).CtxError(ctx, "%v", panicErr)
 			result = nil
-			err = acp.ErrInternalError("internal error")
+			err = acp.ErrInternalError("internal error panic", panicErr)
 		}
 	}()
 
@@ -223,7 +223,7 @@ func dispatchNotificationSafely(ctx context.Context, dispatch func(context.Conte
 		if r := recover(); r != nil {
 			panicErr := fmt.Errorf("notification handler panic: method=%q %v\n%s", method, r, debug.Stack())
 			acplog.OrDefault(logger).CtxError(ctx, "%v", panicErr)
-			err = acp.ErrInternalError("internal error")
+			err = acp.ErrInternalError("internal error panic method="+method, panicErr)
 		}
 	}()
 

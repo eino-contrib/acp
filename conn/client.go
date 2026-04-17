@@ -3,7 +3,7 @@ package conn
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"time"
 
 	acp "github.com/eino-contrib/acp"
 	"github.com/eino-contrib/acp/internal/connspi"
@@ -30,15 +30,36 @@ func isOrderedClientNotification(method string) bool {
 }
 
 // ClientConnectionOption configures a ClientConnection at construction time.
-type ClientConnectionOption func(*ClientConnection)
+type ClientConnectionOption interface {
+	applyClientConnectionOption(*clientConnectionConfig)
+}
+
+type clientConnectionConfig struct {
+	logger                     acplog.Logger
+	listenerErrHandler         func(sessionID string, err error)
+	orderedNotificationMatcher func(method string) bool
+	rpcOpts                    []jsonrpc.ConnectionOption
+}
+
+type clientConnectionOptionFunc func(*clientConnectionConfig)
+
+func (f clientConnectionOptionFunc) applyClientConnectionOption(cfg *clientConnectionConfig) {
+	f(cfg)
+}
+
+func withJSONRPCClientConnectionOption(opt jsonrpc.ConnectionOption) ClientConnectionOption {
+	return clientConnectionOptionFunc(func(cfg *clientConnectionConfig) {
+		cfg.rpcOpts = append(cfg.rpcOpts, opt)
+	})
+}
 
 // WithClientLogger sets the logger used by the ClientConnection for listener
-// bootstrap diagnostics. The underlying jsonrpc.Connection has its own logger
-// option (jsonrpc.WithLogger) applied via the opts variadic passed through.
+// bootstrap diagnostics and the underlying jsonrpc.Connection.
 func WithClientLogger(logger acplog.Logger) ClientConnectionOption {
-	return func(c *ClientConnection) {
-		c.logger = acplog.OrDefault(logger)
-	}
+	return clientConnectionOptionFunc(func(cfg *clientConnectionConfig) {
+		cfg.logger = acplog.OrDefault(logger)
+		cfg.rpcOpts = append(cfg.rpcOpts, jsonrpc.WithLogger(logger))
+	})
 }
 
 // WithSessionListenerErrorHandler registers a callback invoked when a
@@ -48,9 +69,41 @@ func WithClientLogger(logger acplog.Logger) ClientConnectionOption {
 //
 // If no handler is registered, the listener error is logged at warning level.
 func WithSessionListenerErrorHandler(fn func(sessionID string, err error)) ClientConnectionOption {
-	return func(c *ClientConnection) {
-		c.listenerErrHandler = fn
-	}
+	return clientConnectionOptionFunc(func(cfg *clientConnectionConfig) {
+		cfg.listenerErrHandler = fn
+	})
+}
+
+// WithOrderedNotificationMatcher marks additional notification methods that
+// must be processed sequentially. The built-in ordered handling for
+// session/update is always retained.
+func WithOrderedNotificationMatcher(matcher func(method string) bool) ClientConnectionOption {
+	return clientConnectionOptionFunc(func(cfg *clientConnectionConfig) {
+		cfg.orderedNotificationMatcher = matcher
+	})
+}
+
+// WithMaxConsecutiveParseErrors terminates the connection after n consecutive
+// invalid messages. Zero keeps the default unlimited behavior.
+func WithMaxConsecutiveParseErrors(n int) ClientConnectionOption {
+	return withJSONRPCClientConnectionOption(jsonrpc.WithMaxConsecutiveParseErrors(n))
+}
+
+// WithRequestTimeout sets a per-request timeout applied to inbound handler
+// contexts. Zero keeps the default disabled behavior.
+func WithRequestTimeout(d time.Duration) ClientConnectionOption {
+	return withJSONRPCClientConnectionOption(jsonrpc.WithRequestTimeout(d))
+}
+
+// WithRequestWorkers overrides the per-connection worker pool size used for
+// requests and unordered notifications.
+func WithRequestWorkers(n int) ClientConnectionOption {
+	return withJSONRPCClientConnectionOption(jsonrpc.WithRequestWorkers(n))
+}
+
+// WithConnectionLabel tags JSON-RPC diagnostic logs with an identifier.
+func WithConnectionLabel(label string) ClientConnectionOption {
+	return withJSONRPCClientConnectionOption(jsonrpc.WithConnectionLabel(label))
 }
 
 // NewClientConnection creates a new client-side connection.
@@ -59,11 +112,11 @@ func WithSessionListenerErrorHandler(fn func(sessionID string, err error)) Clien
 // time with a clear message; this is a programmer error, not a runtime
 // condition.
 //
-// Extra jsonrpc.ConnectionOption values (e.g. WithRequestTimeout, WithLogger,
-// WithMaxConsecutiveParseErrors) are applied on top of the built-in ordered
-// notification matcher for session/update. ClientConnectionOption values
-// configure ClientConnection-level behavior (e.g. listener error handling).
-func NewClientConnection(client acp.Client, transport jsonrpc.Transport, opts ...any) *ClientConnection {
+// ClientConnectionOption values configure both ClientConnection-specific
+// behavior and the underlying JSON-RPC connection. Ordered processing for
+// session/update is always enabled, even when WithOrderedNotificationMatcher is
+// used to add more ordered notification methods.
+func NewClientConnection(client acp.Client, transport jsonrpc.Transport, opts ...ClientConnectionOption) *ClientConnection {
 	if client == nil {
 		panic("acp: NewClientConnection called with nil client")
 	}
@@ -71,25 +124,35 @@ func NewClientConnection(client acp.Client, transport jsonrpc.Transport, opts ..
 		panic("acp: NewClientConnection called with nil transport")
 	}
 
-	csc := &ClientConnection{client: client, transport: transport, logger: acplog.Default()}
-
-	var rpcOpts []jsonrpc.ConnectionOption
+	cfg := clientConnectionConfig{
+		logger: acplog.Default(),
+	}
 	for _, opt := range opts {
-		switch o := opt.(type) {
-		case jsonrpc.ConnectionOption:
-			rpcOpts = append(rpcOpts, o)
-		case ClientConnectionOption:
-			o(csc)
-		default:
-			panic(fmt.Sprintf("acp: NewClientConnection received unsupported option type %T", opt))
+		if opt == nil {
+			continue
 		}
+		opt.applyClientConnectionOption(&cfg)
 	}
 
+	csc := &ClientConnection{
+		client:             client,
+		transport:          transport,
+		logger:             cfg.logger,
+		listenerErrHandler: cfg.listenerErrHandler,
+	}
 	csc.requestHandlers = newClientRequestHandlers(client)
 	csc.notificationHandlers = newClientNotificationHandlers(client)
+
+	orderedMatcher := isOrderedClientNotification
+	if cfg.orderedNotificationMatcher != nil {
+		userMatcher := cfg.orderedNotificationMatcher
+		orderedMatcher = func(method string) bool {
+			return isOrderedClientNotification(method) || userMatcher(method)
+		}
+	}
 	allOpts := append([]jsonrpc.ConnectionOption{
-		jsonrpc.WithOrderedNotificationMatcher(isOrderedClientNotification),
-	}, rpcOpts...)
+		jsonrpc.WithOrderedNotificationMatcher(orderedMatcher),
+	}, cfg.rpcOpts...)
 	csc.conn = jsonrpc.NewConnection(
 		transport,
 		csc.handleRequest,
@@ -117,7 +180,7 @@ func (c *ClientConnection) reportListenerError(sessionID string, err error) {
 // ctx is the connection lifetime context: cancelling it shuts down the
 // connection. Use Done() to observe termination.
 func (c *ClientConnection) Start(ctx context.Context) error {
-	safe.GoWithLogger(acplog.Default(), func() {
+	safe.GoWithLogger(c.logger, func() {
 		_ = c.conn.Start(ctx)
 	})
 	return c.conn.WaitUntilStarted(ctx)
