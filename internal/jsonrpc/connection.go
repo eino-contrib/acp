@@ -543,7 +543,7 @@ func (c *Connection) handleRequest(ctx context.Context, msg *Message, respond fu
 	resp, err := NewResponse(msg.ID, result)
 	if err != nil {
 		c.logf("jsonrpc response error on method %q: marshal result: %v", msg.Method, err)
-		respond(NewErrorResponse(msg.ID, acp.ErrInternalError(genericInternalErrorMessage)))
+		respond(NewErrorResponse(msg.ID, acp.ErrInternalError(genericInternalErrorMessage, err)))
 		return
 	}
 	respond(resp)
@@ -554,7 +554,7 @@ func (c *Connection) handleRequestSafely(ctx context.Context, msg *Message, resp
 		if r := recover(); r != nil {
 			panicErr := fmt.Errorf("request handler panic: method=%q %s: %v\n%s", msg.Method, c.panicContext(msg), r, debug.Stack())
 			c.reportError(msg.Method, panicErr)
-			respond(NewErrorResponse(msg.ID, acp.ErrInternalError(genericInternalErrorMessage)))
+			respond(NewErrorResponse(msg.ID, acp.ErrInternalError(genericInternalErrorMessage, panicErr)))
 		}
 	}()
 
@@ -775,7 +775,7 @@ func ToResponseError(err error) *acp.RPCError {
 		return rpcErr
 	}
 
-	return acp.ErrInternalError(genericInternalErrorMessage)
+	return acp.ErrInternalError(genericInternalErrorMessage, err)
 }
 
 // IsHiddenInternalError reports whether rpcErr is the opaque "internal error"

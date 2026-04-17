@@ -1011,7 +1011,9 @@ func (t *ClientTransport) enqueueRequestFailure(rawID *json.RawMessage, cause er
 
 	msg := jsonrpc.NewErrorResponse(&id, acp.ErrInternalError(
 		fmt.Sprintf("streamable HTTP request stream terminated before final response: %v", cause),
+		cause,
 	))
+
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("marshal request failure response: %w", err)

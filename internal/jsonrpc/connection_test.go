@@ -140,6 +140,33 @@ func TestSendNotificationBeforeStartReturnsSentinelNotStarted(t *testing.T) {
 	}
 }
 
+func TestToResponseErrorPreservesOriginErrorInData(t *testing.T) {
+	rpcErr := ToResponseError(errors.New("provider upstream 502"))
+	if rpcErr == nil {
+		t.Fatal("expected rpcErr")
+	}
+	if rpcErr.Code != int(acp.ErrorCodeInternalError) {
+		t.Fatalf("rpcErr.Code = %d, want %d", rpcErr.Code, acp.ErrorCodeInternalError)
+	}
+	if rpcErr.Message != genericInternalErrorMessage {
+		t.Fatalf("rpcErr.Message = %q, want %q", rpcErr.Message, genericInternalErrorMessage)
+	}
+
+	var payload struct {
+		Error       string `json:"error"`
+		OriginError string `json:"originError"`
+	}
+	if err := json.Unmarshal(rpcErr.Data, &payload); err != nil {
+		t.Fatalf("unmarshal rpcErr.Data: %v", err)
+	}
+	if payload.Error != "internal error" {
+		t.Fatalf("payload.Error = %q, want %q", payload.Error, "internal error")
+	}
+	if payload.OriginError != "provider upstream 502" {
+		t.Fatalf("payload.OriginError = %q, want %q", payload.OriginError, "provider upstream 502")
+	}
+}
+
 func TestSendNotificationUsesCallerContextForWrite(t *testing.T) {
 	transport := newBlockingWriteTransport()
 	conn := NewConnection(transport, nil, nil)
