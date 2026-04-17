@@ -24,7 +24,10 @@ type internalErrorData struct {
 }
 
 func (e *RPCError) Error() string {
-	return fmt.Sprintf("rpc error %d: %s， data: %s", e.Code, e.Message, string(e.Data))
+	if len(e.Data) > 0 {
+		return fmt.Sprintf("rpc error %d: %s, data: %s", e.Code, e.Message, string(e.Data))
+	}
+	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
 }
 
 // RPCErrorCode returns the numeric JSON-RPC error code.
