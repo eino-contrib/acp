@@ -6,38 +6,58 @@ import acp "github.com/eino-contrib/acp"
 
 func newAgentRequestHandlers(agent acp.Agent, conn *AgentConnection) map[string]requestDispatcher {
 	return map[string]requestDispatcher{
-		acp.MethodAgentAuthenticate:           bindRequestHandler(agent.Authenticate),
-		acp.MethodAgentInitialize:             bindRequestHandler(agent.Initialize),
-		acp.MethodAgentListSessions:           bindRequestHandler(agent.ListSessions),
-		acp.MethodAgentLoadSession:            bindRequestHandler(agent.LoadSession),
-		acp.MethodAgentNewSession:             bindRequestHandler(agent.NewSession),
-		acp.MethodAgentPrompt:                 bindRequestHandler(agent.Prompt),
-		acp.MethodAgentSetSessionConfigOption: bindRequestHandler(agent.SetSessionConfigOption),
-		acp.MethodAgentSetSessionMode:         bindRequestHandler(agent.SetSessionMode),
+		acp.MethodAgentAuthenticate:             bindRequestHandler(agent.Authenticate),
+		acp.MethodAgentInitialize:               bindRequestHandler(agent.Initialize),
+		acp.MethodAgentUnstableLogout:           bindRequestHandler(agent.UnstableLogout),
+		acp.MethodAgentCloseNes:                 bindRequestHandler(agent.CloseNes),
+		acp.MethodAgentStartNes:                 bindRequestHandler(agent.StartNes),
+		acp.MethodAgentSuggestNes:               bindRequestHandler(agent.SuggestNes),
+		acp.MethodAgentUnstableDisableProviders: bindRequestHandler(agent.UnstableDisableProviders),
+		acp.MethodAgentUnstableListProviders:    bindRequestHandler(agent.UnstableListProviders),
+		acp.MethodAgentUnstableSetProviders:     bindRequestHandler(agent.UnstableSetProviders),
+		acp.MethodAgentUnstableCloseSession:     bindRequestHandler(agent.UnstableCloseSession),
+		acp.MethodAgentUnstableForkSession:      bindRequestHandler(agent.UnstableForkSession),
+		acp.MethodAgentListSessions:             bindRequestHandler(agent.ListSessions),
+		acp.MethodAgentLoadSession:              bindRequestHandler(agent.LoadSession),
+		acp.MethodAgentNewSession:               bindRequestHandler(agent.NewSession),
+		acp.MethodAgentPrompt:                   bindRequestHandler(agent.Prompt),
+		acp.MethodAgentUnstableResumeSession:    bindRequestHandler(agent.UnstableResumeSession),
+		acp.MethodAgentSetSessionConfigOption:   bindRequestHandler(agent.SetSessionConfigOption),
+		acp.MethodAgentSetSessionMode:           bindRequestHandler(agent.SetSessionMode),
+		acp.MethodAgentUnstableSetSessionModel:  bindRequestHandler(agent.UnstableSetSessionModel),
 	}
 }
 
 func newAgentNotificationHandlers(conn *AgentConnection) map[string]notificationDispatcher {
 	return map[string]notificationDispatcher{
-		acp.MethodAgentSessionCancel: bindNotificationHandler("session/cancel notification", conn.agent.SessionCancel),
+		acp.MethodAgentDocumentDidChange: bindNotificationHandler("document/didChange notification", conn.agent.DocumentDidChange),
+		acp.MethodAgentDocumentDidClose:  bindNotificationHandler("document/didClose notification", conn.agent.DocumentDidClose),
+		acp.MethodAgentDocumentDidFocus:  bindNotificationHandler("document/didFocus notification", conn.agent.DocumentDidFocus),
+		acp.MethodAgentDocumentDidOpen:   bindNotificationHandler("document/didOpen notification", conn.agent.DocumentDidOpen),
+		acp.MethodAgentDocumentDidSave:   bindNotificationHandler("document/didSave notification", conn.agent.DocumentDidSave),
+		acp.MethodAgentNesAccept:         bindNotificationHandler("nes/accept notification", conn.agent.NesAccept),
+		acp.MethodAgentNesReject:         bindNotificationHandler("nes/reject notification", conn.agent.NesReject),
+		acp.MethodAgentSessionCancel:     bindNotificationHandler("session/cancel notification", conn.agent.SessionCancel),
 	}
 }
 
 func newClientRequestHandlers(client acp.Client) map[string]requestDispatcher {
 	return map[string]requestDispatcher{
-		acp.MethodClientReadTextFile:        bindRequestHandler(client.ReadTextFile),
-		acp.MethodClientWriteTextFile:       bindRequestHandler(client.WriteTextFile),
-		acp.MethodClientRequestPermission:   bindRequestHandler(client.RequestPermission),
-		acp.MethodClientCreateTerminal:      bindRequestHandler(client.CreateTerminal),
-		acp.MethodClientKillTerminal:        bindRequestHandler(client.KillTerminal),
-		acp.MethodClientTerminalOutput:      bindRequestHandler(client.TerminalOutput),
-		acp.MethodClientReleaseTerminal:     bindRequestHandler(client.ReleaseTerminal),
-		acp.MethodClientWaitForTerminalExit: bindRequestHandler(client.WaitForTerminalExit),
+		acp.MethodClientUnstableCreateElicitation: bindRequestHandler(client.UnstableCreateElicitation),
+		acp.MethodClientReadTextFile:              bindRequestHandler(client.ReadTextFile),
+		acp.MethodClientWriteTextFile:             bindRequestHandler(client.WriteTextFile),
+		acp.MethodClientRequestPermission:         bindRequestHandler(client.RequestPermission),
+		acp.MethodClientCreateTerminal:            bindRequestHandler(client.CreateTerminal),
+		acp.MethodClientKillTerminal:              bindRequestHandler(client.KillTerminal),
+		acp.MethodClientTerminalOutput:            bindRequestHandler(client.TerminalOutput),
+		acp.MethodClientReleaseTerminal:           bindRequestHandler(client.ReleaseTerminal),
+		acp.MethodClientWaitForTerminalExit:       bindRequestHandler(client.WaitForTerminalExit),
 	}
 }
 
 func newClientNotificationHandlers(client acp.Client) map[string]notificationDispatcher {
 	return map[string]notificationDispatcher{
-		acp.MethodClientSessionUpdate: bindNotificationHandler("session/update notification", client.SessionUpdate),
+		acp.MethodClientUnstableElicitationComplete: bindNotificationHandler("elicitation/complete notification", client.UnstableElicitationComplete),
+		acp.MethodClientSessionUpdate:               bindNotificationHandler("session/update notification", client.SessionUpdate),
 	}
 }

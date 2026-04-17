@@ -10,16 +10,90 @@ type Agent interface {
 	//
 	// Specifies which authentication method to use.
 	Authenticate(ctx context.Context, params AuthenticateRequest) (AuthenticateResponse, error)
+	// Notification sent when a file is edited.
+	DocumentDidChange(ctx context.Context, params DidChangeDocumentNotification) error
+	// Notification sent when a file is closed.
+	DocumentDidClose(ctx context.Context, params DidCloseDocumentNotification) error
+	// Notification sent when a file becomes the active editor tab.
+	DocumentDidFocus(ctx context.Context, params DidFocusDocumentNotification) error
+	// Notification sent when a file is opened in the editor.
+	DocumentDidOpen(ctx context.Context, params DidOpenDocumentNotification) error
+	// Notification sent when a file is saved.
+	DocumentDidSave(ctx context.Context, params DidSaveDocumentNotification) error
 	// Request parameters for the initialize method.
 	//
 	// Sent by the client to establish connection and negotiate capabilities.
 	//
 	// See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
 	Initialize(ctx context.Context, params InitializeRequest) (InitializeResponse, error)
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Request parameters for the logout method.
+	//
+	// Terminates the current authenticated session.
+	UnstableLogout(ctx context.Context, params LogoutRequest) (LogoutResponse, error)
+	// Notification sent when a suggestion is accepted.
+	NesAccept(ctx context.Context, params AcceptNesNotification) error
+	// Request to close an NES session.
+	//
+	// The agent **must** cancel any ongoing work related to the NES session
+	// and then free up any resources associated with the session.
+	CloseNes(ctx context.Context, params CloseNesRequest) (CloseNesResponse, error)
+	// Notification sent when a suggestion is rejected.
+	NesReject(ctx context.Context, params RejectNesNotification) error
+	// Request to start an NES session.
+	StartNes(ctx context.Context, params StartNesRequest) (StartNesResponse, error)
+	// Request for a code suggestion.
+	SuggestNes(ctx context.Context, params SuggestNesRequest) (SuggestNesResponse, error)
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Request parameters for `providers/disable`.
+	UnstableDisableProviders(ctx context.Context, params DisableProvidersRequest) (DisableProvidersResponse, error)
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Request parameters for `providers/list`.
+	UnstableListProviders(ctx context.Context, params ListProvidersRequest) (ListProvidersResponse, error)
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Request parameters for `providers/set`.
+	//
+	// Replaces the full configuration for one provider id.
+	UnstableSetProviders(ctx context.Context, params SetProvidersRequest) (SetProvidersResponse, error)
 	// Notification to cancel ongoing operations for a session.
 	//
 	// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
 	SessionCancel(ctx context.Context, params CancelNotification) error
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Request parameters for closing an active session.
+	//
+	// If supported, the agent **must** cancel any ongoing work related to the session
+	// (treat it as if `session/cancel` was called) and then free up any resources
+	// associated with the session.
+	//
+	// Only available if the Agent supports the `sessionCapabilities.close` capability.
+	UnstableCloseSession(ctx context.Context, params CloseSessionRequest) (CloseSessionResponse, error)
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Request parameters for forking an existing session.
+	//
+	// Creates a new session based on the context of an existing one, allowing
+	// operations like generating summaries without affecting the original session's history.
+	//
+	// Only available if the Agent supports the `session.fork` capability.
+	UnstableForkSession(ctx context.Context, params ForkSessionRequest) (ForkSessionResponse, error)
 	// Request parameters for listing existing sessions.
 	//
 	// Only available if the Agent supports the `sessionCapabilities.list` capability.
@@ -40,21 +114,56 @@ type Agent interface {
 	//
 	// See protocol docs: [User Message](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message)
 	Prompt(ctx context.Context, params PromptRequest) (PromptResponse, error)
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Request parameters for resuming an existing session.
+	//
+	// Resumes an existing session without returning previous messages (unlike `session/load`).
+	// This is useful for agents that can resume sessions but don't implement full session loading.
+	//
+	// Only available if the Agent supports the `sessionCapabilities.resume` capability.
+	UnstableResumeSession(ctx context.Context, params ResumeSessionRequest) (ResumeSessionResponse, error)
 	// Request parameters for setting a session configuration option.
 	SetSessionConfigOption(ctx context.Context, params SetSessionConfigOptionRequest) (SetSessionConfigOptionResponse, error)
 	// Request parameters for setting a session mode.
 	SetSessionMode(ctx context.Context, params SetSessionModeRequest) (SetSessionModeResponse, error)
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Request parameters for setting a session model.
+	UnstableSetSessionModel(ctx context.Context, params SetSessionModelRequest) (SetSessionModelResponse, error)
 }
 
 // Agent method wire names.
 const (
-	MethodAgentAuthenticate           = "authenticate"
-	MethodAgentInitialize             = "initialize"
-	MethodAgentSessionCancel          = "session/cancel"
-	MethodAgentListSessions           = "session/list"
-	MethodAgentLoadSession            = "session/load"
-	MethodAgentNewSession             = "session/new"
-	MethodAgentPrompt                 = "session/prompt"
-	MethodAgentSetSessionConfigOption = "session/set_config_option"
-	MethodAgentSetSessionMode         = "session/set_mode"
+	MethodAgentAuthenticate             = "authenticate"
+	MethodAgentDocumentDidChange        = "document/didChange"
+	MethodAgentDocumentDidClose         = "document/didClose"
+	MethodAgentDocumentDidFocus         = "document/didFocus"
+	MethodAgentDocumentDidOpen          = "document/didOpen"
+	MethodAgentDocumentDidSave          = "document/didSave"
+	MethodAgentInitialize               = "initialize"
+	MethodAgentUnstableLogout           = "logout"
+	MethodAgentNesAccept                = "nes/accept"
+	MethodAgentCloseNes                 = "nes/close"
+	MethodAgentNesReject                = "nes/reject"
+	MethodAgentStartNes                 = "nes/start"
+	MethodAgentSuggestNes               = "nes/suggest"
+	MethodAgentUnstableDisableProviders = "providers/disable"
+	MethodAgentUnstableListProviders    = "providers/list"
+	MethodAgentUnstableSetProviders     = "providers/set"
+	MethodAgentSessionCancel            = "session/cancel"
+	MethodAgentUnstableCloseSession     = "session/close"
+	MethodAgentUnstableForkSession      = "session/fork"
+	MethodAgentListSessions             = "session/list"
+	MethodAgentLoadSession              = "session/load"
+	MethodAgentNewSession               = "session/new"
+	MethodAgentPrompt                   = "session/prompt"
+	MethodAgentUnstableResumeSession    = "session/resume"
+	MethodAgentSetSessionConfigOption   = "session/set_config_option"
+	MethodAgentSetSessionMode           = "session/set_mode"
+	MethodAgentUnstableSetSessionModel  = "session/set_model"
 )

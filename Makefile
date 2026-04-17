@@ -5,11 +5,9 @@ AGENT_ADDR ?= :18080
 
 gen:
 	$(GO) run ./cmd/generate \
-		-schema ./cmd/generate/schema/schema.json \
-		-meta ./cmd/generate/schema/meta.json \
 		-output ./types_gen.go \
 		-package acp \
-		-download=false
+		-download=true
 
 test:
 	$(GO) test ./...

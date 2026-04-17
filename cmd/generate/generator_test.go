@@ -21,12 +21,19 @@ func TestResolveCLIPathsRepoRootDefaults(t *testing.T) {
 	writeTestFile(t, filepath.Join(repoRoot, "cmd", "generate", "schema", "schema.json"), "{}")
 	writeTestFile(t, filepath.Join(repoRoot, "cmd", "generate", "schema", "meta.json"), "{}")
 
-	schemaPath, metaPath, outputPath := resolveCLIPaths(repoRoot, defaultSchemaPath, defaultMetaPath, defaultOutputPath)
+	schemaPath, metaPath, outputPath := resolveCLIPaths(
+		repoRoot,
+		defaultSchemaPath,
+		defaultMetaPath,
+		defaultOutputPath,
+		defaultSchemaURL,
+		defaultMetaURL,
+	)
 
-	if got, want := schemaPath, filepath.Join(repoRoot, "cmd", "generate", "schema", "schema.json"); got != want {
+	if got, want := schemaPath, filepath.Join(repoRoot, "cmd", "generate", "schema", fileNameFromURL(defaultSchemaURL)); got != want {
 		t.Fatalf("schema path = %q, want %q", got, want)
 	}
-	if got, want := metaPath, filepath.Join(repoRoot, "cmd", "generate", "schema", "meta.json"); got != want {
+	if got, want := metaPath, filepath.Join(repoRoot, "cmd", "generate", "schema", fileNameFromURL(defaultMetaURL)); got != want {
 		t.Fatalf("meta path = %q, want %q", got, want)
 	}
 	if got, want := outputPath, filepath.Join(repoRoot, "types_gen.go"); got != want {
@@ -42,12 +49,19 @@ func TestResolveCLIPathsGenerateDirDefaults(t *testing.T) {
 	writeTestFile(t, filepath.Join(generateDir, "schema", "schema.json"), "{}")
 	writeTestFile(t, filepath.Join(generateDir, "schema", "meta.json"), "{}")
 
-	schemaPath, metaPath, outputPath := resolveCLIPaths(generateDir, defaultSchemaPath, defaultMetaPath, defaultOutputPath)
+	schemaPath, metaPath, outputPath := resolveCLIPaths(
+		generateDir,
+		defaultSchemaPath,
+		defaultMetaPath,
+		defaultOutputPath,
+		defaultSchemaURL,
+		defaultMetaURL,
+	)
 
-	if got, want := schemaPath, filepath.Join(generateDir, "schema", "schema.json"); got != want {
+	if got, want := schemaPath, filepath.Join(generateDir, "schema", fileNameFromURL(defaultSchemaURL)); got != want {
 		t.Fatalf("schema path = %q, want %q", got, want)
 	}
-	if got, want := metaPath, filepath.Join(generateDir, "schema", "meta.json"); got != want {
+	if got, want := metaPath, filepath.Join(generateDir, "schema", fileNameFromURL(defaultMetaURL)); got != want {
 		t.Fatalf("meta path = %q, want %q", got, want)
 	}
 	if got, want := outputPath, filepath.Join(repoRoot, "types_gen.go"); got != want {
@@ -63,12 +77,19 @@ func TestResolveCLIPathsGenerateDirFallsBackToLocalSchema(t *testing.T) {
 	writeTestFile(t, filepath.Join(generateDir, "schema", "schema.json"), "{}")
 	writeTestFile(t, filepath.Join(generateDir, "schema", "meta.json"), "{}")
 
-	schemaPath, metaPath, outputPath := resolveCLIPaths(generateDir, defaultSchemaPath, defaultMetaPath, defaultOutputPath)
+	schemaPath, metaPath, outputPath := resolveCLIPaths(
+		generateDir,
+		defaultSchemaPath,
+		defaultMetaPath,
+		defaultOutputPath,
+		defaultSchemaURL,
+		defaultMetaURL,
+	)
 
-	if got, want := schemaPath, filepath.Join(generateDir, "schema", "schema.json"); got != want {
+	if got, want := schemaPath, filepath.Join(generateDir, "schema", fileNameFromURL(defaultSchemaURL)); got != want {
 		t.Fatalf("schema path = %q, want %q", got, want)
 	}
-	if got, want := metaPath, filepath.Join(generateDir, "schema", "meta.json"); got != want {
+	if got, want := metaPath, filepath.Join(generateDir, "schema", fileNameFromURL(defaultMetaURL)); got != want {
 		t.Fatalf("meta path = %q, want %q", got, want)
 	}
 	if got, want := outputPath, filepath.Join(repoRoot, "types_gen.go"); got != want {
@@ -82,7 +103,14 @@ func TestResolveCLIPathsKeepsExplicitValues(t *testing.T) {
 	explicitMeta := filepath.Join(cwd, "custom", "meta.json")
 	explicitOutput := filepath.Join(cwd, "out", "types_gen.go")
 
-	schemaPath, metaPath, outputPath := resolveCLIPaths(cwd, explicitSchema, explicitMeta, explicitOutput)
+	schemaPath, metaPath, outputPath := resolveCLIPaths(
+		cwd,
+		explicitSchema,
+		explicitMeta,
+		explicitOutput,
+		"https://example.com/schema.unstable.json",
+		"https://example.com/meta.unstable.json",
+	)
 
 	if schemaPath != explicitSchema {
 		t.Fatalf("schema path = %q, want %q", schemaPath, explicitSchema)
@@ -92,6 +120,31 @@ func TestResolveCLIPathsKeepsExplicitValues(t *testing.T) {
 	}
 	if outputPath != explicitOutput {
 		t.Fatalf("output path = %q, want %q", outputPath, explicitOutput)
+	}
+}
+
+func TestResolveCLIPathsUsesURLFileNameForDefaultInputs(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeTestFile(t, filepath.Join(repoRoot, "go.mod"), "module example.com/acp\n")
+	writeTestFile(t, filepath.Join(repoRoot, "cmd", "generate", "main.go"), "package main\n")
+
+	schemaPath, metaPath, outputPath := resolveCLIPaths(
+		repoRoot,
+		defaultSchemaPath,
+		defaultMetaPath,
+		defaultOutputPath,
+		"https://example.com/schema.unstable.json",
+		"https://example.com/meta.unstable.json",
+	)
+
+	if got, want := schemaPath, filepath.Join(repoRoot, "cmd", "generate", "schema", "schema.unstable.json"); got != want {
+		t.Fatalf("schema path = %q, want %q", got, want)
+	}
+	if got, want := metaPath, filepath.Join(repoRoot, "cmd", "generate", "schema", "meta.unstable.json"); got != want {
+		t.Fatalf("meta path = %q, want %q", got, want)
+	}
+	if got, want := outputPath, filepath.Join(repoRoot, "types_gen.go"); got != want {
+		t.Fatalf("output path = %q, want %q", got, want)
 	}
 }
 
@@ -163,6 +216,31 @@ func TestGenerateCurrentSchemaAvoidsTopLevelAnyFallbacks(t *testing.T) {
 	}
 }
 
+func TestGenerateUnstableSchemaHandlesNullableObjectAdditionalProperties(t *testing.T) {
+	schema, err := LoadSchema(testFixturePath("schema.unstable.json"))
+	if err != nil {
+		t.Fatalf("load unstable schema: %v", err)
+	}
+	meta, err := LoadMeta(testFixturePath("meta.unstable.json"))
+	if err != nil {
+		t.Fatalf("load unstable meta: %v", err)
+	}
+
+	gen := NewGenerator(schema, meta)
+	src, err := gen.Generate("acp")
+	if err != nil {
+		t.Fatalf("generate source: %v", err)
+	}
+	text := string(src)
+
+	if strings.Contains(text, "Content *object `json:\"content,omitempty\"`") {
+		t.Fatalf("nullable object field regressed to invalid *object type")
+	}
+	if !strings.Contains(text, "Content map[string]ElicitationContentValue `json:\"content,omitempty\"`") {
+		t.Fatalf("missing nullable object additionalProperties mapping for ElicitationAcceptAction")
+	}
+}
+
 func TestCheckedInSchemaFixturesAvailableInGenerateDir(t *testing.T) {
 	for _, name := range []string{"schema.json", "meta.json"} {
 		fixturePath := localFixturePath(name)
@@ -216,6 +294,45 @@ func TestGenerateInterfacesVerifyMethodCoverage(t *testing.T) {
 	}
 	if len(agentVerify.MissingMethods) > 0 || len(agentVerify.MissingConstants) > 0 || len(agentVerify.BadSignatures) > 0 {
 		t.Fatalf("agent interface verification failed: %+v", agentVerify)
+	}
+}
+
+func TestGenerateInterfacesPrefixesUnstableMethods(t *testing.T) {
+	schema, err := LoadSchema(testFixturePath("schema.unstable.json"))
+	if err != nil {
+		t.Fatalf("load unstable schema: %v", err)
+	}
+	meta, err := LoadMeta(testFixturePath("meta.unstable.json"))
+	if err != nil {
+		t.Fatalf("load unstable meta: %v", err)
+	}
+
+	gen := NewGenerator(schema, meta)
+	_, agentSrc, err := gen.GenerateInterfaces("acp")
+	if err != nil {
+		t.Fatalf("generate interfaces: %v", err)
+	}
+	agentText := string(agentSrc)
+
+	for _, expected := range []string{
+		"UnstableLogout(ctx context.Context, params LogoutRequest) (LogoutResponse, error)",
+		"UnstableDisableProviders(ctx context.Context, params DisableProvidersRequest) (DisableProvidersResponse, error)",
+		"UnstableSetSessionModel(ctx context.Context, params SetSessionModelRequest) (SetSessionModelResponse, error)",
+		"MethodAgentUnstableSetSessionModel",
+		`"session/set_model"`,
+	} {
+		if !strings.Contains(agentText, expected) {
+			t.Fatalf("missing unstable generated fragment: %s", expected)
+		}
+	}
+
+	for _, unexpected := range []string{
+		"\tSetSessionModel(ctx context.Context, params SetSessionModelRequest) (SetSessionModelResponse, error)",
+		"MethodAgentSetSessionModel",
+	} {
+		if strings.Contains(agentText, unexpected) {
+			t.Fatalf("unexpected stable generated fragment: %s", unexpected)
+		}
 	}
 }
 

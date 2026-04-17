@@ -6,6 +6,22 @@ import "context"
 
 // Client defines the client-side RPC interface.
 type Client interface {
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Notification sent by the agent when a URL-based elicitation is complete.
+	UnstableElicitationComplete(ctx context.Context, params CompleteElicitationNotification) error
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Request from the agent to elicit structured user input.
+	//
+	// The agent sends this to the client to request information from the user,
+	// either via a form or by directing them to a URL.
+	// Elicitations are tied to a session (optionally a tool call) or a request.
+	UnstableCreateElicitation(ctx context.Context, params CreateElicitationRequest) (CreateElicitationResponse, error)
 	// Request to read content from a text file.
 	//
 	// Only available if the client supports the `fs.readTextFile` capability.
@@ -40,13 +56,15 @@ type Client interface {
 
 // Client method wire names.
 const (
-	MethodClientReadTextFile        = "fs/read_text_file"
-	MethodClientWriteTextFile       = "fs/write_text_file"
-	MethodClientRequestPermission   = "session/request_permission"
-	MethodClientSessionUpdate       = "session/update"
-	MethodClientCreateTerminal      = "terminal/create"
-	MethodClientKillTerminal        = "terminal/kill"
-	MethodClientTerminalOutput      = "terminal/output"
-	MethodClientReleaseTerminal     = "terminal/release"
-	MethodClientWaitForTerminalExit = "terminal/wait_for_exit"
+	MethodClientUnstableElicitationComplete = "elicitation/complete"
+	MethodClientUnstableCreateElicitation   = "elicitation/create"
+	MethodClientReadTextFile                = "fs/read_text_file"
+	MethodClientWriteTextFile               = "fs/write_text_file"
+	MethodClientRequestPermission           = "session/request_permission"
+	MethodClientSessionUpdate               = "session/update"
+	MethodClientCreateTerminal              = "terminal/create"
+	MethodClientKillTerminal                = "terminal/kill"
+	MethodClientTerminalOutput              = "terminal/output"
+	MethodClientReleaseTerminal             = "terminal/release"
+	MethodClientWaitForTerminalExit         = "terminal/wait_for_exit"
 )

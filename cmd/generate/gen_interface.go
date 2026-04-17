@@ -16,6 +16,7 @@ type MethodInfo struct {
 	RespType    string // Go response type, e.g. "ReadTextFileResponse" (empty for notifications)
 	Description string // from schema description
 	IsNotify    bool   // true if notification (no response)
+	IsUnstable  bool   // true if the schema marks the method as unstable
 }
 
 // GenerateInterfaces produces client_gen.go and agent_gen.go source code.
@@ -67,6 +68,11 @@ func (g *Generator) buildMethods(methods map[string]string, side string) []Metho
 			mi.GoName = toTitleCase(key)
 		}
 
+		mi.IsUnstable = isUnstableDescription(mi.Description)
+		if mi.IsUnstable && !strings.HasPrefix(mi.GoName, "Unstable") {
+			mi.GoName = "Unstable" + mi.GoName
+		}
+
 		result = append(result, mi)
 	}
 
@@ -101,6 +107,11 @@ func (g *Generator) getDescription(defName string) string {
 		return strings.TrimSpace(*s.Description)
 	}
 	return ""
+}
+
+func isUnstableDescription(desc string) bool {
+	desc = strings.TrimSpace(desc)
+	return strings.HasPrefix(desc, "**UNSTABLE**")
 }
 
 func (g *Generator) renderInterfaceFile(pkg, ifaceName string, methods []MethodInfo) ([]byte, error) {
