@@ -91,9 +91,19 @@ func ErrInvalidParams(msg string) *RPCError {
 }
 
 // ErrInternalError returns an RPCError with the standard JSON-RPC
-// internal-error code (-32603).
+// internal-error code (-32603). If data is an error, it wraps it in a
+// structured payload with "error" and "originError" fields for debugging.
 func ErrInternalError(msg string, data any) *RPCError {
-	return NewRPCError(int(ErrorCodeInternalError), msg, data)
+	var payload any
+	switch v := data.(type) {
+	case nil:
+		payload = nil
+	case error:
+		payload = internalErrorData{Error: "internal error", OriginError: v.Error()}
+	default:
+		payload = data
+	}
+	return NewRPCError(int(ErrorCodeInternalError), msg, payload)
 }
 
 // ErrServerBusy returns an RPCError with the ACP server-busy code (-32001).
