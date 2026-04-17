@@ -42,8 +42,8 @@ type defaultLogger struct{}
 
 func (defaultLogger) Debug(format string, v ...interface{}) { log.Printf(format, v...) }
 func (defaultLogger) Info(format string, v ...interface{})  { log.Printf(format, v...) }
-func (defaultLogger) Warn(format string, v ...interface{})  { log.Printf("WARN: "+format, v...) }
-func (defaultLogger) Error(format string, v ...interface{}) { log.Printf("ERROR: "+format, v...) }
+func (defaultLogger) Warn(format string, v ...interface{})  { log.Printf("[ACP]WARN: "+format, v...) }
+func (defaultLogger) Error(format string, v ...interface{}) { log.Printf("[ACP]ERROR: "+format, v...) }
 func (defaultLogger) CtxDebug(_ context.Context, format string, v ...interface{}) {
 	log.Printf(format, v...)
 }
@@ -51,8 +51,8 @@ func (defaultLogger) CtxInfo(_ context.Context, format string, v ...interface{})
 	log.Printf(format, v...)
 }
 func (defaultLogger) CtxWarn(_ context.Context, format string, v ...interface{}) {
-	log.Printf("WARN: "+format, v...)
+	log.Printf("[ACP]WARN: "+format, v...)
 }
 func (defaultLogger) CtxError(_ context.Context, format string, v ...interface{}) {
-	log.Printf("ERROR: "+format, v...)
+	log.Printf("[ACP]ERROR: "+format, v...)
 }

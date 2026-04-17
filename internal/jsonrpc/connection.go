@@ -798,11 +798,16 @@ func SendRequestTyped[T any](sender RequestSender, ctx context.Context, method s
 	var zero T
 	raw, err := sender.SendRequest(ctx, method, params)
 	if err != nil {
+		if len(raw) > 0 {
+			acplog.Default().Error("send request error: %v, raw response: %s", err, string(raw))
+			return zero, acp.ErrInternalError(err.Error(), map[string]string{"error": string(raw)})
+		}
 		return zero, err
 	}
 	var result T
 	if err := json.Unmarshal(raw, &result); err != nil {
-		return zero, fmt.Errorf("unmarshal response for %s: %w", method, err)
+		acplog.Default().Error("unmarshal response error: %v, raw response: %s", err, string(raw))
+		return zero, acp.ErrInternalError(fmt.Sprintf("unmarshal response for %s", method), err)
 	}
 	return result, nil
 }

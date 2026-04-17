@@ -24,7 +24,7 @@ type internalErrorData struct {
 }
 
 func (e *RPCError) Error() string {
-	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
+	return fmt.Sprintf("rpc error %d: %s， data: %s", e.Code, e.Message, string(e.Data))
 }
 
 // RPCErrorCode returns the numeric JSON-RPC error code.
@@ -92,11 +92,7 @@ func ErrInvalidParams(msg string) *RPCError {
 
 // ErrInternalError returns an RPCError with the standard JSON-RPC
 // internal-error code (-32603).
-func ErrInternalError(msg string, originError ...error) *RPCError {
-	data := internalErrorData{Error: "internal error"}
-	if len(originError) > 0 && originError[0] != nil {
-		data.OriginError = originError[0].Error()
-	}
+func ErrInternalError(msg string, data any) *RPCError {
 	return NewRPCError(int(ErrorCodeInternalError), msg, data)
 }
 

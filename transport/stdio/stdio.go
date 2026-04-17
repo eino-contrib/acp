@@ -214,7 +214,7 @@ func (t *Transport) readLoop() {
 
 	if err := scanner.Err(); err != nil {
 		if ok := t.pushReadResult(readResult{err: fmt.Errorf("read: %w", err)}); !ok {
-			logger.Error("drop stdio read error because transport is closed: %v", err)
+			logger.Info("drop stdio read error because transport is closed: %v", err)
 		}
 		return
 	}
