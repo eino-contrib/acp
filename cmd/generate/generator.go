@@ -428,6 +428,12 @@ func (g *Generator) resolveFieldType(s *Schema, required bool) string {
 	// Nullable types: ["string", "null"], ["array", "null"], etc.
 	if len(s.Type) == 2 && s.Type.IsNullable() {
 		nonNull := s.Type.NonNull()
+		// object/array need their full handling (additionalProperties, items, etc).
+		// Do not route them through mapJSONTypeToGo(), which would emit invalid identifiers
+		// like "*object".
+		if nonNull == "object" {
+			goto NonNullable
+		}
 		if nonNull == "array" {
 			if s.Items != nil {
 				itemType := g.resolveFieldType(s.Items, true)
@@ -442,6 +448,7 @@ func (g *Generator) resolveFieldType(s *Schema, required bool) string {
 		return "*" + baseType
 	}
 
+NonNullable:
 	if len(s.Type) == 0 {
 		g.needJSON = true
 		return "json.RawMessage"
@@ -549,6 +556,15 @@ func isPrimitiveUnion(variants []*Schema) bool {
 		}
 		switch v.Type[0] {
 		case "null", "string", "integer", "number", "boolean":
+		case "array":
+			if v.Items == nil || len(v.Items.Type) != 1 {
+				return false
+			}
+			switch v.Items.Type[0] {
+			case "string", "integer", "number", "boolean":
+			default:
+				return false
+			}
 		default:
 			return false
 		}
@@ -594,6 +610,14 @@ func primitiveVariantSuffix(s *Schema) string {
 		return "Float64"
 	case "boolean":
 		return "Bool"
+	case "array":
+		if s.Title != "" {
+			return toTitleCase(s.Title)
+		}
+		if s.Items != nil && len(s.Items.Type) == 1 {
+			return toTitleCase(s.Items.Type[0]) + "Array"
+		}
+		return "Array"
 	default:
 		if s.Title != "" {
 			return toTitleCase(s.Title)
@@ -606,7 +630,18 @@ func primitiveVariantGoType(s *Schema) string {
 	if s == nil || len(s.Type) == 0 {
 		return "any"
 	}
+	if s.Type[0] == "array" {
+		if s.Items != nil && len(s.Items.Type) == 1 {
+			elemType := mapJSONTypeToGo(s.Items.Type[0])
+			return "[]" + elemType
+		}
+		return "[]any"
+	}
 	return mapJSONTypeToGo(s.Type[0])
+}
+
+func primitiveVariantTypeName(goName string, s *Schema) string {
+	return goName + primitiveVariantSuffix(s)
 }
 
 func (g *Generator) generatePrimitiveValueUnion(goName string, variants []*Schema) {
@@ -614,49 +649,80 @@ func (g *Generator) generatePrimitiveValueUnion(goName string, variants []*Schem
 	g.needFmt = true
 
 	fmt.Fprintf(&g.buf, "type %s struct {\n", goName)
-	fmt.Fprintf(&g.buf, "\traw json.RawMessage\n")
+	for _, variant := range variants {
+		if len(variant.Type) == 0 {
+			continue
+		}
+		suffix := primitiveVariantSuffix(variant)
+		fmt.Fprintf(&g.buf, "\t%s *%s `json:\"-\"`\n", suffix, primitiveVariantTypeName(goName, variant))
+	}
 	fmt.Fprintf(&g.buf, "}\n\n")
+
+	for _, variant := range variants {
+		if len(variant.Type) == 0 {
+			continue
+		}
+		typeName := primitiveVariantTypeName(goName, variant)
+		if variant.Type[0] == "null" {
+			fmt.Fprintf(&g.buf, "type %s struct{}\n\n", typeName)
+		} else {
+			goType := primitiveVariantGoType(variant)
+			fmt.Fprintf(&g.buf, "type %s %s\n\n", typeName, goType)
+		}
+	}
 
 	for _, variant := range variants {
 		if len(variant.Type) == 0 {
 			continue
 		}
 		suffix := primitiveVariantSuffix(variant)
+		typeName := primitiveVariantTypeName(goName, variant)
 		if variant.Type[0] == "null" {
 			fmt.Fprintf(&g.buf, "func New%s%s() %s {\n", goName, suffix, goName)
-			fmt.Fprintf(&g.buf, "\treturn %s{raw: json.RawMessage(`null`)}\n", goName)
+			fmt.Fprintf(&g.buf, "\tv := %s{}\n", typeName)
+			fmt.Fprintf(&g.buf, "\treturn %s{%s: &v}\n", goName, suffix)
 			fmt.Fprintf(&g.buf, "}\n\n")
 			continue
 		}
 		goType := primitiveVariantGoType(variant)
 		fmt.Fprintf(&g.buf, "func New%s%s(v %s) %s {\n", goName, suffix, goType, goName)
-		fmt.Fprintf(&g.buf, "\tdata, err := json.Marshal(v)\n")
-		fmt.Fprintf(&g.buf, "\tif err != nil {\n")
-		fmt.Fprintf(&g.buf, "\t\t// Marshal should never fail for primitive types; panic only if it does\n")
-		fmt.Fprintf(&g.buf, "\t\tpanic(err)\n")
-		fmt.Fprintf(&g.buf, "\t}\n")
-		fmt.Fprintf(&g.buf, "\treturn %s{raw: data}\n", goName)
+		fmt.Fprintf(&g.buf, "\tvv := %s(v)\n", typeName)
+		fmt.Fprintf(&g.buf, "\treturn %s{%s: &vv}\n", goName, suffix)
 		fmt.Fprintf(&g.buf, "}\n\n")
 	}
 
 	fmt.Fprintf(&g.buf, "func (v %s) MarshalJSON() ([]byte, error) {\n", goName)
-	fmt.Fprintf(&g.buf, "\tif len(v.raw) == 0 {\n")
-	fmt.Fprintf(&g.buf, "\t\treturn []byte(`null`), nil\n")
-	fmt.Fprintf(&g.buf, "\t}\n")
-	fmt.Fprintf(&g.buf, "\treturn v.raw, nil\n")
-	fmt.Fprintf(&g.buf, "}\n\n")
-
-	fmt.Fprintf(&g.buf, "func (v *%s) UnmarshalJSON(data []byte) error {\n", goName)
 	for _, variant := range variants {
 		if len(variant.Type) == 0 {
 			continue
 		}
+		suffix := primitiveVariantSuffix(variant)
+		fmt.Fprintf(&g.buf, "\tif v.%s != nil {\n", suffix)
+		if variant.Type[0] == "null" {
+			fmt.Fprintf(&g.buf, "\t\treturn json.Marshal(nil)\n")
+		} else {
+			fmt.Fprintf(&g.buf, "\t\treturn json.Marshal(*v.%s)\n", suffix)
+		}
+		fmt.Fprintf(&g.buf, "\t}\n")
+	}
+	fmt.Fprintf(&g.buf, "\treturn nil, fmt.Errorf(\"no variant is set for %s\")\n", goName)
+	fmt.Fprintf(&g.buf, "}\n\n")
+
+	fmt.Fprintf(&g.buf, "func (v *%s) UnmarshalJSON(data []byte) error {\n", goName)
+	fmt.Fprintf(&g.buf, "\t*v = %s{}\n", goName)
+	for _, variant := range variants {
+		if len(variant.Type) == 0 {
+			continue
+		}
+		suffix := primitiveVariantSuffix(variant)
+		typeName := primitiveVariantTypeName(goName, variant)
 		switch variant.Type[0] {
 		case "null":
 			fmt.Fprintf(&g.buf, "\t{\n")
 			fmt.Fprintf(&g.buf, "\t\tvar candidate any\n")
 			fmt.Fprintf(&g.buf, "\t\tif err := json.Unmarshal(data, &candidate); err == nil && candidate == nil {\n")
-			fmt.Fprintf(&g.buf, "\t\t\tv.raw = append(v.raw[:0], data...)\n")
+			fmt.Fprintf(&g.buf, "\t\t\tvv := %s{}\n", typeName)
+			fmt.Fprintf(&g.buf, "\t\t\tv.%s = &vv\n", suffix)
 			fmt.Fprintf(&g.buf, "\t\t\treturn nil\n")
 			fmt.Fprintf(&g.buf, "\t\t}\n")
 			fmt.Fprintf(&g.buf, "\t}\n")
@@ -665,20 +731,14 @@ func (g *Generator) generatePrimitiveValueUnion(goName string, variants []*Schem
 			fmt.Fprintf(&g.buf, "\t{\n")
 			fmt.Fprintf(&g.buf, "\t\tvar candidate %s\n", goType)
 			fmt.Fprintf(&g.buf, "\t\tif err := json.Unmarshal(data, &candidate); err == nil {\n")
-			fmt.Fprintf(&g.buf, "\t\t\tv.raw = append(v.raw[:0], data...)\n")
+			fmt.Fprintf(&g.buf, "\t\t\tvv := %s(candidate)\n", typeName)
+			fmt.Fprintf(&g.buf, "\t\t\tv.%s = &vv\n", suffix)
 			fmt.Fprintf(&g.buf, "\t\t\treturn nil\n")
 			fmt.Fprintf(&g.buf, "\t\t}\n")
 			fmt.Fprintf(&g.buf, "\t}\n")
 		}
 	}
 	fmt.Fprintf(&g.buf, "\treturn fmt.Errorf(\"data does not match any primitive variant of %s\")\n", goName)
-	fmt.Fprintf(&g.buf, "}\n\n")
-
-	fmt.Fprintf(&g.buf, "func (v %s) Raw() json.RawMessage {\n", goName)
-	fmt.Fprintf(&g.buf, "\tif len(v.raw) == 0 {\n")
-	fmt.Fprintf(&g.buf, "\t\treturn json.RawMessage(`null`)\n")
-	fmt.Fprintf(&g.buf, "\t}\n")
-	fmt.Fprintf(&g.buf, "\treturn append(json.RawMessage(nil), v.raw...)\n")
 	fmt.Fprintf(&g.buf, "}\n\n")
 
 	for _, variant := range variants {
@@ -689,18 +749,16 @@ func (g *Generator) generatePrimitiveValueUnion(goName string, variants []*Schem
 		switch variant.Type[0] {
 		case "null":
 			fmt.Fprintf(&g.buf, "func (v %s) Is%s() bool {\n", goName, suffix)
-			fmt.Fprintf(&g.buf, "\tvar candidate any\n")
-			fmt.Fprintf(&g.buf, "\treturn len(v.raw) > 0 && json.Unmarshal(v.raw, &candidate) == nil && candidate == nil\n")
+			fmt.Fprintf(&g.buf, "\treturn v.%s != nil\n", suffix)
 			fmt.Fprintf(&g.buf, "}\n\n")
 		default:
 			goType := primitiveVariantGoType(variant)
 			fmt.Fprintf(&g.buf, "func (v %s) As%s() (%s, bool) {\n", goName, suffix, goType)
-			fmt.Fprintf(&g.buf, "\tvar candidate %s\n", goType)
-			fmt.Fprintf(&g.buf, "\tif len(v.raw) == 0 || json.Unmarshal(v.raw, &candidate) != nil {\n")
+			fmt.Fprintf(&g.buf, "\tif v.%s == nil {\n", suffix)
 			fmt.Fprintf(&g.buf, "\t\tvar zero %s\n", goType)
 			fmt.Fprintf(&g.buf, "\t\treturn zero, false\n")
 			fmt.Fprintf(&g.buf, "\t}\n")
-			fmt.Fprintf(&g.buf, "\treturn candidate, true\n")
+			fmt.Fprintf(&g.buf, "\treturn %s(*v.%s), true\n", goType, suffix)
 			fmt.Fprintf(&g.buf, "}\n\n")
 		}
 	}
@@ -890,69 +948,66 @@ func (g *Generator) generateTryParseUnion(goName string, refTypes []string, dist
 	g.needJSON = true
 	g.needFmt = true
 
-	// For slice types, we need wrapper named types since []T can't have methods.
 	type variantType struct {
-		rawType       string // e.g., "TextResourceContents" or "[]SessionConfigSelectOption"
-		wrapperName   string // e.g., "TextResourceContents" or "SessionConfigSelectOptions_SessionConfigSelectOption"
-		constructorID string // e.g., "TextResourceContents" or "SessionConfigSelectOptionList"
-		isSlice       bool
+		rawType     string // e.g., "TextResourceContents" or "[]SessionConfigSelectOption"
+		wrapperName string // e.g., "TextResourceContents" or "SessionConfigSelectOptions_SessionConfigSelectOption"
+		memberName  string // e.g., "Result", "Error", or "SessionConfigSelectOptionList"
+		isSlice     bool
 	}
 	var variants []variantType
 	for _, rt := range refTypes {
+		memberName := rt
+		if strings.HasPrefix(rt, goName) {
+			memberName = strings.TrimPrefix(rt, goName)
+		}
+		if memberName == "" {
+			memberName = rt
+		}
 		if strings.HasPrefix(rt, "[]") {
 			itemType := strings.TrimPrefix(rt, "[]")
 			wrapperName := goName + itemType + "List"
+			memberName = itemType + "List"
 			variants = append(variants, variantType{
-				rawType:       rt,
-				wrapperName:   wrapperName,
-				constructorID: itemType + "List",
-				isSlice:       true,
+				rawType:     rt,
+				wrapperName: wrapperName,
+				memberName:  memberName,
+				isSlice:     true,
 			})
 		} else {
 			variants = append(variants, variantType{
-				rawType:       rt,
-				wrapperName:   rt,
-				constructorID: rt,
-				isSlice:       false,
+				rawType:     rt,
+				wrapperName: rt,
+				memberName:  memberName,
+				isSlice:     false,
 			})
 		}
 	}
 
-	// Generate wrapper types for slices
 	for _, vt := range variants {
 		if vt.isSlice {
 			fmt.Fprintf(&g.buf, "type %s %s\n\n", vt.wrapperName, vt.rawType)
 		}
 	}
 
-	// Marker interface
-	markerMethod := fmt.Sprintf("is%sVariant", goName)
-	interfaceName := uncapitalize(goName) + "Variant"
-
-	// Implement marker on each type
-	for _, vt := range variants {
-		fmt.Fprintf(&g.buf, "func (%s) %s() {}\n", vt.wrapperName, markerMethod)
-	}
-	g.buf.WriteString("\n")
-
-	fmt.Fprintf(&g.buf, "type %s interface{ %s() }\n\n", interfaceName, markerMethod)
-
 	fmt.Fprintf(&g.buf, "type %s struct {\n", goName)
-	fmt.Fprintf(&g.buf, "\tvariant %s\n", interfaceName)
+	for _, vt := range variants {
+		fmt.Fprintf(&g.buf, "\t%s *%s `json:\"-\"`\n", vt.memberName, vt.wrapperName)
+	}
 	fmt.Fprintf(&g.buf, "}\n\n")
 
 	recv := receiverName(goName)
 
-	// MarshalJSON
 	fmt.Fprintf(&g.buf, "func (%s %s) MarshalJSON() ([]byte, error) {\n", recv, goName)
-	fmt.Fprintf(&g.buf, "\tif %s.variant == nil {\n", recv)
-	fmt.Fprintf(&g.buf, "\t\treturn nil, fmt.Errorf(\"no variant is set for %s\")\n", goName)
-	fmt.Fprintf(&g.buf, "\t}\n")
-	fmt.Fprintf(&g.buf, "\treturn json.Marshal(%s.variant)\n", recv)
+	for _, vt := range variants {
+		fmt.Fprintf(&g.buf, "\tif %s.%s != nil {\n", recv, vt.memberName)
+		fmt.Fprintf(&g.buf, "\t\treturn json.Marshal(*%s.%s)\n", recv, vt.memberName)
+		fmt.Fprintf(&g.buf, "\t}\n")
+	}
+	fmt.Fprintf(&g.buf, "\treturn nil, fmt.Errorf(\"no variant is set for %s\")\n", goName)
 	fmt.Fprintf(&g.buf, "}\n")
 
-	// UnmarshalJSON — use distinguishing fields when available, else try-parse
 	fmt.Fprintf(&g.buf, "func (%s *%s) UnmarshalJSON(data []byte) error {\n", recv, goName)
+	fmt.Fprintf(&g.buf, "\t*%s = %s{}\n", recv, goName)
 
 	hasDistinguishing := len(distinguishingFields) > 0
 	if hasDistinguishing {
@@ -966,8 +1021,6 @@ func (g *Generator) generateTryParseUnion(goName string, refTypes []string, dist
 			hasObjectDistinguishing = true
 		}
 
-		// Check keys in raw JSON to distinguish variants.
-		// Arrays need special handling because the distinguishing field lives on each item.
 		if hasObjectDistinguishing {
 			fmt.Fprintf(&g.buf, "\tvar keys map[string]json.RawMessage\n")
 			fmt.Fprintf(&g.buf, "\tif err := json.Unmarshal(data, &keys); err == nil {\n")
@@ -982,7 +1035,7 @@ func (g *Generator) generateTryParseUnion(goName string, refTypes []string, dist
 					fmt.Fprintf(&g.buf, "\t\t\tif err := json.Unmarshal(data, &%s); err != nil {\n", varName)
 					fmt.Fprintf(&g.buf, "\t\t\t\treturn err\n")
 					fmt.Fprintf(&g.buf, "\t\t\t}\n")
-					fmt.Fprintf(&g.buf, "\t\t\t%s.variant = %s\n", recv, varName)
+					fmt.Fprintf(&g.buf, "\t\t\t%s.%s = &%s\n", recv, vt.memberName, varName)
 					fmt.Fprintf(&g.buf, "\t\t\treturn nil\n")
 					fmt.Fprintf(&g.buf, "\t\t}\n")
 				}
@@ -1003,7 +1056,7 @@ func (g *Generator) generateTryParseUnion(goName string, refTypes []string, dist
 				fmt.Fprintf(&g.buf, "\t\t\tif err := json.Unmarshal(data, &%s); err != nil {\n", varName)
 				fmt.Fprintf(&g.buf, "\t\t\t\treturn err\n")
 				fmt.Fprintf(&g.buf, "\t\t\t}\n")
-				fmt.Fprintf(&g.buf, "\t\t\t%s.variant = %s\n", recv, varName)
+				fmt.Fprintf(&g.buf, "\t\t\t%s.%s = &%s\n", recv, vt.memberName, varName)
 				fmt.Fprintf(&g.buf, "\t\t\treturn nil\n")
 				fmt.Fprintf(&g.buf, "\t\t}\n")
 			}
@@ -1011,13 +1064,12 @@ func (g *Generator) generateTryParseUnion(goName string, refTypes []string, dist
 		}
 	}
 
-	// Fallback: try each variant
 	for i, vt := range variants {
 		varName := fmt.Sprintf("vf%d", i)
 		fmt.Fprintf(&g.buf, "\t{\n")
 		fmt.Fprintf(&g.buf, "\t\tvar %s %s\n", varName, vt.wrapperName)
 		fmt.Fprintf(&g.buf, "\t\tif err := json.Unmarshal(data, &%s); err == nil {\n", varName)
-		fmt.Fprintf(&g.buf, "\t\t\t%s.variant = %s\n", recv, varName)
+		fmt.Fprintf(&g.buf, "\t\t\t%s.%s = &%s\n", recv, vt.memberName, varName)
 		fmt.Fprintf(&g.buf, "\t\t\treturn nil\n")
 		fmt.Fprintf(&g.buf, "\t\t}\n")
 		fmt.Fprintf(&g.buf, "\t}\n")
@@ -1025,30 +1077,23 @@ func (g *Generator) generateTryParseUnion(goName string, refTypes []string, dist
 	fmt.Fprintf(&g.buf, "\treturn fmt.Errorf(\"data does not match any variant of %s\")\n", goName)
 	fmt.Fprintf(&g.buf, "}\n")
 
-	// Accessors
 	for _, vt := range variants {
-		accessorName := vt.wrapperName
-		if vt.isSlice {
-			// For slice wrappers, strip parent prefix if present
-			accessorName = strings.TrimPrefix(vt.wrapperName, goName)
-		}
-		fmt.Fprintf(&g.buf, "func (%s *%s) As%s() (%s, bool) {\n", recv, goName, accessorName, vt.wrapperName)
-		fmt.Fprintf(&g.buf, "\tv, ok := %s.variant.(%s)\n", recv, vt.wrapperName)
-		fmt.Fprintf(&g.buf, "\treturn v, ok\n")
+		fmt.Fprintf(&g.buf, "func (%s *%s) As%s() (%s, bool) {\n", recv, goName, vt.memberName, vt.rawType)
+		fmt.Fprintf(&g.buf, "\tif %s.%s == nil {\n", recv, vt.memberName)
+		fmt.Fprintf(&g.buf, "\t\tvar zero %s\n", vt.rawType)
+		fmt.Fprintf(&g.buf, "\t\treturn zero, false\n")
+		fmt.Fprintf(&g.buf, "\t}\n")
+		fmt.Fprintf(&g.buf, "\treturn %s(*%s.%s), true\n", vt.rawType, recv, vt.memberName)
 		fmt.Fprintf(&g.buf, "}\n")
 	}
 	g.buf.WriteString("\n")
 
-	// Constructors
 	for _, vt := range variants {
-		funcName := "New" + goName + vt.constructorID
-		fmt.Fprintf(&g.buf, "// %s creates a %s holding a %s variant.\n", funcName, goName, vt.constructorID)
+		funcName := "New" + goName + vt.memberName
+		fmt.Fprintf(&g.buf, "// %s creates a %s holding a %s variant.\n", funcName, goName, vt.memberName)
 		fmt.Fprintf(&g.buf, "func %s(v %s) %s {\n", funcName, vt.rawType, goName)
-		if vt.isSlice {
-			fmt.Fprintf(&g.buf, "\treturn %s{variant: %s(v)}\n", goName, vt.wrapperName)
-		} else {
-			fmt.Fprintf(&g.buf, "\treturn %s{variant: v}\n", goName)
-		}
+		fmt.Fprintf(&g.buf, "\tvv := %s(v)\n", vt.wrapperName)
+		fmt.Fprintf(&g.buf, "\treturn %s{%s: &vv}\n", goName, vt.memberName)
 		fmt.Fprintf(&g.buf, "}\n")
 	}
 	g.buf.WriteString("\n")

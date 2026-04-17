@@ -6,20 +6,32 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
 )
 
 const (
-	defaultSchemaPath      = "./schema/schema.json"
-	defaultMetaPath        = "./schema/meta.json"
 	defaultOutputPath      = "../../types_gen.go"
 	defaultDownloadTimeout = 30 * time.Second
 
-	defaultSchemaURL = "https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/main/schema/schema.json"
-	defaultMetaURL   = "https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/main/schema/meta.json"
+	defaultSchemaURL = "https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/main/schema/schema.unstable.json"
+	defaultMetaURL   = "https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/main/schema/meta.unstable.json"
 )
+
+var (
+	defaultSchemaPath = "./schema/" + fileNameFromURL(defaultSchemaURL)
+	defaultMetaPath   = "./schema/" + fileNameFromURL(defaultMetaURL)
+)
+
+func fileNameFromURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return filepath.Base(rawURL)
+	}
+	return filepath.Base(u.Path)
+}
 
 type cliLayout int
 
@@ -62,14 +74,14 @@ func downloadFile(url, dest string, timeout time.Duration) error {
 	return err
 }
 
-func resolveCLIPaths(cwd, schemaPath, metaPath, output string) (string, string, string) {
+func resolveCLIPaths(cwd, schemaPath, metaPath, output, schemaURL, metaURL string) (string, string, string) {
 	layout := detectCLILayout(cwd)
 
 	if schemaPath == defaultSchemaPath {
-		schemaPath = resolveDefaultInputPath(cwd, layout, "schema.json")
+		schemaPath = resolveDefaultInputPath(cwd, layout, fileNameFromURL(schemaURL))
 	}
 	if metaPath == defaultMetaPath {
-		metaPath = resolveDefaultInputPath(cwd, layout, "meta.json")
+		metaPath = resolveDefaultInputPath(cwd, layout, fileNameFromURL(metaURL))
 	}
 	if output == defaultOutputPath {
 		output = resolveDefaultOutputPath(cwd, layout)
@@ -135,7 +147,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	resolvedSchemaPath, resolvedMetaPath, resolvedOutput := resolveCLIPaths(cwd, *schemaPath, *metaPath, *output)
+	resolvedSchemaPath, resolvedMetaPath, resolvedOutput := resolveCLIPaths(
+		cwd,
+		*schemaPath,
+		*metaPath,
+		*output,
+		*schemaURL,
+		*metaURL,
+	)
 
 	if *download {
 		if err := downloadFile(*schemaURL, resolvedSchemaPath, *downloadTimeout); err != nil {
@@ -187,6 +206,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error generating interfaces: %v\n", err)
 		os.Exit(1)
 	}
+	baseSrc, err := gen.GenerateBaseFile(*pkg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating base implementations: %v\n", err)
+		os.Exit(1)
+	}
 	methodsSrc, err := gen.GenerateMethodMetadata("methodmeta")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating method metadata: %v\n", err)
@@ -196,6 +220,7 @@ func main() {
 	outputDir := filepath.Dir(resolvedOutput)
 	clientFile := filepath.Join(outputDir, "client_gen.go")
 	agentFile := filepath.Join(outputDir, "agent_gen.go")
+	baseFile := filepath.Join(outputDir, "base.go")
 	methodmetaDir := filepath.Join(outputDir, "internal", "methodmeta")
 	if err := os.MkdirAll(methodmetaDir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating methodmeta directory: %v\n", err)
@@ -214,6 +239,12 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Fprintf(os.Stderr, "Generated %s (%d bytes)\n", agentFile, len(agentSrc))
+
+	if err := os.WriteFile(baseFile, baseSrc, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", baseFile, err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "Generated %s (%d bytes)\n", baseFile, len(baseSrc))
 
 	if err := os.WriteFile(methodsFile, methodsSrc, 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", methodsFile, err)

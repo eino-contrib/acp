@@ -10,7 +10,8 @@ import (
 // TestAgentOutboundParamsImplementSessionIDProvider dynamically walks every
 // exported method on *AgentConnection and asserts that any params type coming
 // from the acp package (i.e. generated from schema.json, as in
-// agent_outbound_gen.go) implements connspi.SessionIDProvider.
+// agent_outbound_gen.go) and carrying a top-level SessionID field implements
+// connspi.SessionIDProvider.
 //
 // No hardcoded list — adding a new outbound method via cmd/generate is
 // automatically covered.
@@ -29,6 +30,9 @@ func TestAgentOutboundParamsImplementSessionIDProvider(t *testing.T) {
 		}
 		paramType := m.Type.In(2)
 		if paramType.Kind() != reflect.Struct || paramType.PkgPath() != acpPkg {
+			continue
+		}
+		if _, ok := paramType.FieldByName("SessionID"); !ok {
 			continue
 		}
 		checked++

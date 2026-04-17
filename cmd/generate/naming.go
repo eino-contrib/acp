@@ -161,11 +161,14 @@ func resolveGoType(s *Schema, required bool) string {
 
 	// Handle nullable types: ["string", "null"]
 	if len(s.Type) == 2 && s.Type.IsNullable() {
-		baseType := mapJSONTypeToGo(s.Type.NonNull())
-		if baseType == "string" {
-			return "string" // strings use omitempty, not pointer
+		nonNull := s.Type.NonNull()
+		if nonNull != "object" && nonNull != "array" {
+			baseType := mapJSONTypeToGo(nonNull)
+			if baseType == "string" {
+				return "string"
+			}
+			return "*" + baseType
 		}
-		return "*" + baseType
 	}
 
 	if len(s.Type) == 0 {
@@ -173,6 +176,9 @@ func resolveGoType(s *Schema, required bool) string {
 	}
 
 	baseType := s.Type[0]
+	if s.Type.IsNullable() {
+		baseType = s.Type.NonNull()
+	}
 
 	switch baseType {
 	case "object":

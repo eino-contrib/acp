@@ -11,6 +11,14 @@ import (
 
 // --- Outbound: Agent sends to Client (generated) ---
 
+func (a *AgentConnection) UnstableElicitationComplete(ctx context.Context, params acp.CompleteElicitationNotification) error {
+	return a.sender.SendNotification(ctx, acp.MethodClientUnstableElicitationComplete, params)
+}
+
+func (a *AgentConnection) UnstableCreateElicitation(ctx context.Context, params acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.CreateElicitationResponse](a.sender, ctx, acp.MethodClientUnstableCreateElicitation, params)
+}
+
 func (a *AgentConnection) ReadTextFile(ctx context.Context, params acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
 	return jsonrpc.SendRequestTyped[acp.ReadTextFileResponse](a.sender, ctx, acp.MethodClientReadTextFile, params)
 }

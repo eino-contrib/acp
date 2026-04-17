@@ -7,6 +7,22 @@ import (
 	"fmt"
 )
 
+// Type discriminator for elicitation schemas.
+type ElicitationSchemaType string
+
+const (
+	// Object schema type.
+	ElicitationSchemaTypeObject ElicitationSchemaType = "object"
+)
+
+// Items definition for untitled multi-select enum properties.
+type ElicitationStringType string
+
+const (
+	// String schema type.
+	ElicitationStringTypeString ElicitationStringType = "string"
+)
+
 // Predefined error codes for common JSON-RPC and ACP-specific errors.
 //
 // These codes follow the JSON-RPC 2.0 specification for standard errors
@@ -26,10 +42,88 @@ const (
 	// **Internal error**: Internal JSON-RPC error.
 	// Reserved for implementation-defined server errors.
 	ErrorCodeInternalError ErrorCode = -32603
+	// **Request cancelled**: **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Execution of the method was aborted either due to a cancellation request from the caller or
+	// because of resource constraints or shutdown.
+	ErrorCodeRequestCancelled ErrorCode = -32800
 	// **Authentication required**: Authentication is required before this operation can be performed.
 	ErrorCodeAuthenticationRequired ErrorCode = -32000
 	// **Resource not found**: A given resource, such as a file, was not found.
 	ErrorCodeResourceNotFound ErrorCode = -32002
+	// **URL elicitation required**: **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// The agent requires user input via a URL-based elicitation before it can proceed.
+	ErrorCodeURLElicitationRequired ErrorCode = -32042
+)
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Well-known API protocol identifiers for LLM providers.
+//
+// Agents and clients MUST handle unknown protocol identifiers gracefully.
+//
+// Protocol names beginning with `_` are free for custom use, like other ACP extension methods.
+// Protocol names that do not begin with `_` are reserved for the ACP spec.
+type LlmProtocol string
+
+const (
+	// Anthropic API protocol.
+	LlmProtocolAnthropic LlmProtocol = "anthropic"
+	// OpenAI API protocol.
+	LlmProtocolOpenai LlmProtocol = "openai"
+	// Azure OpenAI API protocol.
+	LlmProtocolAzure LlmProtocol = "azure"
+	// Google Vertex AI API protocol.
+	LlmProtocolVertex LlmProtocol = "vertex"
+	// AWS Bedrock API protocol.
+	LlmProtocolBedrock LlmProtocol = "bedrock"
+)
+
+// Severity of a diagnostic.
+type NesDiagnosticSeverity string
+
+const (
+	// An error.
+	NesDiagnosticSeverityError NesDiagnosticSeverity = "error"
+	// A warning.
+	NesDiagnosticSeverityWarning NesDiagnosticSeverity = "warning"
+	// An informational message.
+	NesDiagnosticSeverityInformation NesDiagnosticSeverity = "information"
+	// A hint.
+	NesDiagnosticSeverityHint NesDiagnosticSeverity = "hint"
+)
+
+// The reason a suggestion was rejected.
+type NesRejectReason string
+
+const (
+	// The user explicitly dismissed the suggestion.
+	NesRejectReasonRejected NesRejectReason = "rejected"
+	// The suggestion was shown but the user continued editing without interacting.
+	NesRejectReasonIgnored NesRejectReason = "ignored"
+	// The suggestion was superseded by a newer suggestion.
+	NesRejectReasonReplaced NesRejectReason = "replaced"
+	// The request was cancelled before the agent returned a response.
+	NesRejectReasonCancelled NesRejectReason = "cancelled"
+)
+
+// What triggered the suggestion request.
+type NesTriggerKind string
+
+const (
+	// Triggered by user typing or cursor movement.
+	NesTriggerKindAutomatic NesTriggerKind = "automatic"
+	// Triggered by a diagnostic appearing at or near the cursor.
+	NesTriggerKindDiagnostic NesTriggerKind = "diagnostic"
+	// Triggered by an explicit user action (keyboard shortcut).
+	NesTriggerKindManual NesTriggerKind = "manual"
 )
 
 // The type of permission option being presented to the user.
@@ -77,6 +171,20 @@ const (
 	PlanEntryStatusInProgress PlanEntryStatus = "in_progress"
 	// The task has been successfully completed.
 	PlanEntryStatusCompleted PlanEntryStatus = "completed"
+)
+
+// The encoding used for character offsets in positions.
+//
+// Follows the same conventions as LSP 3.17. The default is UTF-16.
+type PositionEncodingKind string
+
+const (
+	// Character offsets count UTF-16 code units. This is the default.
+	PositionEncodingKindUtf16 PositionEncodingKind = "utf-16"
+	// Character offsets count Unicode code points.
+	PositionEncodingKindUtf32 PositionEncodingKind = "utf-32"
+	// Character offsets count UTF-8 code units (bytes).
+	PositionEncodingKindUtf8 PositionEncodingKind = "utf-8"
 )
 
 // The sender or recipient of messages and data in a conversation.
@@ -133,6 +241,30 @@ const (
 	StopReasonCancelled StopReason = "cancelled"
 )
 
+// String format types for string properties in elicitation schemas.
+type StringFormat string
+
+const (
+	// Email address format.
+	StringFormatEmail StringFormat = "email"
+	// URI format.
+	StringFormatURI StringFormat = "uri"
+	// Date format (YYYY-MM-DD).
+	StringFormatDate StringFormat = "date"
+	// Date-time format (ISO 8601).
+	StringFormatDateTime StringFormat = "date-time"
+)
+
+// How the agent wants document changes delivered.
+type TextDocumentSyncKind string
+
+const (
+	// Client sends the entire file content on each change.
+	TextDocumentSyncKindFull TextDocumentSyncKind = "full"
+	// Client sends only the changed ranges.
+	TextDocumentSyncKindIncremental TextDocumentSyncKind = "incremental"
+)
+
 // Execution status of a tool call.
 //
 // Tool calls progress through different statuses during their lifecycle.
@@ -183,13 +315,175 @@ const (
 	ToolKindOther ToolKind = "other"
 )
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// User provides a key that the client passes to the agent as an environment variable.
+type AuthMethodEnvVarVariant struct {
+	AuthMethodEnvVar
+	Type string `json:"type,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Client runs an interactive terminal for the user to authenticate via a TUI.
+type AuthMethodTerminalVariant struct {
+	AuthMethodTerminal
+	Type string `json:"type,omitempty"`
+}
+
+type AuthMethodAgentVariant struct {
+	AuthMethodAgent
+	Type string `json:"type,omitempty"`
+}
+
+// Describes an available authentication method.
+//
+// The `type` field acts as the discriminator in the serialized JSON form.
+// When no `type` is present, the method is treated as `agent`.
+type AuthMethod struct {
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// User provides a key that the client passes to the agent as an environment variable.
+	EnvVarVariant *AuthMethodEnvVarVariant `json:"-"`
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Client runs an interactive terminal for the user to authenticate via a TUI.
+	TerminalVariant *AuthMethodTerminalVariant `json:"-"`
+	AgentVariant    *AuthMethodAgentVariant    `json:"-"`
+}
+
+func (a AuthMethod) MarshalJSON() ([]byte, error) {
+	if a.EnvVarVariant != nil {
+		data, err := json.Marshal(*a.EnvVarVariant)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("env_var")
+		return json.Marshal(obj)
+	}
+	if a.TerminalVariant != nil {
+		data, err := json.Marshal(*a.TerminalVariant)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("terminal")
+		return json.Marshal(obj)
+	}
+	if a.AgentVariant != nil {
+		data, err := json.Marshal(*a.AgentVariant)
+		if err != nil {
+			return nil, err
+		}
+		return data, nil
+	}
+	return nil, fmt.Errorf("no variant is set for AuthMethod")
+}
+func (a *AuthMethod) UnmarshalJSON(data []byte) error {
+	*a = AuthMethod{}
+	var disc struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &disc); err != nil {
+		return err
+	}
+	switch disc.Type {
+	case "env_var":
+		var v AuthMethodEnvVarVariant
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		a.EnvVarVariant = &v
+		return nil
+	case "terminal":
+		var v AuthMethodTerminalVariant
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		a.TerminalVariant = &v
+		return nil
+	default:
+		if disc.Type != "" {
+			return fmt.Errorf("unknown discriminator value: %s", disc.Type)
+		}
+		var v AuthMethodAgentVariant
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		a.AgentVariant = &v
+		return nil
+	}
+}
+func (a *AuthMethod) AsEnvVarVariant() (AuthMethodEnvVarVariant, bool) {
+	if a.EnvVarVariant == nil {
+		var zero AuthMethodEnvVarVariant
+		return zero, false
+	}
+	return *a.EnvVarVariant, true
+}
+func (a *AuthMethod) AsTerminalVariant() (AuthMethodTerminalVariant, bool) {
+	if a.TerminalVariant == nil {
+		var zero AuthMethodTerminalVariant
+		return zero, false
+	}
+	return *a.TerminalVariant, true
+}
+func (a *AuthMethod) AsAgentVariant() (AuthMethodAgentVariant, bool) {
+	if a.AgentVariant == nil {
+		var zero AuthMethodAgentVariant
+		return zero, false
+	}
+	return *a.AgentVariant, true
+}
+
+// NewAuthMethodEnvVarVariant creates a AuthMethod holding a EnvVarVariant variant.
+func NewAuthMethodEnvVarVariant(v AuthMethodEnvVar) AuthMethod {
+	w := AuthMethodEnvVarVariant{
+		AuthMethodEnvVar: v,
+		Type:             "env_var",
+	}
+	return AuthMethod{EnvVarVariant: &w}
+}
+
+// NewAuthMethodTerminalVariant creates a AuthMethod holding a TerminalVariant variant.
+func NewAuthMethodTerminalVariant(v AuthMethodTerminal) AuthMethod {
+	w := AuthMethodTerminalVariant{
+		AuthMethodTerminal: v,
+		Type:               "terminal",
+	}
+	return AuthMethod{TerminalVariant: &w}
+}
+
+// NewAuthMethodAgentVariant creates a AuthMethod holding a AgentVariant variant.
+func NewAuthMethodAgentVariant(v AuthMethodAgent) AuthMethod {
+	w := AuthMethodAgentVariant{
+		AuthMethodAgent: v,
+	}
+	return AuthMethod{AgentVariant: &w}
+}
+
 // Text content. May be plain text or formatted with Markdown.
 //
 // All agents MUST support text content blocks in prompts.
 // Clients SHOULD render this text as Markdown.
 type ContentBlockText struct {
 	TextContent
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 }
 
 // Images for visual context or analysis.
@@ -197,7 +491,7 @@ type ContentBlockText struct {
 // Requires the `image` prompt capability when included in prompts.
 type ContentBlockImage struct {
 	ImageContent
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 }
 
 // Audio data for transcription or analysis.
@@ -205,7 +499,7 @@ type ContentBlockImage struct {
 // Requires the `audio` prompt capability when included in prompts.
 type ContentBlockAudio struct {
 	AudioContent
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 }
 
 // References to resources that the agent can access.
@@ -213,7 +507,7 @@ type ContentBlockAudio struct {
 // All agents MUST support resource links in prompts.
 type ContentBlockResourceLink struct {
 	ResourceLink
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 }
 
 // Complete resource contents embedded directly in the message.
@@ -223,26 +517,8 @@ type ContentBlockResourceLink struct {
 // Requires the `embeddedContext` prompt capability when included in prompts.
 type ContentBlockResource struct {
 	EmbeddedResource
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 }
-
-func (ContentBlockText) isContentBlockVariant() string {
-	return "text"
-}
-func (ContentBlockImage) isContentBlockVariant() string {
-	return "image"
-}
-func (ContentBlockAudio) isContentBlockVariant() string {
-	return "audio"
-}
-func (ContentBlockResourceLink) isContentBlockVariant() string {
-	return "resource_link"
-}
-func (ContentBlockResource) isContentBlockVariant() string {
-	return "resource"
-}
-
-type contentBlockVariant interface{ isContentBlockVariant() string }
 
 // Content blocks represent displayable information in the Agent Client Protocol.
 //
@@ -259,16 +535,96 @@ type contentBlockVariant interface{ isContentBlockVariant() string }
 //
 // See protocol docs: [Content](https://agentclientprotocol.com/protocol/content)
 type ContentBlock struct {
-	variant contentBlockVariant
+	// Text content. May be plain text or formatted with Markdown.
+	//
+	// All agents MUST support text content blocks in prompts.
+	// Clients SHOULD render this text as Markdown.
+	Text *ContentBlockText `json:"-"`
+	// Images for visual context or analysis.
+	//
+	// Requires the `image` prompt capability when included in prompts.
+	Image *ContentBlockImage `json:"-"`
+	// Audio data for transcription or analysis.
+	//
+	// Requires the `audio` prompt capability when included in prompts.
+	Audio *ContentBlockAudio `json:"-"`
+	// References to resources that the agent can access.
+	//
+	// All agents MUST support resource links in prompts.
+	ResourceLink *ContentBlockResourceLink `json:"-"`
+	// Complete resource contents embedded directly in the message.
+	//
+	// Preferred for including context as it avoids extra round-trips.
+	//
+	// Requires the `embeddedContext` prompt capability when included in prompts.
+	Resource *ContentBlockResource `json:"-"`
 }
 
 func (c ContentBlock) MarshalJSON() ([]byte, error) {
-	if c.variant == nil {
-		return nil, fmt.Errorf("no variant is set for ContentBlock")
+	if c.Text != nil {
+		data, err := json.Marshal(*c.Text)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("text")
+		return json.Marshal(obj)
 	}
-	return json.Marshal(c.variant)
+	if c.Image != nil {
+		data, err := json.Marshal(*c.Image)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("image")
+		return json.Marshal(obj)
+	}
+	if c.Audio != nil {
+		data, err := json.Marshal(*c.Audio)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("audio")
+		return json.Marshal(obj)
+	}
+	if c.ResourceLink != nil {
+		data, err := json.Marshal(*c.ResourceLink)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("resource_link")
+		return json.Marshal(obj)
+	}
+	if c.Resource != nil {
+		data, err := json.Marshal(*c.Resource)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("resource")
+		return json.Marshal(obj)
+	}
+	return nil, fmt.Errorf("no variant is set for ContentBlock")
 }
 func (c *ContentBlock) UnmarshalJSON(data []byte) error {
+	*c = ContentBlock{}
 	var disc struct {
 		Type string `json:"type"`
 	}
@@ -281,99 +637,620 @@ func (c *ContentBlock) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		c.variant = v
+		c.Text = &v
 		return nil
 	case "image":
 		var v ContentBlockImage
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		c.variant = v
+		c.Image = &v
 		return nil
 	case "audio":
 		var v ContentBlockAudio
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		c.variant = v
+		c.Audio = &v
 		return nil
 	case "resource_link":
 		var v ContentBlockResourceLink
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		c.variant = v
+		c.ResourceLink = &v
 		return nil
 	case "resource":
 		var v ContentBlockResource
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		c.variant = v
+		c.Resource = &v
 		return nil
 	default:
 		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
 }
 func (c *ContentBlock) AsText() (ContentBlockText, bool) {
-	v, ok := c.variant.(ContentBlockText)
-	return v, ok
+	if c.Text == nil {
+		var zero ContentBlockText
+		return zero, false
+	}
+	return *c.Text, true
 }
 func (c *ContentBlock) AsImage() (ContentBlockImage, bool) {
-	v, ok := c.variant.(ContentBlockImage)
-	return v, ok
+	if c.Image == nil {
+		var zero ContentBlockImage
+		return zero, false
+	}
+	return *c.Image, true
 }
 func (c *ContentBlock) AsAudio() (ContentBlockAudio, bool) {
-	v, ok := c.variant.(ContentBlockAudio)
-	return v, ok
+	if c.Audio == nil {
+		var zero ContentBlockAudio
+		return zero, false
+	}
+	return *c.Audio, true
 }
 func (c *ContentBlock) AsResourceLink() (ContentBlockResourceLink, bool) {
-	v, ok := c.variant.(ContentBlockResourceLink)
-	return v, ok
+	if c.ResourceLink == nil {
+		var zero ContentBlockResourceLink
+		return zero, false
+	}
+	return *c.ResourceLink, true
 }
 func (c *ContentBlock) AsResource() (ContentBlockResource, bool) {
-	v, ok := c.variant.(ContentBlockResource)
-	return v, ok
+	if c.Resource == nil {
+		var zero ContentBlockResource
+		return zero, false
+	}
+	return *c.Resource, true
 }
 
 // NewContentBlockText creates a ContentBlock holding a Text variant.
 func NewContentBlockText(v TextContent) ContentBlock {
-	return ContentBlock{variant: ContentBlockText{
+	w := ContentBlockText{
 		TextContent: v,
 		Type:        "text",
-	}}
+	}
+	return ContentBlock{Text: &w}
 }
 
 // NewContentBlockImage creates a ContentBlock holding a Image variant.
 func NewContentBlockImage(v ImageContent) ContentBlock {
-	return ContentBlock{variant: ContentBlockImage{
+	w := ContentBlockImage{
 		ImageContent: v,
 		Type:         "image",
-	}}
+	}
+	return ContentBlock{Image: &w}
 }
 
 // NewContentBlockAudio creates a ContentBlock holding a Audio variant.
 func NewContentBlockAudio(v AudioContent) ContentBlock {
-	return ContentBlock{variant: ContentBlockAudio{
+	w := ContentBlockAudio{
 		AudioContent: v,
 		Type:         "audio",
-	}}
+	}
+	return ContentBlock{Audio: &w}
 }
 
 // NewContentBlockResourceLink creates a ContentBlock holding a ResourceLink variant.
 func NewContentBlockResourceLink(v ResourceLink) ContentBlock {
-	return ContentBlock{variant: ContentBlockResourceLink{
+	w := ContentBlockResourceLink{
 		ResourceLink: v,
 		Type:         "resource_link",
-	}}
+	}
+	return ContentBlock{ResourceLink: &w}
 }
 
 // NewContentBlockResource creates a ContentBlock holding a Resource variant.
 func NewContentBlockResource(v EmbeddedResource) ContentBlock {
-	return ContentBlock{variant: ContentBlockResource{
+	w := ContentBlockResource{
 		EmbeddedResource: v,
 		Type:             "resource",
-	}}
+	}
+	return ContentBlock{Resource: &w}
+}
+
+// Form-based elicitation where the client renders a form from the provided schema.
+type CreateElicitationRequestForm struct {
+	ElicitationFormMode
+	Mode string `json:"mode,omitempty"`
+}
+
+// URL-based elicitation where the client directs the user to a URL.
+type CreateElicitationRequestURL struct {
+	ElicitationURLMode
+	Mode string `json:"mode,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request from the agent to elicit structured user input.
+//
+// The agent sends this to the client to request information from the user,
+// either via a form or by directing them to a URL.
+// Elicitations are tied to a session (optionally a tool call) or a request.
+type CreateElicitationRequest struct {
+	// Form-based elicitation where the client renders a form from the provided schema.
+	Form *CreateElicitationRequestForm `json:"-"`
+	// URL-based elicitation where the client directs the user to a URL.
+	URL *CreateElicitationRequestURL `json:"-"`
+}
+
+func (c CreateElicitationRequest) MarshalJSON() ([]byte, error) {
+	if c.Form != nil {
+		data, err := json.Marshal(*c.Form)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["mode"], _ = json.Marshal("form")
+		return json.Marshal(obj)
+	}
+	if c.URL != nil {
+		data, err := json.Marshal(*c.URL)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["mode"], _ = json.Marshal("url")
+		return json.Marshal(obj)
+	}
+	return nil, fmt.Errorf("no variant is set for CreateElicitationRequest")
+}
+func (c *CreateElicitationRequest) UnmarshalJSON(data []byte) error {
+	*c = CreateElicitationRequest{}
+	var disc struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.Unmarshal(data, &disc); err != nil {
+		return err
+	}
+	switch disc.Mode {
+	case "form":
+		var v CreateElicitationRequestForm
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		c.Form = &v
+		return nil
+	case "url":
+		var v CreateElicitationRequestURL
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		c.URL = &v
+		return nil
+	default:
+		return fmt.Errorf("unknown discriminator value: %s", disc.Mode)
+	}
+}
+func (c *CreateElicitationRequest) AsForm() (CreateElicitationRequestForm, bool) {
+	if c.Form == nil {
+		var zero CreateElicitationRequestForm
+		return zero, false
+	}
+	return *c.Form, true
+}
+func (c *CreateElicitationRequest) AsURL() (CreateElicitationRequestURL, bool) {
+	if c.URL == nil {
+		var zero CreateElicitationRequestURL
+		return zero, false
+	}
+	return *c.URL, true
+}
+
+// NewCreateElicitationRequestForm creates a CreateElicitationRequest holding a Form variant.
+func NewCreateElicitationRequestForm(v ElicitationFormMode) CreateElicitationRequest {
+	w := CreateElicitationRequestForm{
+		ElicitationFormMode: v,
+		Mode:                "form",
+	}
+	return CreateElicitationRequest{Form: &w}
+}
+
+// NewCreateElicitationRequestURL creates a CreateElicitationRequest holding a URL variant.
+func NewCreateElicitationRequestURL(v ElicitationURLMode) CreateElicitationRequest {
+	w := CreateElicitationRequestURL{
+		ElicitationURLMode: v,
+		Mode:               "url",
+	}
+	return CreateElicitationRequest{URL: &w}
+}
+
+// The user accepted and provided content.
+type CreateElicitationResponseAccept struct {
+	ElicitationAcceptAction
+	Action string `json:"action,omitempty"`
+}
+
+// The user declined the elicitation.
+type CreateElicitationResponseDecline struct {
+	Action string `json:"action,omitempty"`
+}
+
+// The elicitation was cancelled.
+type CreateElicitationResponseCancel struct {
+	Action string `json:"action,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response from the client to an elicitation request.
+type CreateElicitationResponse struct {
+	// The user accepted and provided content.
+	Accept *CreateElicitationResponseAccept `json:"-"`
+	// The user declined the elicitation.
+	Decline *CreateElicitationResponseDecline `json:"-"`
+	// The elicitation was cancelled.
+	Cancel *CreateElicitationResponseCancel `json:"-"`
+}
+
+func (c CreateElicitationResponse) MarshalJSON() ([]byte, error) {
+	if c.Accept != nil {
+		data, err := json.Marshal(*c.Accept)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["action"], _ = json.Marshal("accept")
+		return json.Marshal(obj)
+	}
+	if c.Decline != nil {
+		data, err := json.Marshal(*c.Decline)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["action"], _ = json.Marshal("decline")
+		return json.Marshal(obj)
+	}
+	if c.Cancel != nil {
+		data, err := json.Marshal(*c.Cancel)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["action"], _ = json.Marshal("cancel")
+		return json.Marshal(obj)
+	}
+	return nil, fmt.Errorf("no variant is set for CreateElicitationResponse")
+}
+func (c *CreateElicitationResponse) UnmarshalJSON(data []byte) error {
+	*c = CreateElicitationResponse{}
+	var disc struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal(data, &disc); err != nil {
+		return err
+	}
+	switch disc.Action {
+	case "accept":
+		var v CreateElicitationResponseAccept
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		c.Accept = &v
+		return nil
+	case "decline":
+		var v CreateElicitationResponseDecline
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		c.Decline = &v
+		return nil
+	case "cancel":
+		var v CreateElicitationResponseCancel
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		c.Cancel = &v
+		return nil
+	default:
+		return fmt.Errorf("unknown discriminator value: %s", disc.Action)
+	}
+}
+func (c *CreateElicitationResponse) AsAccept() (CreateElicitationResponseAccept, bool) {
+	if c.Accept == nil {
+		var zero CreateElicitationResponseAccept
+		return zero, false
+	}
+	return *c.Accept, true
+}
+func (c *CreateElicitationResponse) AsDecline() (CreateElicitationResponseDecline, bool) {
+	if c.Decline == nil {
+		var zero CreateElicitationResponseDecline
+		return zero, false
+	}
+	return *c.Decline, true
+}
+func (c *CreateElicitationResponse) AsCancel() (CreateElicitationResponseCancel, bool) {
+	if c.Cancel == nil {
+		var zero CreateElicitationResponseCancel
+		return zero, false
+	}
+	return *c.Cancel, true
+}
+
+// NewCreateElicitationResponseAccept creates a CreateElicitationResponse holding a Accept variant.
+func NewCreateElicitationResponseAccept(v ElicitationAcceptAction) CreateElicitationResponse {
+	w := CreateElicitationResponseAccept{
+		ElicitationAcceptAction: v,
+		Action:                  "accept",
+	}
+	return CreateElicitationResponse{Accept: &w}
+}
+
+// NewCreateElicitationResponseDecline creates a CreateElicitationResponse holding a Decline variant.
+func NewCreateElicitationResponseDecline(v CreateElicitationResponseDecline) CreateElicitationResponse {
+	v.Action = "decline"
+	return CreateElicitationResponse{Decline: &v}
+}
+
+// NewCreateElicitationResponseCancel creates a CreateElicitationResponse holding a Cancel variant.
+func NewCreateElicitationResponseCancel(v CreateElicitationResponseCancel) CreateElicitationResponse {
+	v.Action = "cancel"
+	return CreateElicitationResponse{Cancel: &v}
+}
+
+// String property (or single-select enum when `enum`/`oneOf` is set).
+type ElicitationPropertySchemaString struct {
+	StringPropertySchema
+	Type string `json:"type,omitempty"`
+}
+
+// Number (floating-point) property.
+type ElicitationPropertySchemaNumber struct {
+	NumberPropertySchema
+	Type string `json:"type,omitempty"`
+}
+
+// Integer property.
+type ElicitationPropertySchemaInteger struct {
+	IntegerPropertySchema
+	Type string `json:"type,omitempty"`
+}
+
+// Boolean property.
+type ElicitationPropertySchemaBoolean struct {
+	BooleanPropertySchema
+	Type string `json:"type,omitempty"`
+}
+
+// Multi-select array property.
+type ElicitationPropertySchemaArray struct {
+	MultiSelectPropertySchema
+	Type string `json:"type,omitempty"`
+}
+
+// Property schema for elicitation form fields.
+//
+// Each variant corresponds to a JSON Schema `"type"` value.
+// Single-select enums use the `String` variant with `enum` or `oneOf` set.
+// Multi-select enums use the `Array` variant.
+type ElicitationPropertySchema struct {
+	// String property (or single-select enum when `enum`/`oneOf` is set).
+	String *ElicitationPropertySchemaString `json:"-"`
+	// Number (floating-point) property.
+	Number *ElicitationPropertySchemaNumber `json:"-"`
+	// Integer property.
+	Integer *ElicitationPropertySchemaInteger `json:"-"`
+	// Boolean property.
+	Boolean *ElicitationPropertySchemaBoolean `json:"-"`
+	// Multi-select array property.
+	Array *ElicitationPropertySchemaArray `json:"-"`
+}
+
+func (e ElicitationPropertySchema) MarshalJSON() ([]byte, error) {
+	if e.String != nil {
+		data, err := json.Marshal(*e.String)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("string")
+		return json.Marshal(obj)
+	}
+	if e.Number != nil {
+		data, err := json.Marshal(*e.Number)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("number")
+		return json.Marshal(obj)
+	}
+	if e.Integer != nil {
+		data, err := json.Marshal(*e.Integer)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("integer")
+		return json.Marshal(obj)
+	}
+	if e.Boolean != nil {
+		data, err := json.Marshal(*e.Boolean)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("boolean")
+		return json.Marshal(obj)
+	}
+	if e.Array != nil {
+		data, err := json.Marshal(*e.Array)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("array")
+		return json.Marshal(obj)
+	}
+	return nil, fmt.Errorf("no variant is set for ElicitationPropertySchema")
+}
+func (e *ElicitationPropertySchema) UnmarshalJSON(data []byte) error {
+	*e = ElicitationPropertySchema{}
+	var disc struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &disc); err != nil {
+		return err
+	}
+	switch disc.Type {
+	case "string":
+		var v ElicitationPropertySchemaString
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		e.String = &v
+		return nil
+	case "number":
+		var v ElicitationPropertySchemaNumber
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		e.Number = &v
+		return nil
+	case "integer":
+		var v ElicitationPropertySchemaInteger
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		e.Integer = &v
+		return nil
+	case "boolean":
+		var v ElicitationPropertySchemaBoolean
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		e.Boolean = &v
+		return nil
+	case "array":
+		var v ElicitationPropertySchemaArray
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		e.Array = &v
+		return nil
+	default:
+		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
+	}
+}
+func (e *ElicitationPropertySchema) AsString() (ElicitationPropertySchemaString, bool) {
+	if e.String == nil {
+		var zero ElicitationPropertySchemaString
+		return zero, false
+	}
+	return *e.String, true
+}
+func (e *ElicitationPropertySchema) AsNumber() (ElicitationPropertySchemaNumber, bool) {
+	if e.Number == nil {
+		var zero ElicitationPropertySchemaNumber
+		return zero, false
+	}
+	return *e.Number, true
+}
+func (e *ElicitationPropertySchema) AsInteger() (ElicitationPropertySchemaInteger, bool) {
+	if e.Integer == nil {
+		var zero ElicitationPropertySchemaInteger
+		return zero, false
+	}
+	return *e.Integer, true
+}
+func (e *ElicitationPropertySchema) AsBoolean() (ElicitationPropertySchemaBoolean, bool) {
+	if e.Boolean == nil {
+		var zero ElicitationPropertySchemaBoolean
+		return zero, false
+	}
+	return *e.Boolean, true
+}
+func (e *ElicitationPropertySchema) AsArray() (ElicitationPropertySchemaArray, bool) {
+	if e.Array == nil {
+		var zero ElicitationPropertySchemaArray
+		return zero, false
+	}
+	return *e.Array, true
+}
+
+// NewElicitationPropertySchemaString creates a ElicitationPropertySchema holding a String variant.
+func NewElicitationPropertySchemaString(v StringPropertySchema) ElicitationPropertySchema {
+	w := ElicitationPropertySchemaString{
+		StringPropertySchema: v,
+		Type:                 "string",
+	}
+	return ElicitationPropertySchema{String: &w}
+}
+
+// NewElicitationPropertySchemaNumber creates a ElicitationPropertySchema holding a Number variant.
+func NewElicitationPropertySchemaNumber(v NumberPropertySchema) ElicitationPropertySchema {
+	w := ElicitationPropertySchemaNumber{
+		NumberPropertySchema: v,
+		Type:                 "number",
+	}
+	return ElicitationPropertySchema{Number: &w}
+}
+
+// NewElicitationPropertySchemaInteger creates a ElicitationPropertySchema holding a Integer variant.
+func NewElicitationPropertySchemaInteger(v IntegerPropertySchema) ElicitationPropertySchema {
+	w := ElicitationPropertySchemaInteger{
+		IntegerPropertySchema: v,
+		Type:                  "integer",
+	}
+	return ElicitationPropertySchema{Integer: &w}
+}
+
+// NewElicitationPropertySchemaBoolean creates a ElicitationPropertySchema holding a Boolean variant.
+func NewElicitationPropertySchemaBoolean(v BooleanPropertySchema) ElicitationPropertySchema {
+	w := ElicitationPropertySchemaBoolean{
+		BooleanPropertySchema: v,
+		Type:                  "boolean",
+	}
+	return ElicitationPropertySchema{Boolean: &w}
+}
+
+// NewElicitationPropertySchemaArray creates a ElicitationPropertySchema holding a Array variant.
+func NewElicitationPropertySchemaArray(v MultiSelectPropertySchema) ElicitationPropertySchema {
+	w := ElicitationPropertySchemaArray{
+		MultiSelectPropertySchema: v,
+		Type:                      "array",
+	}
+	return ElicitationPropertySchema{Array: &w}
 }
 
 // HTTP transport configuration
@@ -381,7 +1258,7 @@ func NewContentBlockResource(v EmbeddedResource) ContentBlock {
 // Only available when the Agent capabilities indicate `mcp_capabilities.http` is `true`.
 type MCPServerHTTPVariant struct {
 	MCPServerHTTP
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 }
 
 // SSE transport configuration
@@ -389,25 +1266,13 @@ type MCPServerHTTPVariant struct {
 // Only available when the Agent capabilities indicate `mcp_capabilities.sse` is `true`.
 type MCPServerSSEVariant struct {
 	MCPServerSSE
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 }
 
 type MCPServerStdioVariant struct {
 	MCPServerStdio
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 }
-
-func (MCPServerHTTPVariant) isMCPServerVariant() string {
-	return "http"
-}
-func (MCPServerSSEVariant) isMCPServerVariant() string {
-	return "sse"
-}
-func (MCPServerStdioVariant) isMCPServerVariant() string {
-	return ""
-}
-
-type mCPServerVariant interface{ isMCPServerVariant() string }
 
 // Configuration for connecting to an MCP (Model Context Protocol) server.
 //
@@ -416,29 +1281,53 @@ type mCPServerVariant interface{ isMCPServerVariant() string }
 //
 // See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/session-setup#mcp-servers)
 type MCPServer struct {
-	variant mCPServerVariant
+	// HTTP transport configuration
+	//
+	// Only available when the Agent capabilities indicate `mcp_capabilities.http` is `true`.
+	HTTPVariant *MCPServerHTTPVariant `json:"-"`
+	// SSE transport configuration
+	//
+	// Only available when the Agent capabilities indicate `mcp_capabilities.sse` is `true`.
+	SSEVariant   *MCPServerSSEVariant   `json:"-"`
+	StdioVariant *MCPServerStdioVariant `json:"-"`
 }
 
 func (m MCPServer) MarshalJSON() ([]byte, error) {
-	if m.variant == nil {
-		return nil, fmt.Errorf("no variant is set for MCPServer")
+	if m.HTTPVariant != nil {
+		data, err := json.Marshal(*m.HTTPVariant)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("http")
+		return json.Marshal(obj)
 	}
-	data, err := json.Marshal(m.variant)
-	if err != nil {
-		return nil, err
+	if m.SSEVariant != nil {
+		data, err := json.Marshal(*m.SSEVariant)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("sse")
+		return json.Marshal(obj)
 	}
-	disc := m.variant.isMCPServerVariant()
-	if disc == "" {
+	if m.StdioVariant != nil {
+		data, err := json.Marshal(*m.StdioVariant)
+		if err != nil {
+			return nil, err
+		}
 		return data, nil
 	}
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(data, &obj); err != nil {
-		return nil, err
-	}
-	obj["type"], _ = json.Marshal(disc)
-	return json.Marshal(obj)
+	return nil, fmt.Errorf("no variant is set for MCPServer")
 }
 func (m *MCPServer) UnmarshalJSON(data []byte) error {
+	*m = MCPServer{}
 	var disc struct {
 		Type string `json:"type"`
 	}
@@ -451,14 +1340,14 @@ func (m *MCPServer) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		m.variant = v
+		m.HTTPVariant = &v
 		return nil
 	case "sse":
 		var v MCPServerSSEVariant
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		m.variant = v
+		m.SSEVariant = &v
 		return nil
 	default:
 		if disc.Type != "" {
@@ -468,45 +1357,249 @@ func (m *MCPServer) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		m.variant = v
+		m.StdioVariant = &v
 		return nil
 	}
 }
 func (m *MCPServer) AsHTTPVariant() (MCPServerHTTPVariant, bool) {
-	v, ok := m.variant.(MCPServerHTTPVariant)
-	return v, ok
+	if m.HTTPVariant == nil {
+		var zero MCPServerHTTPVariant
+		return zero, false
+	}
+	return *m.HTTPVariant, true
 }
 func (m *MCPServer) AsSSEVariant() (MCPServerSSEVariant, bool) {
-	v, ok := m.variant.(MCPServerSSEVariant)
-	return v, ok
+	if m.SSEVariant == nil {
+		var zero MCPServerSSEVariant
+		return zero, false
+	}
+	return *m.SSEVariant, true
 }
 func (m *MCPServer) AsStdioVariant() (MCPServerStdioVariant, bool) {
-	v, ok := m.variant.(MCPServerStdioVariant)
-	return v, ok
+	if m.StdioVariant == nil {
+		var zero MCPServerStdioVariant
+		return zero, false
+	}
+	return *m.StdioVariant, true
 }
 
 // NewMCPServerHTTPVariant creates a MCPServer holding a HTTPVariant variant.
 func NewMCPServerHTTPVariant(v MCPServerHTTP) MCPServer {
-	return MCPServer{variant: MCPServerHTTPVariant{
+	w := MCPServerHTTPVariant{
 		MCPServerHTTP: v,
 		Type:          "http",
-	}}
+	}
+	return MCPServer{HTTPVariant: &w}
 }
 
 // NewMCPServerSSEVariant creates a MCPServer holding a SSEVariant variant.
 func NewMCPServerSSEVariant(v MCPServerSSE) MCPServer {
-	return MCPServer{variant: MCPServerSSEVariant{
+	w := MCPServerSSEVariant{
 		MCPServerSSE: v,
 		Type:         "sse",
-	}}
+	}
+	return MCPServer{SSEVariant: &w}
 }
 
 // NewMCPServerStdioVariant creates a MCPServer holding a StdioVariant variant.
 func NewMCPServerStdioVariant(v MCPServerStdio) MCPServer {
-	return MCPServer{variant: MCPServerStdioVariant{
+	w := MCPServerStdioVariant{
 		MCPServerStdio: v,
-		Type:           "",
-	}}
+	}
+	return MCPServer{StdioVariant: &w}
+}
+
+// A text edit suggestion.
+type NesSuggestionEdit struct {
+	NesEditSuggestion
+	Kind string `json:"kind,omitempty"`
+}
+
+// A jump-to-location suggestion.
+type NesSuggestionJump struct {
+	NesJumpSuggestion
+	Kind string `json:"kind,omitempty"`
+}
+
+// A rename symbol suggestion.
+type NesSuggestionRename struct {
+	NesRenameSuggestion
+	Kind string `json:"kind,omitempty"`
+}
+
+// A search-and-replace suggestion.
+type NesSuggestionSearchAndReplace struct {
+	NesSearchAndReplaceSuggestion
+	Kind string `json:"kind,omitempty"`
+}
+
+// A suggestion returned by the agent.
+type NesSuggestion struct {
+	// A text edit suggestion.
+	Edit *NesSuggestionEdit `json:"-"`
+	// A jump-to-location suggestion.
+	Jump *NesSuggestionJump `json:"-"`
+	// A rename symbol suggestion.
+	Rename *NesSuggestionRename `json:"-"`
+	// A search-and-replace suggestion.
+	SearchAndReplace *NesSuggestionSearchAndReplace `json:"-"`
+}
+
+func (n NesSuggestion) MarshalJSON() ([]byte, error) {
+	if n.Edit != nil {
+		data, err := json.Marshal(*n.Edit)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["kind"], _ = json.Marshal("edit")
+		return json.Marshal(obj)
+	}
+	if n.Jump != nil {
+		data, err := json.Marshal(*n.Jump)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["kind"], _ = json.Marshal("jump")
+		return json.Marshal(obj)
+	}
+	if n.Rename != nil {
+		data, err := json.Marshal(*n.Rename)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["kind"], _ = json.Marshal("rename")
+		return json.Marshal(obj)
+	}
+	if n.SearchAndReplace != nil {
+		data, err := json.Marshal(*n.SearchAndReplace)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["kind"], _ = json.Marshal("searchAndReplace")
+		return json.Marshal(obj)
+	}
+	return nil, fmt.Errorf("no variant is set for NesSuggestion")
+}
+func (n *NesSuggestion) UnmarshalJSON(data []byte) error {
+	*n = NesSuggestion{}
+	var disc struct {
+		Kind string `json:"kind"`
+	}
+	if err := json.Unmarshal(data, &disc); err != nil {
+		return err
+	}
+	switch disc.Kind {
+	case "edit":
+		var v NesSuggestionEdit
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		n.Edit = &v
+		return nil
+	case "jump":
+		var v NesSuggestionJump
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		n.Jump = &v
+		return nil
+	case "rename":
+		var v NesSuggestionRename
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		n.Rename = &v
+		return nil
+	case "searchAndReplace":
+		var v NesSuggestionSearchAndReplace
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		n.SearchAndReplace = &v
+		return nil
+	default:
+		return fmt.Errorf("unknown discriminator value: %s", disc.Kind)
+	}
+}
+func (n *NesSuggestion) AsEdit() (NesSuggestionEdit, bool) {
+	if n.Edit == nil {
+		var zero NesSuggestionEdit
+		return zero, false
+	}
+	return *n.Edit, true
+}
+func (n *NesSuggestion) AsJump() (NesSuggestionJump, bool) {
+	if n.Jump == nil {
+		var zero NesSuggestionJump
+		return zero, false
+	}
+	return *n.Jump, true
+}
+func (n *NesSuggestion) AsRename() (NesSuggestionRename, bool) {
+	if n.Rename == nil {
+		var zero NesSuggestionRename
+		return zero, false
+	}
+	return *n.Rename, true
+}
+func (n *NesSuggestion) AsSearchAndReplace() (NesSuggestionSearchAndReplace, bool) {
+	if n.SearchAndReplace == nil {
+		var zero NesSuggestionSearchAndReplace
+		return zero, false
+	}
+	return *n.SearchAndReplace, true
+}
+
+// NewNesSuggestionEdit creates a NesSuggestion holding a Edit variant.
+func NewNesSuggestionEdit(v NesEditSuggestion) NesSuggestion {
+	w := NesSuggestionEdit{
+		NesEditSuggestion: v,
+		Kind:              "edit",
+	}
+	return NesSuggestion{Edit: &w}
+}
+
+// NewNesSuggestionJump creates a NesSuggestion holding a Jump variant.
+func NewNesSuggestionJump(v NesJumpSuggestion) NesSuggestion {
+	w := NesSuggestionJump{
+		NesJumpSuggestion: v,
+		Kind:              "jump",
+	}
+	return NesSuggestion{Jump: &w}
+}
+
+// NewNesSuggestionRename creates a NesSuggestion holding a Rename variant.
+func NewNesSuggestionRename(v NesRenameSuggestion) NesSuggestion {
+	w := NesSuggestionRename{
+		NesRenameSuggestion: v,
+		Kind:                "rename",
+	}
+	return NesSuggestion{Rename: &w}
+}
+
+// NewNesSuggestionSearchAndReplace creates a NesSuggestion holding a SearchAndReplace variant.
+func NewNesSuggestionSearchAndReplace(v NesSearchAndReplaceSuggestion) NesSuggestion {
+	w := NesSuggestionSearchAndReplace{
+		NesSearchAndReplaceSuggestion: v,
+		Kind:                          "searchAndReplace",
+	}
+	return NesSuggestion{SearchAndReplace: &w}
 }
 
 // The prompt turn was cancelled before the user responded.
@@ -517,36 +1610,58 @@ func NewMCPServerStdioVariant(v MCPServerStdio) MCPServer {
 //
 // See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
 type RequestPermissionOutcomeCancelled struct {
-	Outcome string `json:"outcome"`
+	Outcome string `json:"outcome,omitempty"`
 }
 
 // The user selected one of the provided options.
 type RequestPermissionOutcomeSelected struct {
 	SelectedPermissionOutcome
-	Outcome string `json:"outcome"`
+	Outcome string `json:"outcome,omitempty"`
 }
-
-func (RequestPermissionOutcomeCancelled) isRequestPermissionOutcomeVariant() string {
-	return "cancelled"
-}
-func (RequestPermissionOutcomeSelected) isRequestPermissionOutcomeVariant() string {
-	return "selected"
-}
-
-type requestPermissionOutcomeVariant interface{ isRequestPermissionOutcomeVariant() string }
 
 // The outcome of a permission request.
 type RequestPermissionOutcome struct {
-	variant requestPermissionOutcomeVariant
+	// The prompt turn was cancelled before the user responded.
+	//
+	// When a client sends a `session/cancel` notification to cancel an ongoing
+	// prompt turn, it MUST respond to all pending `session/request_permission`
+	// requests with this `Cancelled` outcome.
+	//
+	// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
+	Cancelled *RequestPermissionOutcomeCancelled `json:"-"`
+	// The user selected one of the provided options.
+	Selected *RequestPermissionOutcomeSelected `json:"-"`
 }
 
 func (r RequestPermissionOutcome) MarshalJSON() ([]byte, error) {
-	if r.variant == nil {
-		return nil, fmt.Errorf("no variant is set for RequestPermissionOutcome")
+	if r.Cancelled != nil {
+		data, err := json.Marshal(*r.Cancelled)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["outcome"], _ = json.Marshal("cancelled")
+		return json.Marshal(obj)
 	}
-	return json.Marshal(r.variant)
+	if r.Selected != nil {
+		data, err := json.Marshal(*r.Selected)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["outcome"], _ = json.Marshal("selected")
+		return json.Marshal(obj)
+	}
+	return nil, fmt.Errorf("no variant is set for RequestPermissionOutcome")
 }
 func (r *RequestPermissionOutcome) UnmarshalJSON(data []byte) error {
+	*r = RequestPermissionOutcome{}
 	var disc struct {
 		Outcome string `json:"outcome"`
 	}
@@ -559,66 +1674,106 @@ func (r *RequestPermissionOutcome) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		r.variant = v
+		r.Cancelled = &v
 		return nil
 	case "selected":
 		var v RequestPermissionOutcomeSelected
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		r.variant = v
+		r.Selected = &v
 		return nil
 	default:
 		return fmt.Errorf("unknown discriminator value: %s", disc.Outcome)
 	}
 }
 func (r *RequestPermissionOutcome) AsCancelled() (RequestPermissionOutcomeCancelled, bool) {
-	v, ok := r.variant.(RequestPermissionOutcomeCancelled)
-	return v, ok
+	if r.Cancelled == nil {
+		var zero RequestPermissionOutcomeCancelled
+		return zero, false
+	}
+	return *r.Cancelled, true
 }
 func (r *RequestPermissionOutcome) AsSelected() (RequestPermissionOutcomeSelected, bool) {
-	v, ok := r.variant.(RequestPermissionOutcomeSelected)
-	return v, ok
+	if r.Selected == nil {
+		var zero RequestPermissionOutcomeSelected
+		return zero, false
+	}
+	return *r.Selected, true
 }
 
 // NewRequestPermissionOutcomeCancelled creates a RequestPermissionOutcome holding a Cancelled variant.
 func NewRequestPermissionOutcomeCancelled(v RequestPermissionOutcomeCancelled) RequestPermissionOutcome {
 	v.Outcome = "cancelled"
-	return RequestPermissionOutcome{variant: v}
+	return RequestPermissionOutcome{Cancelled: &v}
 }
 
 // NewRequestPermissionOutcomeSelected creates a RequestPermissionOutcome holding a Selected variant.
 func NewRequestPermissionOutcomeSelected(v SelectedPermissionOutcome) RequestPermissionOutcome {
-	return RequestPermissionOutcome{variant: RequestPermissionOutcomeSelected{
+	w := RequestPermissionOutcomeSelected{
 		SelectedPermissionOutcome: v,
 		Outcome:                   "selected",
-	}}
+	}
+	return RequestPermissionOutcome{Selected: &w}
 }
 
 // Single-value selector (dropdown).
 type SessionConfigOptionSelect struct {
 	SessionConfigSelect
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 }
 
-func (SessionConfigOptionSelect) isSessionConfigOptionVariant() string {
-	return "select"
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Boolean on/off toggle.
+type SessionConfigOptionBoolean struct {
+	SessionConfigBoolean
+	Type string `json:"type,omitempty"`
 }
-
-type sessionConfigOptionVariant interface{ isSessionConfigOptionVariant() string }
 
 // A session configuration option selector and its current state.
 type SessionConfigOption struct {
-	variant sessionConfigOptionVariant
+	// Single-value selector (dropdown).
+	Select *SessionConfigOptionSelect `json:"-"`
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Boolean on/off toggle.
+	Boolean *SessionConfigOptionBoolean `json:"-"`
 }
 
 func (s SessionConfigOption) MarshalJSON() ([]byte, error) {
-	if s.variant == nil {
-		return nil, fmt.Errorf("no variant is set for SessionConfigOption")
+	if s.Select != nil {
+		data, err := json.Marshal(*s.Select)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("select")
+		return json.Marshal(obj)
 	}
-	return json.Marshal(s.variant)
+	if s.Boolean != nil {
+		data, err := json.Marshal(*s.Boolean)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("boolean")
+		return json.Marshal(obj)
+	}
+	return nil, fmt.Errorf("no variant is set for SessionConfigOption")
 }
 func (s *SessionConfigOption) UnmarshalJSON(data []byte) error {
+	*s = SessionConfigOption{}
 	var disc struct {
 		Type string `json:"type"`
 	}
@@ -631,66 +1786,93 @@ func (s *SessionConfigOption) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		s.variant = v
+		s.Select = &v
+		return nil
+	case "boolean":
+		var v SessionConfigOptionBoolean
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		s.Boolean = &v
 		return nil
 	default:
 		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
 }
 func (s *SessionConfigOption) AsSelect() (SessionConfigOptionSelect, bool) {
-	v, ok := s.variant.(SessionConfigOptionSelect)
-	return v, ok
+	if s.Select == nil {
+		var zero SessionConfigOptionSelect
+		return zero, false
+	}
+	return *s.Select, true
+}
+func (s *SessionConfigOption) AsBoolean() (SessionConfigOptionBoolean, bool) {
+	if s.Boolean == nil {
+		var zero SessionConfigOptionBoolean
+		return zero, false
+	}
+	return *s.Boolean, true
 }
 
 // NewSessionConfigOptionSelect creates a SessionConfigOption holding a Select variant.
 func NewSessionConfigOptionSelect(v SessionConfigSelect) SessionConfigOption {
-	return SessionConfigOption{variant: SessionConfigOptionSelect{
+	w := SessionConfigOptionSelect{
 		SessionConfigSelect: v,
 		Type:                "select",
-	}}
+	}
+	return SessionConfigOption{Select: &w}
+}
+
+// NewSessionConfigOptionBoolean creates a SessionConfigOption holding a Boolean variant.
+func NewSessionConfigOptionBoolean(v SessionConfigBoolean) SessionConfigOption {
+	w := SessionConfigOptionBoolean{
+		SessionConfigBoolean: v,
+		Type:                 "boolean",
+	}
+	return SessionConfigOption{Boolean: &w}
 }
 
 // A chunk of the user's message being streamed.
 type SessionUpdateUserMessageChunk struct {
 	ContentChunk
-	SessionUpdate string `json:"sessionUpdate"`
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
 // A chunk of the agent's response being streamed.
 type SessionUpdateAgentMessageChunk struct {
 	ContentChunk
-	SessionUpdate string `json:"sessionUpdate"`
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
 // A chunk of the agent's internal reasoning being streamed.
 type SessionUpdateAgentThoughtChunk struct {
 	ContentChunk
-	SessionUpdate string `json:"sessionUpdate"`
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
 // Notification that a new tool call has been initiated.
 type SessionUpdateToolCall struct {
 	ToolCall
-	SessionUpdate string `json:"sessionUpdate"`
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
 // Update on the status or results of a tool call.
 type SessionUpdateToolCallUpdate struct {
 	ToolCallUpdate
-	SessionUpdate string `json:"sessionUpdate"`
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
 // The agent's execution plan for complex tasks.
 // See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
 type SessionUpdatePlan struct {
 	Plan
-	SessionUpdate string `json:"sessionUpdate"`
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
 // Available commands are ready or have changed
 type SessionUpdateAvailableCommandsUpdate struct {
 	AvailableCommandsUpdate
-	SessionUpdate string `json:"sessionUpdate"`
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
 // The current mode of the session has changed
@@ -698,53 +1880,30 @@ type SessionUpdateAvailableCommandsUpdate struct {
 // See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
 type SessionUpdateCurrentModeUpdate struct {
 	CurrentModeUpdate
-	SessionUpdate string `json:"sessionUpdate"`
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
 // Session configuration options have been updated.
 type SessionUpdateConfigOptionUpdate struct {
 	ConfigOptionUpdate
-	SessionUpdate string `json:"sessionUpdate"`
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
 // Session metadata has been updated (title, timestamps, custom metadata)
 type SessionUpdateSessionInfoUpdate struct {
 	SessionInfoUpdate
-	SessionUpdate string `json:"sessionUpdate"`
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
-func (SessionUpdateUserMessageChunk) isSessionUpdateVariant() string {
-	return "user_message_chunk"
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Context window and cost update for the session.
+type SessionUpdateUsageUpdate struct {
+	UsageUpdate
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
-func (SessionUpdateAgentMessageChunk) isSessionUpdateVariant() string {
-	return "agent_message_chunk"
-}
-func (SessionUpdateAgentThoughtChunk) isSessionUpdateVariant() string {
-	return "agent_thought_chunk"
-}
-func (SessionUpdateToolCall) isSessionUpdateVariant() string {
-	return "tool_call"
-}
-func (SessionUpdateToolCallUpdate) isSessionUpdateVariant() string {
-	return "tool_call_update"
-}
-func (SessionUpdatePlan) isSessionUpdateVariant() string {
-	return "plan"
-}
-func (SessionUpdateAvailableCommandsUpdate) isSessionUpdateVariant() string {
-	return "available_commands_update"
-}
-func (SessionUpdateCurrentModeUpdate) isSessionUpdateVariant() string {
-	return "current_mode_update"
-}
-func (SessionUpdateConfigOptionUpdate) isSessionUpdateVariant() string {
-	return "config_option_update"
-}
-func (SessionUpdateSessionInfoUpdate) isSessionUpdateVariant() string {
-	return "session_info_update"
-}
-
-type sessionUpdateVariant interface{ isSessionUpdateVariant() string }
 
 // Different types of updates that can be sent during session processing.
 //
@@ -752,16 +1911,174 @@ type sessionUpdateVariant interface{ isSessionUpdateVariant() string }
 //
 // See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)
 type SessionUpdate struct {
-	variant sessionUpdateVariant
+	// A chunk of the user's message being streamed.
+	UserMessageChunk *SessionUpdateUserMessageChunk `json:"-"`
+	// A chunk of the agent's response being streamed.
+	AgentMessageChunk *SessionUpdateAgentMessageChunk `json:"-"`
+	// A chunk of the agent's internal reasoning being streamed.
+	AgentThoughtChunk *SessionUpdateAgentThoughtChunk `json:"-"`
+	// Notification that a new tool call has been initiated.
+	ToolCall *SessionUpdateToolCall `json:"-"`
+	// Update on the status or results of a tool call.
+	ToolCallUpdate *SessionUpdateToolCallUpdate `json:"-"`
+	// The agent's execution plan for complex tasks.
+	// See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
+	Plan *SessionUpdatePlan `json:"-"`
+	// Available commands are ready or have changed
+	AvailableCommandsUpdate *SessionUpdateAvailableCommandsUpdate `json:"-"`
+	// The current mode of the session has changed
+	//
+	// See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
+	CurrentModeUpdate *SessionUpdateCurrentModeUpdate `json:"-"`
+	// Session configuration options have been updated.
+	ConfigOptionUpdate *SessionUpdateConfigOptionUpdate `json:"-"`
+	// Session metadata has been updated (title, timestamps, custom metadata)
+	SessionInfoUpdate *SessionUpdateSessionInfoUpdate `json:"-"`
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Context window and cost update for the session.
+	UsageUpdate *SessionUpdateUsageUpdate `json:"-"`
 }
 
 func (s SessionUpdate) MarshalJSON() ([]byte, error) {
-	if s.variant == nil {
-		return nil, fmt.Errorf("no variant is set for SessionUpdate")
+	if s.UserMessageChunk != nil {
+		data, err := json.Marshal(*s.UserMessageChunk)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("user_message_chunk")
+		return json.Marshal(obj)
 	}
-	return json.Marshal(s.variant)
+	if s.AgentMessageChunk != nil {
+		data, err := json.Marshal(*s.AgentMessageChunk)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("agent_message_chunk")
+		return json.Marshal(obj)
+	}
+	if s.AgentThoughtChunk != nil {
+		data, err := json.Marshal(*s.AgentThoughtChunk)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("agent_thought_chunk")
+		return json.Marshal(obj)
+	}
+	if s.ToolCall != nil {
+		data, err := json.Marshal(*s.ToolCall)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("tool_call")
+		return json.Marshal(obj)
+	}
+	if s.ToolCallUpdate != nil {
+		data, err := json.Marshal(*s.ToolCallUpdate)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("tool_call_update")
+		return json.Marshal(obj)
+	}
+	if s.Plan != nil {
+		data, err := json.Marshal(*s.Plan)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("plan")
+		return json.Marshal(obj)
+	}
+	if s.AvailableCommandsUpdate != nil {
+		data, err := json.Marshal(*s.AvailableCommandsUpdate)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("available_commands_update")
+		return json.Marshal(obj)
+	}
+	if s.CurrentModeUpdate != nil {
+		data, err := json.Marshal(*s.CurrentModeUpdate)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("current_mode_update")
+		return json.Marshal(obj)
+	}
+	if s.ConfigOptionUpdate != nil {
+		data, err := json.Marshal(*s.ConfigOptionUpdate)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("config_option_update")
+		return json.Marshal(obj)
+	}
+	if s.SessionInfoUpdate != nil {
+		data, err := json.Marshal(*s.SessionInfoUpdate)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("session_info_update")
+		return json.Marshal(obj)
+	}
+	if s.UsageUpdate != nil {
+		data, err := json.Marshal(*s.UsageUpdate)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("usage_update")
+		return json.Marshal(obj)
+	}
+	return nil, fmt.Errorf("no variant is set for SessionUpdate")
 }
 func (s *SessionUpdate) UnmarshalJSON(data []byte) error {
+	*s = SessionUpdate{}
 	var disc struct {
 		SessionUpdate string `json:"sessionUpdate"`
 	}
@@ -774,206 +2091,330 @@ func (s *SessionUpdate) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		s.variant = v
+		s.UserMessageChunk = &v
 		return nil
 	case "agent_message_chunk":
 		var v SessionUpdateAgentMessageChunk
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		s.variant = v
+		s.AgentMessageChunk = &v
 		return nil
 	case "agent_thought_chunk":
 		var v SessionUpdateAgentThoughtChunk
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		s.variant = v
+		s.AgentThoughtChunk = &v
 		return nil
 	case "tool_call":
 		var v SessionUpdateToolCall
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		s.variant = v
+		s.ToolCall = &v
 		return nil
 	case "tool_call_update":
 		var v SessionUpdateToolCallUpdate
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		s.variant = v
+		s.ToolCallUpdate = &v
 		return nil
 	case "plan":
 		var v SessionUpdatePlan
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		s.variant = v
+		s.Plan = &v
 		return nil
 	case "available_commands_update":
 		var v SessionUpdateAvailableCommandsUpdate
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		s.variant = v
+		s.AvailableCommandsUpdate = &v
 		return nil
 	case "current_mode_update":
 		var v SessionUpdateCurrentModeUpdate
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		s.variant = v
+		s.CurrentModeUpdate = &v
 		return nil
 	case "config_option_update":
 		var v SessionUpdateConfigOptionUpdate
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		s.variant = v
+		s.ConfigOptionUpdate = &v
 		return nil
 	case "session_info_update":
 		var v SessionUpdateSessionInfoUpdate
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		s.variant = v
+		s.SessionInfoUpdate = &v
+		return nil
+	case "usage_update":
+		var v SessionUpdateUsageUpdate
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		s.UsageUpdate = &v
 		return nil
 	default:
 		return fmt.Errorf("unknown discriminator value: %s", disc.SessionUpdate)
 	}
 }
 func (s *SessionUpdate) AsUserMessageChunk() (SessionUpdateUserMessageChunk, bool) {
-	v, ok := s.variant.(SessionUpdateUserMessageChunk)
-	return v, ok
+	if s.UserMessageChunk == nil {
+		var zero SessionUpdateUserMessageChunk
+		return zero, false
+	}
+	return *s.UserMessageChunk, true
 }
 func (s *SessionUpdate) AsAgentMessageChunk() (SessionUpdateAgentMessageChunk, bool) {
-	v, ok := s.variant.(SessionUpdateAgentMessageChunk)
-	return v, ok
+	if s.AgentMessageChunk == nil {
+		var zero SessionUpdateAgentMessageChunk
+		return zero, false
+	}
+	return *s.AgentMessageChunk, true
 }
 func (s *SessionUpdate) AsAgentThoughtChunk() (SessionUpdateAgentThoughtChunk, bool) {
-	v, ok := s.variant.(SessionUpdateAgentThoughtChunk)
-	return v, ok
+	if s.AgentThoughtChunk == nil {
+		var zero SessionUpdateAgentThoughtChunk
+		return zero, false
+	}
+	return *s.AgentThoughtChunk, true
 }
 func (s *SessionUpdate) AsToolCall() (SessionUpdateToolCall, bool) {
-	v, ok := s.variant.(SessionUpdateToolCall)
-	return v, ok
+	if s.ToolCall == nil {
+		var zero SessionUpdateToolCall
+		return zero, false
+	}
+	return *s.ToolCall, true
 }
 func (s *SessionUpdate) AsToolCallUpdate() (SessionUpdateToolCallUpdate, bool) {
-	v, ok := s.variant.(SessionUpdateToolCallUpdate)
-	return v, ok
+	if s.ToolCallUpdate == nil {
+		var zero SessionUpdateToolCallUpdate
+		return zero, false
+	}
+	return *s.ToolCallUpdate, true
 }
 func (s *SessionUpdate) AsPlan() (SessionUpdatePlan, bool) {
-	v, ok := s.variant.(SessionUpdatePlan)
-	return v, ok
+	if s.Plan == nil {
+		var zero SessionUpdatePlan
+		return zero, false
+	}
+	return *s.Plan, true
 }
 func (s *SessionUpdate) AsAvailableCommandsUpdate() (SessionUpdateAvailableCommandsUpdate, bool) {
-	v, ok := s.variant.(SessionUpdateAvailableCommandsUpdate)
-	return v, ok
+	if s.AvailableCommandsUpdate == nil {
+		var zero SessionUpdateAvailableCommandsUpdate
+		return zero, false
+	}
+	return *s.AvailableCommandsUpdate, true
 }
 func (s *SessionUpdate) AsCurrentModeUpdate() (SessionUpdateCurrentModeUpdate, bool) {
-	v, ok := s.variant.(SessionUpdateCurrentModeUpdate)
-	return v, ok
+	if s.CurrentModeUpdate == nil {
+		var zero SessionUpdateCurrentModeUpdate
+		return zero, false
+	}
+	return *s.CurrentModeUpdate, true
 }
 func (s *SessionUpdate) AsConfigOptionUpdate() (SessionUpdateConfigOptionUpdate, bool) {
-	v, ok := s.variant.(SessionUpdateConfigOptionUpdate)
-	return v, ok
+	if s.ConfigOptionUpdate == nil {
+		var zero SessionUpdateConfigOptionUpdate
+		return zero, false
+	}
+	return *s.ConfigOptionUpdate, true
 }
 func (s *SessionUpdate) AsSessionInfoUpdate() (SessionUpdateSessionInfoUpdate, bool) {
-	v, ok := s.variant.(SessionUpdateSessionInfoUpdate)
-	return v, ok
+	if s.SessionInfoUpdate == nil {
+		var zero SessionUpdateSessionInfoUpdate
+		return zero, false
+	}
+	return *s.SessionInfoUpdate, true
+}
+func (s *SessionUpdate) AsUsageUpdate() (SessionUpdateUsageUpdate, bool) {
+	if s.UsageUpdate == nil {
+		var zero SessionUpdateUsageUpdate
+		return zero, false
+	}
+	return *s.UsageUpdate, true
 }
 
 // NewSessionUpdateUserMessageChunk creates a SessionUpdate holding a UserMessageChunk variant.
 func NewSessionUpdateUserMessageChunk(v ContentChunk) SessionUpdate {
-	return SessionUpdate{variant: SessionUpdateUserMessageChunk{
+	w := SessionUpdateUserMessageChunk{
 		ContentChunk:  v,
 		SessionUpdate: "user_message_chunk",
-	}}
+	}
+	return SessionUpdate{UserMessageChunk: &w}
 }
 
 // NewSessionUpdateAgentMessageChunk creates a SessionUpdate holding a AgentMessageChunk variant.
 func NewSessionUpdateAgentMessageChunk(v ContentChunk) SessionUpdate {
-	return SessionUpdate{variant: SessionUpdateAgentMessageChunk{
+	w := SessionUpdateAgentMessageChunk{
 		ContentChunk:  v,
 		SessionUpdate: "agent_message_chunk",
-	}}
+	}
+	return SessionUpdate{AgentMessageChunk: &w}
 }
 
 // NewSessionUpdateAgentThoughtChunk creates a SessionUpdate holding a AgentThoughtChunk variant.
 func NewSessionUpdateAgentThoughtChunk(v ContentChunk) SessionUpdate {
-	return SessionUpdate{variant: SessionUpdateAgentThoughtChunk{
+	w := SessionUpdateAgentThoughtChunk{
 		ContentChunk:  v,
 		SessionUpdate: "agent_thought_chunk",
-	}}
+	}
+	return SessionUpdate{AgentThoughtChunk: &w}
 }
 
 // NewSessionUpdateToolCall creates a SessionUpdate holding a ToolCall variant.
 func NewSessionUpdateToolCall(v ToolCall) SessionUpdate {
-	return SessionUpdate{variant: SessionUpdateToolCall{
+	w := SessionUpdateToolCall{
 		ToolCall:      v,
 		SessionUpdate: "tool_call",
-	}}
+	}
+	return SessionUpdate{ToolCall: &w}
 }
 
 // NewSessionUpdateToolCallUpdate creates a SessionUpdate holding a ToolCallUpdate variant.
 func NewSessionUpdateToolCallUpdate(v ToolCallUpdate) SessionUpdate {
-	return SessionUpdate{variant: SessionUpdateToolCallUpdate{
+	w := SessionUpdateToolCallUpdate{
 		ToolCallUpdate: v,
 		SessionUpdate:  "tool_call_update",
-	}}
+	}
+	return SessionUpdate{ToolCallUpdate: &w}
 }
 
 // NewSessionUpdatePlan creates a SessionUpdate holding a Plan variant.
 func NewSessionUpdatePlan(v Plan) SessionUpdate {
-	return SessionUpdate{variant: SessionUpdatePlan{
+	w := SessionUpdatePlan{
 		Plan:          v,
 		SessionUpdate: "plan",
-	}}
+	}
+	return SessionUpdate{Plan: &w}
 }
 
 // NewSessionUpdateAvailableCommandsUpdate creates a SessionUpdate holding a AvailableCommandsUpdate variant.
 func NewSessionUpdateAvailableCommandsUpdate(v AvailableCommandsUpdate) SessionUpdate {
-	return SessionUpdate{variant: SessionUpdateAvailableCommandsUpdate{
+	w := SessionUpdateAvailableCommandsUpdate{
 		AvailableCommandsUpdate: v,
 		SessionUpdate:           "available_commands_update",
-	}}
+	}
+	return SessionUpdate{AvailableCommandsUpdate: &w}
 }
 
 // NewSessionUpdateCurrentModeUpdate creates a SessionUpdate holding a CurrentModeUpdate variant.
 func NewSessionUpdateCurrentModeUpdate(v CurrentModeUpdate) SessionUpdate {
-	return SessionUpdate{variant: SessionUpdateCurrentModeUpdate{
+	w := SessionUpdateCurrentModeUpdate{
 		CurrentModeUpdate: v,
 		SessionUpdate:     "current_mode_update",
-	}}
+	}
+	return SessionUpdate{CurrentModeUpdate: &w}
 }
 
 // NewSessionUpdateConfigOptionUpdate creates a SessionUpdate holding a ConfigOptionUpdate variant.
 func NewSessionUpdateConfigOptionUpdate(v ConfigOptionUpdate) SessionUpdate {
-	return SessionUpdate{variant: SessionUpdateConfigOptionUpdate{
+	w := SessionUpdateConfigOptionUpdate{
 		ConfigOptionUpdate: v,
 		SessionUpdate:      "config_option_update",
-	}}
+	}
+	return SessionUpdate{ConfigOptionUpdate: &w}
 }
 
 // NewSessionUpdateSessionInfoUpdate creates a SessionUpdate holding a SessionInfoUpdate variant.
 func NewSessionUpdateSessionInfoUpdate(v SessionInfoUpdate) SessionUpdate {
-	return SessionUpdate{variant: SessionUpdateSessionInfoUpdate{
+	w := SessionUpdateSessionInfoUpdate{
 		SessionInfoUpdate: v,
 		SessionUpdate:     "session_info_update",
-	}}
+	}
+	return SessionUpdate{SessionInfoUpdate: &w}
+}
+
+// NewSessionUpdateUsageUpdate creates a SessionUpdate holding a UsageUpdate variant.
+func NewSessionUpdateUsageUpdate(v UsageUpdate) SessionUpdate {
+	w := SessionUpdateUsageUpdate{
+		UsageUpdate:   v,
+		SessionUpdate: "usage_update",
+	}
+	return SessionUpdate{UsageUpdate: &w}
+}
+
+// A boolean value (`type: "boolean"`).
+type SetSessionConfigOptionRequestBoolean struct {
+	Type  string `json:"type,omitempty"`
+	Value bool   `json:"value"`
+}
+
+// Request parameters for setting a session configuration option.
+type SetSessionConfigOptionRequest struct {
+	// A boolean value (`type: "boolean"`).
+	Boolean *SetSessionConfigOptionRequestBoolean `json:"-"`
+}
+
+func (s SetSessionConfigOptionRequest) MarshalJSON() ([]byte, error) {
+	if s.Boolean != nil {
+		data, err := json.Marshal(*s.Boolean)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("boolean")
+		return json.Marshal(obj)
+	}
+	return nil, fmt.Errorf("no variant is set for SetSessionConfigOptionRequest")
+}
+func (s *SetSessionConfigOptionRequest) UnmarshalJSON(data []byte) error {
+	*s = SetSessionConfigOptionRequest{}
+	var disc struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &disc); err != nil {
+		return err
+	}
+	switch disc.Type {
+	case "boolean":
+		var v SetSessionConfigOptionRequestBoolean
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		s.Boolean = &v
+		return nil
+	default:
+		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
+	}
+}
+func (s *SetSessionConfigOptionRequest) AsBoolean() (SetSessionConfigOptionRequestBoolean, bool) {
+	if s.Boolean == nil {
+		var zero SetSessionConfigOptionRequestBoolean
+		return zero, false
+	}
+	return *s.Boolean, true
+}
+
+// NewSetSessionConfigOptionRequestBoolean creates a SetSessionConfigOptionRequest holding a Boolean variant.
+func NewSetSessionConfigOptionRequestBoolean(v SetSessionConfigOptionRequestBoolean) SetSessionConfigOptionRequest {
+	v.Type = "boolean"
+	return SetSessionConfigOptionRequest{Boolean: &v}
 }
 
 // Standard content block (text, images, resources).
 type ToolCallContentContent struct {
 	Content
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 }
 
 // File modification shown as a diff.
 type ToolCallContentDiff struct {
 	Diff
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 }
 
 // Embed a terminal created with `terminal/create` by its id.
@@ -983,20 +2424,8 @@ type ToolCallContentDiff struct {
 // See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)
 type ToolCallContentTerminal struct {
 	Terminal
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 }
-
-func (ToolCallContentContent) isToolCallContentVariant() string {
-	return "content"
-}
-func (ToolCallContentDiff) isToolCallContentVariant() string {
-	return "diff"
-}
-func (ToolCallContentTerminal) isToolCallContentVariant() string {
-	return "terminal"
-}
-
-type toolCallContentVariant interface{ isToolCallContentVariant() string }
 
 // Content produced by a tool call.
 //
@@ -1005,16 +2434,59 @@ type toolCallContentVariant interface{ isToolCallContentVariant() string }
 //
 // See protocol docs: [Content](https://agentclientprotocol.com/protocol/tool-calls#content)
 type ToolCallContent struct {
-	variant toolCallContentVariant
+	// Standard content block (text, images, resources).
+	Content *ToolCallContentContent `json:"-"`
+	// File modification shown as a diff.
+	Diff *ToolCallContentDiff `json:"-"`
+	// Embed a terminal created with `terminal/create` by its id.
+	//
+	// The terminal must be added before calling `terminal/release`.
+	//
+	// See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)
+	Terminal *ToolCallContentTerminal `json:"-"`
 }
 
 func (t ToolCallContent) MarshalJSON() ([]byte, error) {
-	if t.variant == nil {
-		return nil, fmt.Errorf("no variant is set for ToolCallContent")
+	if t.Content != nil {
+		data, err := json.Marshal(*t.Content)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("content")
+		return json.Marshal(obj)
 	}
-	return json.Marshal(t.variant)
+	if t.Diff != nil {
+		data, err := json.Marshal(*t.Diff)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("diff")
+		return json.Marshal(obj)
+	}
+	if t.Terminal != nil {
+		data, err := json.Marshal(*t.Terminal)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("terminal")
+		return json.Marshal(obj)
+	}
+	return nil, fmt.Errorf("no variant is set for ToolCallContent")
 }
 func (t *ToolCallContent) UnmarshalJSON(data []byte) error {
+	*t = ToolCallContent{}
 	var disc struct {
 		Type string `json:"type"`
 	}
@@ -1027,61 +2499,92 @@ func (t *ToolCallContent) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		t.variant = v
+		t.Content = &v
 		return nil
 	case "diff":
 		var v ToolCallContentDiff
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		t.variant = v
+		t.Diff = &v
 		return nil
 	case "terminal":
 		var v ToolCallContentTerminal
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		t.variant = v
+		t.Terminal = &v
 		return nil
 	default:
 		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
 }
 func (t *ToolCallContent) AsContent() (ToolCallContentContent, bool) {
-	v, ok := t.variant.(ToolCallContentContent)
-	return v, ok
+	if t.Content == nil {
+		var zero ToolCallContentContent
+		return zero, false
+	}
+	return *t.Content, true
 }
 func (t *ToolCallContent) AsDiff() (ToolCallContentDiff, bool) {
-	v, ok := t.variant.(ToolCallContentDiff)
-	return v, ok
+	if t.Diff == nil {
+		var zero ToolCallContentDiff
+		return zero, false
+	}
+	return *t.Diff, true
 }
 func (t *ToolCallContent) AsTerminal() (ToolCallContentTerminal, bool) {
-	v, ok := t.variant.(ToolCallContentTerminal)
-	return v, ok
+	if t.Terminal == nil {
+		var zero ToolCallContentTerminal
+		return zero, false
+	}
+	return *t.Terminal, true
 }
 
 // NewToolCallContentContent creates a ToolCallContent holding a Content variant.
 func NewToolCallContentContent(v Content) ToolCallContent {
-	return ToolCallContent{variant: ToolCallContentContent{
+	w := ToolCallContentContent{
 		Content: v,
 		Type:    "content",
-	}}
+	}
+	return ToolCallContent{Content: &w}
 }
 
 // NewToolCallContentDiff creates a ToolCallContent holding a Diff variant.
 func NewToolCallContentDiff(v Diff) ToolCallContent {
-	return ToolCallContent{variant: ToolCallContentDiff{
+	w := ToolCallContentDiff{
 		Diff: v,
 		Type: "diff",
-	}}
+	}
+	return ToolCallContent{Diff: &w}
 }
 
 // NewToolCallContentTerminal creates a ToolCallContent holding a Terminal variant.
 func NewToolCallContentTerminal(v Terminal) ToolCallContent {
-	return ToolCallContent{variant: ToolCallContentTerminal{
+	w := ToolCallContentTerminal{
 		Terminal: v,
 		Type:     "terminal",
-	}}
+	}
+	return ToolCallContent{Terminal: &w}
+}
+
+// Notification sent when a suggestion is accepted.
+type AcceptNesNotification struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	ID        string         `json:"id"`
+	SessionID SessionID      `json:"sessionId"`
+}
+
+func (x AcceptNesNotification) GetSessionID() string { return string(x.SessionID) }
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Authentication-related capabilities supported by the agent.
+type AgentAuthCapabilities struct {
+	Meta   map[string]any      `json:"_meta,omitempty"`
+	Logout *LogoutCapabilities `json:"logout,omitempty"`
 }
 
 // Capabilities supported by the agent.
@@ -1091,11 +2594,15 @@ func NewToolCallContentTerminal(v Terminal) ToolCallContent {
 //
 // See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/initialization#agent-capabilities)
 type AgentCapabilities struct {
-	Meta                map[string]any       `json:"_meta,omitempty"`
-	LoadSession         bool                 `json:"loadSession,omitempty"`
-	MCPCapabilities     *MCPCapabilities     `json:"mcpCapabilities,omitempty"`
-	PromptCapabilities  *PromptCapabilities  `json:"promptCapabilities,omitempty"`
-	SessionCapabilities *SessionCapabilities `json:"sessionCapabilities,omitempty"`
+	Meta                map[string]any         `json:"_meta,omitempty"`
+	Auth                *AgentAuthCapabilities `json:"auth,omitempty"`
+	LoadSession         bool                   `json:"loadSession,omitempty"`
+	MCPCapabilities     *MCPCapabilities       `json:"mcpCapabilities,omitempty"`
+	Nes                 *NesCapabilities       `json:"nes,omitempty"`
+	PositionEncoding    *PositionEncodingKind  `json:"positionEncoding,omitempty"`
+	PromptCapabilities  *PromptCapabilities    `json:"promptCapabilities,omitempty"`
+	Providers           *ProvidersCapabilities `json:"providers,omitempty"`
+	SessionCapabilities *SessionCapabilities   `json:"sessionCapabilities,omitempty"`
 }
 
 // Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
@@ -1114,6 +2621,33 @@ type AudioContent struct {
 	MimeType    string         `json:"mimeType"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Authentication capabilities supported by the client.
+//
+// Advertised during initialization to inform the agent which authentication
+// method types the client can handle. This governs opt-in types that require
+// additional client-side support.
+type AuthCapabilities struct {
+	Meta     map[string]any `json:"_meta,omitempty"`
+	Terminal bool           `json:"terminal,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Describes a single environment variable for an [`AuthMethodEnvVar`] authentication method.
+type AuthEnvVar struct {
+	Meta     map[string]any `json:"_meta,omitempty"`
+	Label    string         `json:"label,omitempty"`
+	Name     string         `json:"name"`
+	Optional bool           `json:"optional,omitempty"`
+	Secret   bool           `json:"secret,omitempty"`
+}
+
 // Agent handles authentication itself.
 //
 // This is the default authentication method type.
@@ -1122,6 +2656,38 @@ type AuthMethodAgent struct {
 	Description string         `json:"description,omitempty"`
 	ID          string         `json:"id"`
 	Name        string         `json:"name"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Environment variable authentication method.
+//
+// The user provides credentials that the client passes to the agent as environment variables.
+type AuthMethodEnvVar struct {
+	Meta        map[string]any `json:"_meta,omitempty"`
+	Description string         `json:"description,omitempty"`
+	ID          string         `json:"id"`
+	Link        string         `json:"link,omitempty"`
+	Name        string         `json:"name"`
+	Vars        []AuthEnvVar   `json:"vars"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Terminal-based authentication method.
+//
+// The client runs an interactive terminal for the user to authenticate via a TUI.
+type AuthMethodTerminal struct {
+	Meta        map[string]any    `json:"_meta,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
 }
 
 // Request parameters for the authenticate method.
@@ -1159,6 +2725,13 @@ type BlobResourceContents struct {
 	URI      string         `json:"uri"`
 }
 
+// Schema for boolean properties in an elicitation form.
+type BooleanPropertySchema struct {
+	Default     *bool  `json:"default,omitempty"`
+	Description string `json:"description,omitempty"`
+	Title       string `json:"title,omitempty"`
+}
+
 // Notification to cancel ongoing operations for a session.
 //
 // See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
@@ -1169,6 +2742,18 @@ type CancelNotification struct {
 
 func (x CancelNotification) GetSessionID() string { return string(x.SessionID) }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Notification to cancel an ongoing request.
+//
+// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/cancellation)
+type CancelRequestNotification struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	RequestID RequestID      `json:"requestId"`
+}
+
 // Capabilities supported by the client.
 //
 // Advertised during initialization to inform the agent about
@@ -1176,9 +2761,74 @@ func (x CancelNotification) GetSessionID() string { return string(x.SessionID) }
 //
 // See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/initialization#client-capabilities)
 type ClientCapabilities struct {
-	Meta     map[string]any          `json:"_meta,omitempty"`
-	FS       *FileSystemCapabilities `json:"fs,omitempty"`
-	Terminal bool                    `json:"terminal,omitempty"`
+	Meta              map[string]any           `json:"_meta,omitempty"`
+	Auth              *AuthCapabilities        `json:"auth,omitempty"`
+	Elicitation       *ElicitationCapabilities `json:"elicitation,omitempty"`
+	FS                *FileSystemCapabilities  `json:"fs,omitempty"`
+	Nes               *ClientNesCapabilities   `json:"nes,omitempty"`
+	PositionEncodings []PositionEncodingKind   `json:"positionEncodings,omitempty"`
+	Terminal          bool                     `json:"terminal,omitempty"`
+}
+
+// NES capabilities advertised by the client during initialization.
+type ClientNesCapabilities struct {
+	Meta             map[string]any                   `json:"_meta,omitempty"`
+	Jump             *NesJumpCapabilities             `json:"jump,omitempty"`
+	Rename           *NesRenameCapabilities           `json:"rename,omitempty"`
+	SearchAndReplace *NesSearchAndReplaceCapabilities `json:"searchAndReplace,omitempty"`
+}
+
+// Request to close an NES session.
+//
+// The agent **must** cancel any ongoing work related to the NES session
+// and then free up any resources associated with the session.
+type CloseNesRequest struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	SessionID SessionID      `json:"sessionId"`
+}
+
+func (x CloseNesRequest) GetSessionID() string { return string(x.SessionID) }
+
+// Response from closing an NES session.
+type CloseNesResponse struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for closing an active session.
+//
+// If supported, the agent **must** cancel any ongoing work related to the session
+// (treat it as if `session/cancel` was called) and then free up any resources
+// associated with the session.
+//
+// Only available if the Agent supports the `sessionCapabilities.close` capability.
+type CloseSessionRequest struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	SessionID SessionID      `json:"sessionId"`
+}
+
+func (x CloseSessionRequest) GetSessionID() string { return string(x.SessionID) }
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response from closing a session.
+type CloseSessionResponse struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Notification sent by the agent when a URL-based elicitation is complete.
+type CompleteElicitationNotification struct {
+	Meta          map[string]any `json:"_meta,omitempty"`
+	ElicitationID ElicitationID  `json:"elicitationId"`
 }
 
 // Session configuration options have been updated.
@@ -1195,8 +2845,19 @@ type Content struct {
 
 // A streamed item of content
 type ContentChunk struct {
-	Meta    map[string]any `json:"_meta,omitempty"`
-	Content ContentBlock   `json:"content"`
+	Meta      map[string]any `json:"_meta,omitempty"`
+	Content   ContentBlock   `json:"content"`
+	MessageID string         `json:"messageId,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Cost information for a session.
+type Cost struct {
+	Amount   float64 `json:"amount"`
+	Currency string  `json:"currency"`
 }
 
 // Request to create a new terminal and execute a command.
@@ -1226,6 +2887,59 @@ type CurrentModeUpdate struct {
 	CurrentModeID SessionModeID  `json:"currentModeId"`
 }
 
+// Notification sent when a file is edited.
+type DidChangeDocumentNotification struct {
+	Meta           map[string]any                   `json:"_meta,omitempty"`
+	ContentChanges []TextDocumentContentChangeEvent `json:"contentChanges"`
+	SessionID      SessionID                        `json:"sessionId"`
+	URI            string                           `json:"uri"`
+	Version        int64                            `json:"version"`
+}
+
+func (x DidChangeDocumentNotification) GetSessionID() string { return string(x.SessionID) }
+
+// Notification sent when a file is closed.
+type DidCloseDocumentNotification struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	SessionID SessionID      `json:"sessionId"`
+	URI       string         `json:"uri"`
+}
+
+func (x DidCloseDocumentNotification) GetSessionID() string { return string(x.SessionID) }
+
+// Notification sent when a file becomes the active editor tab.
+type DidFocusDocumentNotification struct {
+	Meta         map[string]any `json:"_meta,omitempty"`
+	Position     Position       `json:"position"`
+	SessionID    SessionID      `json:"sessionId"`
+	URI          string         `json:"uri"`
+	Version      int64          `json:"version"`
+	VisibleRange Range          `json:"visibleRange"`
+}
+
+func (x DidFocusDocumentNotification) GetSessionID() string { return string(x.SessionID) }
+
+// Notification sent when a file is opened in the editor.
+type DidOpenDocumentNotification struct {
+	Meta       map[string]any `json:"_meta,omitempty"`
+	LanguageID string         `json:"languageId"`
+	SessionID  SessionID      `json:"sessionId"`
+	Text       string         `json:"text"`
+	URI        string         `json:"uri"`
+	Version    int64          `json:"version"`
+}
+
+func (x DidOpenDocumentNotification) GetSessionID() string { return string(x.SessionID) }
+
+// Notification sent when a file is saved.
+type DidSaveDocumentNotification struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	SessionID SessionID      `json:"sessionId"`
+	URI       string         `json:"uri"`
+}
+
+func (x DidSaveDocumentNotification) GetSessionID() string { return string(x.SessionID) }
+
 // A diff representing file modifications.
 //
 // Shows changes to files in a format suitable for display in the client UI.
@@ -1238,11 +2952,112 @@ type Diff struct {
 	Path    string         `json:"path"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for `providers/disable`.
+type DisableProvidersRequest struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+	ID   string         `json:"id"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response to `providers/disable`.
+type DisableProvidersResponse struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// The user accepted the elicitation and provided content.
+type ElicitationAcceptAction struct {
+	Content map[string]ElicitationContentValue `json:"content,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Elicitation capabilities supported by the client.
+type ElicitationCapabilities struct {
+	Meta map[string]any               `json:"_meta,omitempty"`
+	Form *ElicitationFormCapabilities `json:"form,omitempty"`
+	URL  *ElicitationURLCapabilities  `json:"url,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Form-based elicitation capabilities.
+type ElicitationFormCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request-scoped elicitation, tied to a specific JSON-RPC request outside of a session
+// (e.g., during auth/configuration phases before any session is started).
+type ElicitationRequestScope struct {
+	RequestID RequestID `json:"requestId"`
+}
+
+// Type-safe elicitation schema for requesting structured user input.
+//
+// This represents a JSON Schema object with primitive-typed properties,
+// as required by the elicitation specification.
+type ElicitationSchema struct {
+	Description string                               `json:"description,omitempty"`
+	Properties  map[string]ElicitationPropertySchema `json:"properties,omitempty"`
+	Required    []string                             `json:"required,omitempty"`
+	Title       string                               `json:"title,omitempty"`
+	Type        *ElicitationSchemaType               `json:"type,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Session-scoped elicitation, optionally tied to a specific tool call.
+//
+// When `tool_call_id` is set, the elicitation is tied to a specific tool call.
+// This is useful when an agent receives an elicitation from an MCP server
+// during a tool call and needs to redirect it to the user.
+type ElicitationSessionScope struct {
+	SessionID  SessionID   `json:"sessionId"`
+	ToolCallID *ToolCallID `json:"toolCallId,omitempty"`
+}
+
+func (x ElicitationSessionScope) GetSessionID() string { return string(x.SessionID) }
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// URL-based elicitation capabilities.
+type ElicitationURLCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
 // The contents of a resource, embedded into a prompt or tool call result.
 type EmbeddedResource struct {
 	Meta        map[string]any           `json:"_meta,omitempty"`
 	Annotations *Annotations             `json:"annotations,omitempty"`
 	Resource    EmbeddedResourceResource `json:"resource"`
+}
+
+// A titled enum option with a const value and human-readable title.
+type EnumOption struct {
+	Const string `json:"const"`
+	Title string `json:"title"`
 }
 
 // An environment variable to set when launching an MCP server.
@@ -1272,6 +3087,41 @@ type FileSystemCapabilities struct {
 	ReadTextFile  bool           `json:"readTextFile,omitempty"`
 	WriteTextFile bool           `json:"writeTextFile,omitempty"`
 }
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for forking an existing session.
+//
+// Creates a new session based on the context of an existing one, allowing
+// operations like generating summaries without affecting the original session's history.
+//
+// Only available if the Agent supports the `session.fork` capability.
+type ForkSessionRequest struct {
+	Meta                  map[string]any `json:"_meta,omitempty"`
+	AdditionalDirectories []string       `json:"additionalDirectories,omitempty"`
+	Cwd                   string         `json:"cwd"`
+	MCPServers            []MCPServer    `json:"mcpServers,omitempty"`
+	SessionID             SessionID      `json:"sessionId"`
+}
+
+func (x ForkSessionRequest) GetSessionID() string { return string(x.SessionID) }
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response from forking an existing session.
+type ForkSessionResponse struct {
+	Meta          map[string]any        `json:"_meta,omitempty"`
+	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
+	Models        *SessionModelState    `json:"models,omitempty"`
+	Modes         *SessionModeState     `json:"modes,omitempty"`
+	SessionID     SessionID             `json:"sessionId"`
+}
+
+func (x ForkSessionResponse) GetSessionID() string { return string(x.SessionID) }
 
 // An HTTP header to set when making requests to the MCP server.
 type HTTPHeader struct {
@@ -1328,6 +3178,15 @@ type InitializeResponse struct {
 
 func (x InitializeResponse) GetProtocolVersion() ProtocolVersion { return x.ProtocolVersion }
 
+// Schema for integer properties in an elicitation form.
+type IntegerPropertySchema struct {
+	Default     *int64 `json:"default,omitempty"`
+	Description string `json:"description,omitempty"`
+	Maximum     *int64 `json:"maximum,omitempty"`
+	Minimum     *int64 `json:"minimum,omitempty"`
+	Title       string `json:"title,omitempty"`
+}
+
 // Request to kill a terminal without releasing it.
 type KillTerminalRequest struct {
 	Meta       map[string]any `json:"_meta,omitempty"`
@@ -1342,13 +3201,33 @@ type KillTerminalResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for `providers/list`.
+type ListProvidersRequest struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response to `providers/list`.
+type ListProvidersResponse struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	Providers []ProviderInfo `json:"providers"`
+}
+
 // Request parameters for listing existing sessions.
 //
 // Only available if the Agent supports the `sessionCapabilities.list` capability.
 type ListSessionsRequest struct {
-	Meta   map[string]any `json:"_meta,omitempty"`
-	Cursor string         `json:"cursor,omitempty"`
-	Cwd    string         `json:"cwd,omitempty"`
+	Meta                  map[string]any `json:"_meta,omitempty"`
+	AdditionalDirectories []string       `json:"additionalDirectories,omitempty"`
+	Cursor                string         `json:"cursor,omitempty"`
+	Cwd                   string         `json:"cwd,omitempty"`
 }
 
 // Response from listing sessions.
@@ -1364,10 +3243,11 @@ type ListSessionsResponse struct {
 //
 // See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
 type LoadSessionRequest struct {
-	Meta       map[string]any `json:"_meta,omitempty"`
-	Cwd        string         `json:"cwd"`
-	MCPServers []MCPServer    `json:"mcpServers"`
-	SessionID  SessionID      `json:"sessionId"`
+	Meta                  map[string]any `json:"_meta,omitempty"`
+	AdditionalDirectories []string       `json:"additionalDirectories,omitempty"`
+	Cwd                   string         `json:"cwd"`
+	MCPServers            []MCPServer    `json:"mcpServers"`
+	SessionID             SessionID      `json:"sessionId"`
 }
 
 func (x LoadSessionRequest) GetSessionID() string { return string(x.SessionID) }
@@ -1376,7 +3256,39 @@ func (x LoadSessionRequest) GetSessionID() string { return string(x.SessionID) }
 type LoadSessionResponse struct {
 	Meta          map[string]any        `json:"_meta,omitempty"`
 	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
+	Models        *SessionModelState    `json:"models,omitempty"`
 	Modes         *SessionModeState     `json:"modes,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Logout capabilities supported by the agent.
+//
+// By supplying `{}` it means that the agent supports the logout method.
+type LogoutCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for the logout method.
+//
+// Terminates the current authenticated session.
+type LogoutRequest struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response to the `logout` method.
+type LogoutResponse struct {
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // MCP capabilities supported by the agent
@@ -1411,13 +3323,250 @@ type MCPServerStdio struct {
 	Name    string         `json:"name"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Information about a selectable model.
+type ModelInfo struct {
+	Meta        map[string]any `json:"_meta,omitempty"`
+	Description string         `json:"description,omitempty"`
+	ModelID     ModelID        `json:"modelId"`
+	Name        string         `json:"name"`
+}
+
+// Schema for multi-select (array) properties in an elicitation form.
+type MultiSelectPropertySchema struct {
+	Default     []string         `json:"default,omitempty"`
+	Description string           `json:"description,omitempty"`
+	Items       MultiSelectItems `json:"items"`
+	MaxItems    *int64           `json:"maxItems,omitempty"`
+	MinItems    *int64           `json:"minItems,omitempty"`
+	Title       string           `json:"title,omitempty"`
+}
+
+// NES capabilities advertised by the agent during initialization.
+type NesCapabilities struct {
+	Meta    map[string]any          `json:"_meta,omitempty"`
+	Context *NesContextCapabilities `json:"context,omitempty"`
+	Events  *NesEventCapabilities   `json:"events,omitempty"`
+}
+
+// Context capabilities the agent wants attached to each suggestion request.
+type NesContextCapabilities struct {
+	Meta            map[string]any                  `json:"_meta,omitempty"`
+	Diagnostics     *NesDiagnosticsCapabilities     `json:"diagnostics,omitempty"`
+	EditHistory     *NesEditHistoryCapabilities     `json:"editHistory,omitempty"`
+	OpenFiles       *NesOpenFilesCapabilities       `json:"openFiles,omitempty"`
+	RecentFiles     *NesRecentFilesCapabilities     `json:"recentFiles,omitempty"`
+	RelatedSnippets *NesRelatedSnippetsCapabilities `json:"relatedSnippets,omitempty"`
+	UserActions     *NesUserActionsCapabilities     `json:"userActions,omitempty"`
+}
+
+// A diagnostic (error, warning, etc.).
+type NesDiagnostic struct {
+	Message  string                `json:"message"`
+	Range    Range                 `json:"range"`
+	Severity NesDiagnosticSeverity `json:"severity"`
+	URI      string                `json:"uri"`
+}
+
+// Capabilities for diagnostics context.
+type NesDiagnosticsCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// Capabilities for `document/didChange` events.
+type NesDocumentDidChangeCapabilities struct {
+	Meta     map[string]any       `json:"_meta,omitempty"`
+	SyncKind TextDocumentSyncKind `json:"syncKind"`
+}
+
+// Marker for `document/didClose` capability support.
+type NesDocumentDidCloseCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// Marker for `document/didFocus` capability support.
+type NesDocumentDidFocusCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// Marker for `document/didOpen` capability support.
+type NesDocumentDidOpenCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// Marker for `document/didSave` capability support.
+type NesDocumentDidSaveCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// Document event capabilities the agent wants to receive.
+type NesDocumentEventCapabilities struct {
+	Meta      map[string]any                    `json:"_meta,omitempty"`
+	DidChange *NesDocumentDidChangeCapabilities `json:"didChange,omitempty"`
+	DidClose  *NesDocumentDidCloseCapabilities  `json:"didClose,omitempty"`
+	DidFocus  *NesDocumentDidFocusCapabilities  `json:"didFocus,omitempty"`
+	DidOpen   *NesDocumentDidOpenCapabilities   `json:"didOpen,omitempty"`
+	DidSave   *NesDocumentDidSaveCapabilities   `json:"didSave,omitempty"`
+}
+
+// Capabilities for edit history context.
+type NesEditHistoryCapabilities struct {
+	Meta     map[string]any `json:"_meta,omitempty"`
+	MaxCount *int64         `json:"maxCount,omitempty"`
+}
+
+// An entry in the edit history.
+type NesEditHistoryEntry struct {
+	Diff string `json:"diff"`
+	URI  string `json:"uri"`
+}
+
+// A text edit suggestion.
+type NesEditSuggestion struct {
+	CursorPosition *Position     `json:"cursorPosition,omitempty"`
+	Edits          []NesTextEdit `json:"edits"`
+	ID             string        `json:"id"`
+	URI            string        `json:"uri"`
+}
+
+// Event capabilities the agent can consume.
+type NesEventCapabilities struct {
+	Meta     map[string]any                `json:"_meta,omitempty"`
+	Document *NesDocumentEventCapabilities `json:"document,omitempty"`
+}
+
+// A code excerpt from a file.
+type NesExcerpt struct {
+	EndLine   int64  `json:"endLine"`
+	StartLine int64  `json:"startLine"`
+	Text      string `json:"text"`
+}
+
+// Marker for jump suggestion support.
+type NesJumpCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// A jump-to-location suggestion.
+type NesJumpSuggestion struct {
+	ID       string   `json:"id"`
+	Position Position `json:"position"`
+	URI      string   `json:"uri"`
+}
+
+// An open file in the editor.
+type NesOpenFile struct {
+	LanguageID    string `json:"languageId"`
+	LastFocusedMs *int64 `json:"lastFocusedMs,omitempty"`
+	URI           string `json:"uri"`
+	VisibleRange  *Range `json:"visibleRange,omitempty"`
+}
+
+// Capabilities for open files context.
+type NesOpenFilesCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// A recently accessed file.
+type NesRecentFile struct {
+	LanguageID string `json:"languageId"`
+	Text       string `json:"text"`
+	URI        string `json:"uri"`
+}
+
+// Capabilities for recent files context.
+type NesRecentFilesCapabilities struct {
+	Meta     map[string]any `json:"_meta,omitempty"`
+	MaxCount *int64         `json:"maxCount,omitempty"`
+}
+
+// A related code snippet from a file.
+type NesRelatedSnippet struct {
+	Excerpts []NesExcerpt `json:"excerpts"`
+	URI      string       `json:"uri"`
+}
+
+// Capabilities for related snippets context.
+type NesRelatedSnippetsCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// Marker for rename suggestion support.
+type NesRenameCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// A rename symbol suggestion.
+type NesRenameSuggestion struct {
+	ID       string   `json:"id"`
+	NewName  string   `json:"newName"`
+	Position Position `json:"position"`
+	URI      string   `json:"uri"`
+}
+
+// Repository metadata for an NES session.
+type NesRepository struct {
+	Name      string `json:"name"`
+	Owner     string `json:"owner"`
+	RemoteURL string `json:"remoteUrl"`
+}
+
+// Marker for search and replace suggestion support.
+type NesSearchAndReplaceCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// A search-and-replace suggestion.
+type NesSearchAndReplaceSuggestion struct {
+	ID      string `json:"id"`
+	IsRegex *bool  `json:"isRegex,omitempty"`
+	Replace string `json:"replace"`
+	Search  string `json:"search"`
+	URI     string `json:"uri"`
+}
+
+// Context attached to a suggestion request.
+type NesSuggestContext struct {
+	Meta            map[string]any        `json:"_meta,omitempty"`
+	Diagnostics     []NesDiagnostic       `json:"diagnostics,omitempty"`
+	EditHistory     []NesEditHistoryEntry `json:"editHistory,omitempty"`
+	OpenFiles       []NesOpenFile         `json:"openFiles,omitempty"`
+	RecentFiles     []NesRecentFile       `json:"recentFiles,omitempty"`
+	RelatedSnippets []NesRelatedSnippet   `json:"relatedSnippets,omitempty"`
+	UserActions     []NesUserAction       `json:"userActions,omitempty"`
+}
+
+// A text edit within a suggestion.
+type NesTextEdit struct {
+	NewText string `json:"newText"`
+	Range   Range  `json:"range"`
+}
+
+// A user action (typing, cursor movement, etc.).
+type NesUserAction struct {
+	Action      string   `json:"action"`
+	Position    Position `json:"position"`
+	TimestampMs int64    `json:"timestampMs"`
+	URI         string   `json:"uri"`
+}
+
+// Capabilities for user actions context.
+type NesUserActionsCapabilities struct {
+	Meta     map[string]any `json:"_meta,omitempty"`
+	MaxCount *int64         `json:"maxCount,omitempty"`
+}
+
 // Request parameters for creating a new session.
 //
 // See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
 type NewSessionRequest struct {
-	Meta       map[string]any `json:"_meta,omitempty"`
-	Cwd        string         `json:"cwd"`
-	MCPServers []MCPServer    `json:"mcpServers"`
+	Meta                  map[string]any `json:"_meta,omitempty"`
+	AdditionalDirectories []string       `json:"additionalDirectories,omitempty"`
+	Cwd                   string         `json:"cwd"`
+	MCPServers            []MCPServer    `json:"mcpServers"`
 }
 
 // Response from creating a new session.
@@ -1426,11 +3575,21 @@ type NewSessionRequest struct {
 type NewSessionResponse struct {
 	Meta          map[string]any        `json:"_meta,omitempty"`
 	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
+	Models        *SessionModelState    `json:"models,omitempty"`
 	Modes         *SessionModeState     `json:"modes,omitempty"`
 	SessionID     SessionID             `json:"sessionId"`
 }
 
 func (x NewSessionResponse) GetSessionID() string { return string(x.SessionID) }
+
+// Schema for number (floating-point) properties in an elicitation form.
+type NumberPropertySchema struct {
+	Default     *float64 `json:"default,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Maximum     *float64 `json:"maximum,omitempty"`
+	Minimum     *float64 `json:"minimum,omitempty"`
+	Title       string   `json:"title,omitempty"`
+}
 
 // An option presented to the user when requesting permission.
 type PermissionOption struct {
@@ -1464,6 +3623,14 @@ type PlanEntry struct {
 	Status   PlanEntryStatus   `json:"status"`
 }
 
+// A zero-based position in a text document.
+//
+// The meaning of `character` depends on the negotiated position encoding.
+type Position struct {
+	Character int64 `json:"character"`
+	Line      int64 `json:"line"`
+}
+
 // Prompt capabilities supported by the agent in `session/prompt` requests.
 //
 // Baseline agent functionality requires support for [`ContentBlock::Text`]
@@ -1490,6 +3657,7 @@ type PromptCapabilities struct {
 // See protocol docs: [User Message](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message)
 type PromptRequest struct {
 	Meta      map[string]any `json:"_meta,omitempty"`
+	MessageID string         `json:"messageId,omitempty"`
 	Prompt    []ContentBlock `json:"prompt"`
 	SessionID SessionID      `json:"sessionId"`
 }
@@ -1500,8 +3668,50 @@ func (x PromptRequest) GetSessionID() string { return string(x.SessionID) }
 //
 // See protocol docs: [Check for Completion](https://agentclientprotocol.com/protocol/prompt-turn#4-check-for-completion)
 type PromptResponse struct {
-	Meta       map[string]any `json:"_meta,omitempty"`
-	StopReason StopReason     `json:"stopReason"`
+	Meta          map[string]any `json:"_meta,omitempty"`
+	StopReason    StopReason     `json:"stopReason"`
+	Usage         *Usage         `json:"usage,omitempty"`
+	UserMessageID string         `json:"userMessageId,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Current effective non-secret routing configuration for a provider.
+type ProviderCurrentConfig struct {
+	APIType LlmProtocol `json:"apiType"`
+	BaseURL string      `json:"baseUrl"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Information about a configurable LLM provider.
+type ProviderInfo struct {
+	Meta      map[string]any        `json:"_meta,omitempty"`
+	Current   ProviderCurrentConfig `json:"current"`
+	ID        string                `json:"id"`
+	Required  bool                  `json:"required"`
+	Supported []LlmProtocol         `json:"supported"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Provider configuration capabilities supported by the agent.
+//
+// By supplying `{}` it means that the agent supports provider configuration methods.
+type ProvidersCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// A range in a text document, expressed as start and end positions.
+type Range struct {
+	End   Position `json:"end"`
+	Start Position `json:"start"`
 }
 
 // Request to read content from a text file.
@@ -1522,6 +3732,16 @@ type ReadTextFileResponse struct {
 	Meta    map[string]any `json:"_meta,omitempty"`
 	Content string         `json:"content"`
 }
+
+// Notification sent when a suggestion is rejected.
+type RejectNesNotification struct {
+	Meta      map[string]any   `json:"_meta,omitempty"`
+	ID        string           `json:"id"`
+	Reason    *NesRejectReason `json:"reason,omitempty"`
+	SessionID SessionID        `json:"sessionId"`
+}
+
+func (x RejectNesNotification) GetSessionID() string { return string(x.SessionID) }
 
 // Request to release a terminal and free its resources.
 type ReleaseTerminalRequest struct {
@@ -1569,10 +3789,54 @@ type ResourceLink struct {
 	URI         string         `json:"uri"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for resuming an existing session.
+//
+// Resumes an existing session without returning previous messages (unlike `session/load`).
+// This is useful for agents that can resume sessions but don't implement full session loading.
+//
+// Only available if the Agent supports the `sessionCapabilities.resume` capability.
+type ResumeSessionRequest struct {
+	Meta                  map[string]any `json:"_meta,omitempty"`
+	AdditionalDirectories []string       `json:"additionalDirectories,omitempty"`
+	Cwd                   string         `json:"cwd"`
+	MCPServers            []MCPServer    `json:"mcpServers,omitempty"`
+	SessionID             SessionID      `json:"sessionId"`
+}
+
+func (x ResumeSessionRequest) GetSessionID() string { return string(x.SessionID) }
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response from resuming an existing session.
+type ResumeSessionResponse struct {
+	Meta          map[string]any        `json:"_meta,omitempty"`
+	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
+	Models        *SessionModelState    `json:"models,omitempty"`
+	Modes         *SessionModeState     `json:"modes,omitempty"`
+}
+
 // The user selected one of the provided options.
 type SelectedPermissionOutcome struct {
 	Meta     map[string]any     `json:"_meta,omitempty"`
 	OptionID PermissionOptionID `json:"optionId"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Capabilities for additional session directories support.
+//
+// By supplying `{}` it means that the agent supports the `additionalDirectories` field on
+// supported session lifecycle requests and `session/list`.
+type SessionAdditionalDirectoriesCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // Session capabilities supported by the agent.
@@ -1585,8 +3849,32 @@ type SelectedPermissionOutcome struct {
 //
 // See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/initialization#session-capabilities)
 type SessionCapabilities struct {
-	Meta map[string]any           `json:"_meta,omitempty"`
-	List *SessionListCapabilities `json:"list,omitempty"`
+	Meta                  map[string]any                            `json:"_meta,omitempty"`
+	AdditionalDirectories *SessionAdditionalDirectoriesCapabilities `json:"additionalDirectories,omitempty"`
+	Close                 *SessionCloseCapabilities                 `json:"close,omitempty"`
+	Fork                  *SessionForkCapabilities                  `json:"fork,omitempty"`
+	List                  *SessionListCapabilities                  `json:"list,omitempty"`
+	Resume                *SessionResumeCapabilities                `json:"resume,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Capabilities for the `session/close` method.
+//
+// By supplying `{}` it means that the agent supports closing of sessions.
+type SessionCloseCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// A boolean on/off toggle session configuration option payload.
+type SessionConfigBoolean struct {
+	CurrentValue bool `json:"currentValue"`
 }
 
 // A single-value selector (dropdown) session configuration option payload.
@@ -1611,13 +3899,25 @@ type SessionConfigSelectOption struct {
 	Value       SessionConfigValueID `json:"value"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Capabilities for the `session/fork` method.
+//
+// By supplying `{}` it means that the agent supports forking of sessions.
+type SessionForkCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
 // Information about a session returned by session/list
 type SessionInfo struct {
-	Meta      map[string]any `json:"_meta,omitempty"`
-	Cwd       string         `json:"cwd"`
-	SessionID SessionID      `json:"sessionId"`
-	Title     string         `json:"title,omitempty"`
-	UpdatedAt string         `json:"updatedAt,omitempty"`
+	Meta                  map[string]any `json:"_meta,omitempty"`
+	AdditionalDirectories []string       `json:"additionalDirectories,omitempty"`
+	Cwd                   string         `json:"cwd"`
+	SessionID             SessionID      `json:"sessionId"`
+	Title                 string         `json:"title,omitempty"`
+	UpdatedAt             string         `json:"updatedAt,omitempty"`
 }
 
 func (x SessionInfo) GetSessionID() string { return string(x.SessionID) }
@@ -1656,6 +3956,17 @@ type SessionModeState struct {
 	CurrentModeID  SessionModeID  `json:"currentModeId"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// The set of models and the one currently active.
+type SessionModelState struct {
+	Meta            map[string]any `json:"_meta,omitempty"`
+	AvailableModels []ModelInfo    `json:"availableModels"`
+	CurrentModelID  ModelID        `json:"currentModelId"`
+}
+
 // Notification containing a session update from the agent.
 //
 // Used to stream real-time progress and results during prompt processing.
@@ -1669,15 +3980,40 @@ type SessionNotification struct {
 
 func (x SessionNotification) GetSessionID() string { return string(x.SessionID) }
 
-// Request parameters for setting a session configuration option.
-type SetSessionConfigOptionRequest struct {
-	Meta      map[string]any       `json:"_meta,omitempty"`
-	ConfigID  SessionConfigID      `json:"configId"`
-	SessionID SessionID            `json:"sessionId"`
-	Value     SessionConfigValueID `json:"value"`
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Capabilities for the `session/resume` method.
+//
+// By supplying `{}` it means that the agent supports resuming of sessions.
+type SessionResumeCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
-func (x SetSessionConfigOptionRequest) GetSessionID() string { return string(x.SessionID) }
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for `providers/set`.
+//
+// Replaces the full configuration for one provider id.
+type SetProvidersRequest struct {
+	Meta    map[string]any    `json:"_meta,omitempty"`
+	APIType LlmProtocol       `json:"apiType"`
+	BaseURL string            `json:"baseUrl"`
+	Headers map[string]string `json:"headers,omitempty"`
+	ID      string            `json:"id"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response to `providers/set`.
+type SetProvidersResponse struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
 
 // Response to `session/set_config_option` method.
 type SetSessionConfigOptionResponse struct {
@@ -1697,6 +4033,80 @@ func (x SetSessionModeRequest) GetSessionID() string { return string(x.SessionID
 // Response to `session/set_mode` method.
 type SetSessionModeResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for setting a session model.
+type SetSessionModelRequest struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	ModelID   ModelID        `json:"modelId"`
+	SessionID SessionID      `json:"sessionId"`
+}
+
+func (x SetSessionModelRequest) GetSessionID() string { return string(x.SessionID) }
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response to `session/set_model` method.
+type SetSessionModelResponse struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// Request to start an NES session.
+type StartNesRequest struct {
+	Meta             map[string]any    `json:"_meta,omitempty"`
+	Repository       *NesRepository    `json:"repository,omitempty"`
+	WorkspaceFolders []WorkspaceFolder `json:"workspaceFolders,omitempty"`
+	WorkspaceURI     string            `json:"workspaceUri,omitempty"`
+}
+
+// Response to `nes/start`.
+type StartNesResponse struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	SessionID SessionID      `json:"sessionId"`
+}
+
+func (x StartNesResponse) GetSessionID() string { return string(x.SessionID) }
+
+// Schema for string properties in an elicitation form.
+//
+// When `enum` or `oneOf` is set, this represents a single-select enum
+// with `"type": "string"`.
+type StringPropertySchema struct {
+	Default     string        `json:"default,omitempty"`
+	Description string        `json:"description,omitempty"`
+	Enum        []string      `json:"enum,omitempty"`
+	Format      *StringFormat `json:"format,omitempty"`
+	MaxLength   *int64        `json:"maxLength,omitempty"`
+	MinLength   *int64        `json:"minLength,omitempty"`
+	OneOf       []EnumOption  `json:"oneOf,omitempty"`
+	Pattern     string        `json:"pattern,omitempty"`
+	Title       string        `json:"title,omitempty"`
+}
+
+// Request for a code suggestion.
+type SuggestNesRequest struct {
+	Meta        map[string]any     `json:"_meta,omitempty"`
+	Context     *NesSuggestContext `json:"context,omitempty"`
+	Position    Position           `json:"position"`
+	Selection   *Range             `json:"selection,omitempty"`
+	SessionID   SessionID          `json:"sessionId"`
+	TriggerKind NesTriggerKind     `json:"triggerKind"`
+	URI         string             `json:"uri"`
+	Version     int64              `json:"version"`
+}
+
+func (x SuggestNesRequest) GetSessionID() string { return string(x.SessionID) }
+
+// Response to `nes/suggest`.
+type SuggestNesResponse struct {
+	Meta        map[string]any  `json:"_meta,omitempty"`
+	Suggestions []NesSuggestion `json:"suggestions"`
 }
 
 // Embed a terminal created with `terminal/create` by its id.
@@ -1740,12 +4150,26 @@ type TextContent struct {
 	Text        string         `json:"text"`
 }
 
+// A content change event for a document.
+//
+// When `range` is `None`, `text` is the full content of the document.
+// When `range` is `Some`, `text` replaces the given range.
+type TextDocumentContentChangeEvent struct {
+	Range *Range `json:"range,omitempty"`
+	Text  string `json:"text"`
+}
+
 // Text-based resource contents.
 type TextResourceContents struct {
 	Meta     map[string]any `json:"_meta,omitempty"`
 	MimeType string         `json:"mimeType,omitempty"`
 	Text     string         `json:"text"`
 	URI      string         `json:"uri"`
+}
+
+// Items definition for titled multi-select enum properties.
+type TitledMultiSelectItems struct {
+	AnyOf []EnumOption `json:"anyOf"`
 }
 
 // Represents a tool call that the language model has requested.
@@ -1802,6 +4226,38 @@ type UnstructuredCommandInput struct {
 	Hint string         `json:"hint"`
 }
 
+// Items definition for untitled multi-select enum properties.
+type UntitledMultiSelectItems struct {
+	Enum []string              `json:"enum"`
+	Type ElicitationStringType `json:"type"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Token usage information for a prompt turn.
+type Usage struct {
+	CachedReadTokens  *int64 `json:"cachedReadTokens,omitempty"`
+	CachedWriteTokens *int64 `json:"cachedWriteTokens,omitempty"`
+	InputTokens       int64  `json:"inputTokens"`
+	OutputTokens      int64  `json:"outputTokens"`
+	ThoughtTokens     *int64 `json:"thoughtTokens,omitempty"`
+	TotalTokens       int64  `json:"totalTokens"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Context window and cost update for a session.
+type UsageUpdate struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+	Cost *Cost          `json:"cost,omitempty"`
+	Size int64          `json:"size"`
+	Used int64          `json:"used"`
+}
+
 // Request to wait for a terminal command to exit.
 type WaitForTerminalExitRequest struct {
 	Meta       map[string]any `json:"_meta,omitempty"`
@@ -1816,6 +4272,12 @@ type WaitForTerminalExitResponse struct {
 	Meta     map[string]any `json:"_meta,omitempty"`
 	ExitCode *int64         `json:"exitCode,omitempty"`
 	Signal   string         `json:"signal,omitempty"`
+}
+
+// A workspace folder.
+type WorkspaceFolder struct {
+	Name string `json:"name"`
+	URI  string `json:"uri"`
 }
 
 // Request to write content to a text file.
@@ -1845,22 +4307,22 @@ type AgentResponseError struct {
 	ID    RequestID `json:"id"`
 }
 
-func (AgentResponseResult) isAgentResponseVariant() {}
-func (AgentResponseError) isAgentResponseVariant()  {}
-
-type agentResponseVariant interface{ isAgentResponseVariant() }
-
 type AgentResponse struct {
-	variant agentResponseVariant
+	Result *AgentResponseResult `json:"-"`
+	Error  *AgentResponseError  `json:"-"`
 }
 
 func (a AgentResponse) MarshalJSON() ([]byte, error) {
-	if a.variant == nil {
-		return nil, fmt.Errorf("no variant is set for AgentResponse")
+	if a.Result != nil {
+		return json.Marshal(*a.Result)
 	}
-	return json.Marshal(a.variant)
+	if a.Error != nil {
+		return json.Marshal(*a.Error)
+	}
+	return nil, fmt.Errorf("no variant is set for AgentResponse")
 }
 func (a *AgentResponse) UnmarshalJSON(data []byte) error {
+	*a = AgentResponse{}
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(data, &keys); err == nil {
 		if _, ok := keys["result"]; ok {
@@ -1868,7 +4330,7 @@ func (a *AgentResponse) UnmarshalJSON(data []byte) error {
 			if err := json.Unmarshal(data, &v0); err != nil {
 				return err
 			}
-			a.variant = v0
+			a.Result = &v0
 			return nil
 		}
 		if _, ok := keys["error"]; ok {
@@ -1876,50 +4338,52 @@ func (a *AgentResponse) UnmarshalJSON(data []byte) error {
 			if err := json.Unmarshal(data, &v1); err != nil {
 				return err
 			}
-			a.variant = v1
+			a.Error = &v1
 			return nil
 		}
 	}
 	{
 		var vf0 AgentResponseResult
 		if err := json.Unmarshal(data, &vf0); err == nil {
-			a.variant = vf0
+			a.Result = &vf0
 			return nil
 		}
 	}
 	{
 		var vf1 AgentResponseError
 		if err := json.Unmarshal(data, &vf1); err == nil {
-			a.variant = vf1
+			a.Error = &vf1
 			return nil
 		}
 	}
 	return fmt.Errorf("data does not match any variant of AgentResponse")
 }
-func (a *AgentResponse) AsAgentResponseResult() (AgentResponseResult, bool) {
-	v, ok := a.variant.(AgentResponseResult)
-	return v, ok
+func (a *AgentResponse) AsResult() (AgentResponseResult, bool) {
+	if a.Result == nil {
+		var zero AgentResponseResult
+		return zero, false
+	}
+	return AgentResponseResult(*a.Result), true
 }
-func (a *AgentResponse) AsAgentResponseError() (AgentResponseError, bool) {
-	v, ok := a.variant.(AgentResponseError)
-	return v, ok
-}
-
-// NewAgentResponseAgentResponseResult creates a AgentResponse holding a AgentResponseResult variant.
-func NewAgentResponseAgentResponseResult(v AgentResponseResult) AgentResponse {
-	return AgentResponse{variant: v}
-}
-
-// NewAgentResponseAgentResponseError creates a AgentResponse holding a AgentResponseError variant.
-func NewAgentResponseAgentResponseError(v AgentResponseError) AgentResponse {
-	return AgentResponse{variant: v}
+func (a *AgentResponse) AsError() (AgentResponseError, bool) {
+	if a.Error == nil {
+		var zero AgentResponseError
+		return zero, false
+	}
+	return AgentResponseError(*a.Error), true
 }
 
-// Describes an available authentication method.
-//
-// The `type` field acts as the discriminator in the serialized JSON form.
-// When no `type` is present, the method is treated as `agent`.
-type AuthMethod = AuthMethodAgent
+// NewAgentResponseResult creates a AgentResponse holding a Result variant.
+func NewAgentResponseResult(v AgentResponseResult) AgentResponse {
+	vv := AgentResponseResult(v)
+	return AgentResponse{Result: &vv}
+}
+
+// NewAgentResponseError creates a AgentResponse holding a Error variant.
+func NewAgentResponseError(v AgentResponseError) AgentResponse {
+	vv := AgentResponseError(v)
+	return AgentResponse{Error: &vv}
+}
 
 // The input specification for a command.
 type AvailableCommandInput = UnstructuredCommandInput
@@ -1934,22 +4398,22 @@ type ClientResponseError struct {
 	ID    RequestID `json:"id"`
 }
 
-func (ClientResponseResult) isClientResponseVariant() {}
-func (ClientResponseError) isClientResponseVariant()  {}
-
-type clientResponseVariant interface{ isClientResponseVariant() }
-
 type ClientResponse struct {
-	variant clientResponseVariant
+	Result *ClientResponseResult `json:"-"`
+	Error  *ClientResponseError  `json:"-"`
 }
 
 func (c ClientResponse) MarshalJSON() ([]byte, error) {
-	if c.variant == nil {
-		return nil, fmt.Errorf("no variant is set for ClientResponse")
+	if c.Result != nil {
+		return json.Marshal(*c.Result)
 	}
-	return json.Marshal(c.variant)
+	if c.Error != nil {
+		return json.Marshal(*c.Error)
+	}
+	return nil, fmt.Errorf("no variant is set for ClientResponse")
 }
 func (c *ClientResponse) UnmarshalJSON(data []byte) error {
+	*c = ClientResponse{}
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(data, &keys); err == nil {
 		if _, ok := keys["result"]; ok {
@@ -1957,7 +4421,7 @@ func (c *ClientResponse) UnmarshalJSON(data []byte) error {
 			if err := json.Unmarshal(data, &v0); err != nil {
 				return err
 			}
-			c.variant = v0
+			c.Result = &v0
 			return nil
 		}
 		if _, ok := keys["error"]; ok {
@@ -1965,62 +4429,390 @@ func (c *ClientResponse) UnmarshalJSON(data []byte) error {
 			if err := json.Unmarshal(data, &v1); err != nil {
 				return err
 			}
-			c.variant = v1
+			c.Error = &v1
 			return nil
 		}
 	}
 	{
 		var vf0 ClientResponseResult
 		if err := json.Unmarshal(data, &vf0); err == nil {
-			c.variant = vf0
+			c.Result = &vf0
 			return nil
 		}
 	}
 	{
 		var vf1 ClientResponseError
 		if err := json.Unmarshal(data, &vf1); err == nil {
-			c.variant = vf1
+			c.Error = &vf1
 			return nil
 		}
 	}
 	return fmt.Errorf("data does not match any variant of ClientResponse")
 }
-func (c *ClientResponse) AsClientResponseResult() (ClientResponseResult, bool) {
-	v, ok := c.variant.(ClientResponseResult)
-	return v, ok
+func (c *ClientResponse) AsResult() (ClientResponseResult, bool) {
+	if c.Result == nil {
+		var zero ClientResponseResult
+		return zero, false
+	}
+	return ClientResponseResult(*c.Result), true
 }
-func (c *ClientResponse) AsClientResponseError() (ClientResponseError, bool) {
-	v, ok := c.variant.(ClientResponseError)
-	return v, ok
+func (c *ClientResponse) AsError() (ClientResponseError, bool) {
+	if c.Error == nil {
+		var zero ClientResponseError
+		return zero, false
+	}
+	return ClientResponseError(*c.Error), true
 }
 
-// NewClientResponseClientResponseResult creates a ClientResponse holding a ClientResponseResult variant.
-func NewClientResponseClientResponseResult(v ClientResponseResult) ClientResponse {
-	return ClientResponse{variant: v}
+// NewClientResponseResult creates a ClientResponse holding a Result variant.
+func NewClientResponseResult(v ClientResponseResult) ClientResponse {
+	vv := ClientResponseResult(v)
+	return ClientResponse{Result: &vv}
 }
 
-// NewClientResponseClientResponseError creates a ClientResponse holding a ClientResponseError variant.
-func NewClientResponseClientResponseError(v ClientResponseError) ClientResponse {
-	return ClientResponse{variant: v}
+// NewClientResponseError creates a ClientResponse holding a Error variant.
+func NewClientResponseError(v ClientResponseError) ClientResponse {
+	vv := ClientResponseError(v)
+	return ClientResponse{Error: &vv}
+}
+
+type ElicitationContentValue struct {
+	String      *ElicitationContentValueString      `json:"-"`
+	Int64       *ElicitationContentValueInt64       `json:"-"`
+	Float64     *ElicitationContentValueFloat64     `json:"-"`
+	Bool        *ElicitationContentValueBool        `json:"-"`
+	StringArray *ElicitationContentValueStringArray `json:"-"`
+}
+
+type ElicitationContentValueString string
+
+type ElicitationContentValueInt64 int64
+
+type ElicitationContentValueFloat64 float64
+
+type ElicitationContentValueBool bool
+
+type ElicitationContentValueStringArray []string
+
+func NewElicitationContentValueString(v string) ElicitationContentValue {
+	vv := ElicitationContentValueString(v)
+	return ElicitationContentValue{String: &vv}
+}
+
+func NewElicitationContentValueInt64(v int64) ElicitationContentValue {
+	vv := ElicitationContentValueInt64(v)
+	return ElicitationContentValue{Int64: &vv}
+}
+
+func NewElicitationContentValueFloat64(v float64) ElicitationContentValue {
+	vv := ElicitationContentValueFloat64(v)
+	return ElicitationContentValue{Float64: &vv}
+}
+
+func NewElicitationContentValueBool(v bool) ElicitationContentValue {
+	vv := ElicitationContentValueBool(v)
+	return ElicitationContentValue{Bool: &vv}
+}
+
+func NewElicitationContentValueStringArray(v []string) ElicitationContentValue {
+	vv := ElicitationContentValueStringArray(v)
+	return ElicitationContentValue{StringArray: &vv}
+}
+
+func (v ElicitationContentValue) MarshalJSON() ([]byte, error) {
+	if v.String != nil {
+		return json.Marshal(*v.String)
+	}
+	if v.Int64 != nil {
+		return json.Marshal(*v.Int64)
+	}
+	if v.Float64 != nil {
+		return json.Marshal(*v.Float64)
+	}
+	if v.Bool != nil {
+		return json.Marshal(*v.Bool)
+	}
+	if v.StringArray != nil {
+		return json.Marshal(*v.StringArray)
+	}
+	return nil, fmt.Errorf("no variant is set for ElicitationContentValue")
+}
+
+func (v *ElicitationContentValue) UnmarshalJSON(data []byte) error {
+	*v = ElicitationContentValue{}
+	{
+		var candidate string
+		if err := json.Unmarshal(data, &candidate); err == nil {
+			vv := ElicitationContentValueString(candidate)
+			v.String = &vv
+			return nil
+		}
+	}
+	{
+		var candidate int64
+		if err := json.Unmarshal(data, &candidate); err == nil {
+			vv := ElicitationContentValueInt64(candidate)
+			v.Int64 = &vv
+			return nil
+		}
+	}
+	{
+		var candidate float64
+		if err := json.Unmarshal(data, &candidate); err == nil {
+			vv := ElicitationContentValueFloat64(candidate)
+			v.Float64 = &vv
+			return nil
+		}
+	}
+	{
+		var candidate bool
+		if err := json.Unmarshal(data, &candidate); err == nil {
+			vv := ElicitationContentValueBool(candidate)
+			v.Bool = &vv
+			return nil
+		}
+	}
+	{
+		var candidate []string
+		if err := json.Unmarshal(data, &candidate); err == nil {
+			vv := ElicitationContentValueStringArray(candidate)
+			v.StringArray = &vv
+			return nil
+		}
+	}
+	return fmt.Errorf("data does not match any primitive variant of ElicitationContentValue")
+}
+
+func (v ElicitationContentValue) AsString() (string, bool) {
+	if v.String == nil {
+		var zero string
+		return zero, false
+	}
+	return string(*v.String), true
+}
+
+func (v ElicitationContentValue) AsInt64() (int64, bool) {
+	if v.Int64 == nil {
+		var zero int64
+		return zero, false
+	}
+	return int64(*v.Int64), true
+}
+
+func (v ElicitationContentValue) AsFloat64() (float64, bool) {
+	if v.Float64 == nil {
+		var zero float64
+		return zero, false
+	}
+	return float64(*v.Float64), true
+}
+
+func (v ElicitationContentValue) AsBool() (bool, bool) {
+	if v.Bool == nil {
+		var zero bool
+		return zero, false
+	}
+	return bool(*v.Bool), true
+}
+
+func (v ElicitationContentValue) AsStringArray() ([]string, bool) {
+	if v.StringArray == nil {
+		var zero []string
+		return zero, false
+	}
+	return []string(*v.StringArray), true
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Form-based elicitation mode where the client renders a form from the provided schema.
+type ElicitationFormMode struct {
+	ElicitationSessionScope *ElicitationSessionScope `json:"-"`
+	ElicitationRequestScope *ElicitationRequestScope `json:"-"`
+}
+
+func (e ElicitationFormMode) MarshalJSON() ([]byte, error) {
+	if e.ElicitationSessionScope != nil {
+		return json.Marshal(*e.ElicitationSessionScope)
+	}
+	if e.ElicitationRequestScope != nil {
+		return json.Marshal(*e.ElicitationRequestScope)
+	}
+	return nil, fmt.Errorf("no variant is set for ElicitationFormMode")
+}
+func (e *ElicitationFormMode) UnmarshalJSON(data []byte) error {
+	*e = ElicitationFormMode{}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err == nil {
+		if _, ok := keys["sessionId"]; ok {
+			var v0 ElicitationSessionScope
+			if err := json.Unmarshal(data, &v0); err != nil {
+				return err
+			}
+			e.ElicitationSessionScope = &v0
+			return nil
+		}
+		if _, ok := keys["requestId"]; ok {
+			var v1 ElicitationRequestScope
+			if err := json.Unmarshal(data, &v1); err != nil {
+				return err
+			}
+			e.ElicitationRequestScope = &v1
+			return nil
+		}
+	}
+	{
+		var vf0 ElicitationSessionScope
+		if err := json.Unmarshal(data, &vf0); err == nil {
+			e.ElicitationSessionScope = &vf0
+			return nil
+		}
+	}
+	{
+		var vf1 ElicitationRequestScope
+		if err := json.Unmarshal(data, &vf1); err == nil {
+			e.ElicitationRequestScope = &vf1
+			return nil
+		}
+	}
+	return fmt.Errorf("data does not match any variant of ElicitationFormMode")
+}
+func (e *ElicitationFormMode) AsElicitationSessionScope() (ElicitationSessionScope, bool) {
+	if e.ElicitationSessionScope == nil {
+		var zero ElicitationSessionScope
+		return zero, false
+	}
+	return ElicitationSessionScope(*e.ElicitationSessionScope), true
+}
+func (e *ElicitationFormMode) AsElicitationRequestScope() (ElicitationRequestScope, bool) {
+	if e.ElicitationRequestScope == nil {
+		var zero ElicitationRequestScope
+		return zero, false
+	}
+	return ElicitationRequestScope(*e.ElicitationRequestScope), true
+}
+
+// NewElicitationFormModeElicitationSessionScope creates a ElicitationFormMode holding a ElicitationSessionScope variant.
+func NewElicitationFormModeElicitationSessionScope(v ElicitationSessionScope) ElicitationFormMode {
+	vv := ElicitationSessionScope(v)
+	return ElicitationFormMode{ElicitationSessionScope: &vv}
+}
+
+// NewElicitationFormModeElicitationRequestScope creates a ElicitationFormMode holding a ElicitationRequestScope variant.
+func NewElicitationFormModeElicitationRequestScope(v ElicitationRequestScope) ElicitationFormMode {
+	vv := ElicitationRequestScope(v)
+	return ElicitationFormMode{ElicitationRequestScope: &vv}
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Unique identifier for an elicitation.
+type ElicitationID string
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// URL-based elicitation mode where the client directs the user to a URL.
+type ElicitationURLMode struct {
+	ElicitationSessionScope *ElicitationSessionScope `json:"-"`
+	ElicitationRequestScope *ElicitationRequestScope `json:"-"`
+}
+
+func (e ElicitationURLMode) MarshalJSON() ([]byte, error) {
+	if e.ElicitationSessionScope != nil {
+		return json.Marshal(*e.ElicitationSessionScope)
+	}
+	if e.ElicitationRequestScope != nil {
+		return json.Marshal(*e.ElicitationRequestScope)
+	}
+	return nil, fmt.Errorf("no variant is set for ElicitationURLMode")
+}
+func (e *ElicitationURLMode) UnmarshalJSON(data []byte) error {
+	*e = ElicitationURLMode{}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err == nil {
+		if _, ok := keys["sessionId"]; ok {
+			var v0 ElicitationSessionScope
+			if err := json.Unmarshal(data, &v0); err != nil {
+				return err
+			}
+			e.ElicitationSessionScope = &v0
+			return nil
+		}
+		if _, ok := keys["requestId"]; ok {
+			var v1 ElicitationRequestScope
+			if err := json.Unmarshal(data, &v1); err != nil {
+				return err
+			}
+			e.ElicitationRequestScope = &v1
+			return nil
+		}
+	}
+	{
+		var vf0 ElicitationSessionScope
+		if err := json.Unmarshal(data, &vf0); err == nil {
+			e.ElicitationSessionScope = &vf0
+			return nil
+		}
+	}
+	{
+		var vf1 ElicitationRequestScope
+		if err := json.Unmarshal(data, &vf1); err == nil {
+			e.ElicitationRequestScope = &vf1
+			return nil
+		}
+	}
+	return fmt.Errorf("data does not match any variant of ElicitationURLMode")
+}
+func (e *ElicitationURLMode) AsElicitationSessionScope() (ElicitationSessionScope, bool) {
+	if e.ElicitationSessionScope == nil {
+		var zero ElicitationSessionScope
+		return zero, false
+	}
+	return ElicitationSessionScope(*e.ElicitationSessionScope), true
+}
+func (e *ElicitationURLMode) AsElicitationRequestScope() (ElicitationRequestScope, bool) {
+	if e.ElicitationRequestScope == nil {
+		var zero ElicitationRequestScope
+		return zero, false
+	}
+	return ElicitationRequestScope(*e.ElicitationRequestScope), true
+}
+
+// NewElicitationURLModeElicitationSessionScope creates a ElicitationURLMode holding a ElicitationSessionScope variant.
+func NewElicitationURLModeElicitationSessionScope(v ElicitationSessionScope) ElicitationURLMode {
+	vv := ElicitationSessionScope(v)
+	return ElicitationURLMode{ElicitationSessionScope: &vv}
+}
+
+// NewElicitationURLModeElicitationRequestScope creates a ElicitationURLMode holding a ElicitationRequestScope variant.
+func NewElicitationURLModeElicitationRequestScope(v ElicitationRequestScope) ElicitationURLMode {
+	vv := ElicitationRequestScope(v)
+	return ElicitationURLMode{ElicitationRequestScope: &vv}
 }
 
 // Resource content that can be embedded in a message.
-func (TextResourceContents) isEmbeddedResourceResourceVariant() {}
-func (BlobResourceContents) isEmbeddedResourceResourceVariant() {}
-
-type embeddedResourceResourceVariant interface{ isEmbeddedResourceResourceVariant() }
-
 type EmbeddedResourceResource struct {
-	variant embeddedResourceResourceVariant
+	TextResourceContents *TextResourceContents `json:"-"`
+	BlobResourceContents *BlobResourceContents `json:"-"`
 }
 
 func (e EmbeddedResourceResource) MarshalJSON() ([]byte, error) {
-	if e.variant == nil {
-		return nil, fmt.Errorf("no variant is set for EmbeddedResourceResource")
+	if e.TextResourceContents != nil {
+		return json.Marshal(*e.TextResourceContents)
 	}
-	return json.Marshal(e.variant)
+	if e.BlobResourceContents != nil {
+		return json.Marshal(*e.BlobResourceContents)
+	}
+	return nil, fmt.Errorf("no variant is set for EmbeddedResourceResource")
 }
 func (e *EmbeddedResourceResource) UnmarshalJSON(data []byte) error {
+	*e = EmbeddedResourceResource{}
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(data, &keys); err == nil {
 		if _, ok := keys["text"]; ok {
@@ -2028,7 +4820,7 @@ func (e *EmbeddedResourceResource) UnmarshalJSON(data []byte) error {
 			if err := json.Unmarshal(data, &v0); err != nil {
 				return err
 			}
-			e.variant = v0
+			e.TextResourceContents = &v0
 			return nil
 		}
 		if _, ok := keys["blob"]; ok {
@@ -2036,43 +4828,137 @@ func (e *EmbeddedResourceResource) UnmarshalJSON(data []byte) error {
 			if err := json.Unmarshal(data, &v1); err != nil {
 				return err
 			}
-			e.variant = v1
+			e.BlobResourceContents = &v1
 			return nil
 		}
 	}
 	{
 		var vf0 TextResourceContents
 		if err := json.Unmarshal(data, &vf0); err == nil {
-			e.variant = vf0
+			e.TextResourceContents = &vf0
 			return nil
 		}
 	}
 	{
 		var vf1 BlobResourceContents
 		if err := json.Unmarshal(data, &vf1); err == nil {
-			e.variant = vf1
+			e.BlobResourceContents = &vf1
 			return nil
 		}
 	}
 	return fmt.Errorf("data does not match any variant of EmbeddedResourceResource")
 }
 func (e *EmbeddedResourceResource) AsTextResourceContents() (TextResourceContents, bool) {
-	v, ok := e.variant.(TextResourceContents)
-	return v, ok
+	if e.TextResourceContents == nil {
+		var zero TextResourceContents
+		return zero, false
+	}
+	return TextResourceContents(*e.TextResourceContents), true
 }
 func (e *EmbeddedResourceResource) AsBlobResourceContents() (BlobResourceContents, bool) {
-	v, ok := e.variant.(BlobResourceContents)
-	return v, ok
+	if e.BlobResourceContents == nil {
+		var zero BlobResourceContents
+		return zero, false
+	}
+	return BlobResourceContents(*e.BlobResourceContents), true
 }
 
 // NewEmbeddedResourceResourceTextResourceContents creates a EmbeddedResourceResource holding a TextResourceContents variant.
 func NewEmbeddedResourceResourceTextResourceContents(v TextResourceContents) EmbeddedResourceResource {
-	return EmbeddedResourceResource{variant: v}
+	vv := TextResourceContents(v)
+	return EmbeddedResourceResource{TextResourceContents: &vv}
 }
 
 // NewEmbeddedResourceResourceBlobResourceContents creates a EmbeddedResourceResource holding a BlobResourceContents variant.
 func NewEmbeddedResourceResourceBlobResourceContents(v BlobResourceContents) EmbeddedResourceResource {
-	return EmbeddedResourceResource{variant: v}
+	vv := BlobResourceContents(v)
+	return EmbeddedResourceResource{BlobResourceContents: &vv}
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// A unique identifier for a model.
+type ModelID string
+
+// Items for a multi-select (array) property schema.
+type MultiSelectItems struct {
+	UntitledMultiSelectItems *UntitledMultiSelectItems `json:"-"`
+	TitledMultiSelectItems   *TitledMultiSelectItems   `json:"-"`
+}
+
+func (m MultiSelectItems) MarshalJSON() ([]byte, error) {
+	if m.UntitledMultiSelectItems != nil {
+		return json.Marshal(*m.UntitledMultiSelectItems)
+	}
+	if m.TitledMultiSelectItems != nil {
+		return json.Marshal(*m.TitledMultiSelectItems)
+	}
+	return nil, fmt.Errorf("no variant is set for MultiSelectItems")
+}
+func (m *MultiSelectItems) UnmarshalJSON(data []byte) error {
+	*m = MultiSelectItems{}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err == nil {
+		if _, ok := keys["enum"]; ok {
+			var v0 UntitledMultiSelectItems
+			if err := json.Unmarshal(data, &v0); err != nil {
+				return err
+			}
+			m.UntitledMultiSelectItems = &v0
+			return nil
+		}
+		if _, ok := keys["anyOf"]; ok {
+			var v1 TitledMultiSelectItems
+			if err := json.Unmarshal(data, &v1); err != nil {
+				return err
+			}
+			m.TitledMultiSelectItems = &v1
+			return nil
+		}
+	}
+	{
+		var vf0 UntitledMultiSelectItems
+		if err := json.Unmarshal(data, &vf0); err == nil {
+			m.UntitledMultiSelectItems = &vf0
+			return nil
+		}
+	}
+	{
+		var vf1 TitledMultiSelectItems
+		if err := json.Unmarshal(data, &vf1); err == nil {
+			m.TitledMultiSelectItems = &vf1
+			return nil
+		}
+	}
+	return fmt.Errorf("data does not match any variant of MultiSelectItems")
+}
+func (m *MultiSelectItems) AsUntitledMultiSelectItems() (UntitledMultiSelectItems, bool) {
+	if m.UntitledMultiSelectItems == nil {
+		var zero UntitledMultiSelectItems
+		return zero, false
+	}
+	return UntitledMultiSelectItems(*m.UntitledMultiSelectItems), true
+}
+func (m *MultiSelectItems) AsTitledMultiSelectItems() (TitledMultiSelectItems, bool) {
+	if m.TitledMultiSelectItems == nil {
+		var zero TitledMultiSelectItems
+		return zero, false
+	}
+	return TitledMultiSelectItems(*m.TitledMultiSelectItems), true
+}
+
+// NewMultiSelectItemsUntitledMultiSelectItems creates a MultiSelectItems holding a UntitledMultiSelectItems variant.
+func NewMultiSelectItemsUntitledMultiSelectItems(v UntitledMultiSelectItems) MultiSelectItems {
+	vv := UntitledMultiSelectItems(v)
+	return MultiSelectItems{UntitledMultiSelectItems: &vv}
+}
+
+// NewMultiSelectItemsTitledMultiSelectItems creates a MultiSelectItems holding a TitledMultiSelectItems variant.
+func NewMultiSelectItemsTitledMultiSelectItems(v TitledMultiSelectItems) MultiSelectItems {
+	vv := TitledMultiSelectItems(v)
+	return MultiSelectItems{TitledMultiSelectItems: &vv}
 }
 
 // Unique identifier for a permission option.
@@ -2094,91 +4980,92 @@ type ProtocolVersion int64
 //
 // [2] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
 type RequestID struct {
-	raw json.RawMessage
+	Null   *RequestIDNull   `json:"-"`
+	Int64  *RequestIDInt64  `json:"-"`
+	String *RequestIDString `json:"-"`
 }
 
+type RequestIDNull struct{}
+
+type RequestIDInt64 int64
+
+type RequestIDString string
+
 func NewRequestIDNull() RequestID {
-	return RequestID{raw: json.RawMessage(`null`)}
+	v := RequestIDNull{}
+	return RequestID{Null: &v}
 }
 
 func NewRequestIDInt64(v int64) RequestID {
-	data, err := json.Marshal(v)
-	if err != nil {
-		// Marshal should never fail for primitive types; panic only if it does
-		panic(err)
-	}
-	return RequestID{raw: data}
+	vv := RequestIDInt64(v)
+	return RequestID{Int64: &vv}
 }
 
 func NewRequestIDString(v string) RequestID {
-	data, err := json.Marshal(v)
-	if err != nil {
-		// Marshal should never fail for primitive types; panic only if it does
-		panic(err)
-	}
-	return RequestID{raw: data}
+	vv := RequestIDString(v)
+	return RequestID{String: &vv}
 }
 
 func (v RequestID) MarshalJSON() ([]byte, error) {
-	if len(v.raw) == 0 {
-		return []byte(`null`), nil
+	if v.Null != nil {
+		return json.Marshal(nil)
 	}
-	return v.raw, nil
+	if v.Int64 != nil {
+		return json.Marshal(*v.Int64)
+	}
+	if v.String != nil {
+		return json.Marshal(*v.String)
+	}
+	return nil, fmt.Errorf("no variant is set for RequestID")
 }
 
 func (v *RequestID) UnmarshalJSON(data []byte) error {
+	*v = RequestID{}
 	{
 		var candidate any
 		if err := json.Unmarshal(data, &candidate); err == nil && candidate == nil {
-			v.raw = append(v.raw[:0], data...)
+			vv := RequestIDNull{}
+			v.Null = &vv
 			return nil
 		}
 	}
 	{
 		var candidate int64
 		if err := json.Unmarshal(data, &candidate); err == nil {
-			v.raw = append(v.raw[:0], data...)
+			vv := RequestIDInt64(candidate)
+			v.Int64 = &vv
 			return nil
 		}
 	}
 	{
 		var candidate string
 		if err := json.Unmarshal(data, &candidate); err == nil {
-			v.raw = append(v.raw[:0], data...)
+			vv := RequestIDString(candidate)
+			v.String = &vv
 			return nil
 		}
 	}
 	return fmt.Errorf("data does not match any primitive variant of RequestID")
 }
 
-func (v RequestID) Raw() json.RawMessage {
-	if len(v.raw) == 0 {
-		return json.RawMessage(`null`)
-	}
-	return append(json.RawMessage(nil), v.raw...)
-}
-
 func (v RequestID) IsNull() bool {
-	var candidate any
-	return len(v.raw) > 0 && json.Unmarshal(v.raw, &candidate) == nil && candidate == nil
+	return v.Null != nil
 }
 
 func (v RequestID) AsInt64() (int64, bool) {
-	var candidate int64
-	if len(v.raw) == 0 || json.Unmarshal(v.raw, &candidate) != nil {
+	if v.Int64 == nil {
 		var zero int64
 		return zero, false
 	}
-	return candidate, true
+	return int64(*v.Int64), true
 }
 
 func (v RequestID) AsString() (string, bool) {
-	var candidate string
-	if len(v.raw) == 0 || json.Unmarshal(v.raw, &candidate) != nil {
+	if v.String == nil {
 		var zero string
 		return zero, false
 	}
-	return candidate, true
+	return string(*v.String), true
 }
 
 // Unique identifier for a session configuration option value group.
@@ -2192,23 +5079,22 @@ type SessionConfigSelectOptionsSessionConfigSelectOptionList []SessionConfigSele
 
 type SessionConfigSelectOptionsSessionConfigSelectGroupList []SessionConfigSelectGroup
 
-func (SessionConfigSelectOptionsSessionConfigSelectOptionList) isSessionConfigSelectOptionsVariant() {
-}
-func (SessionConfigSelectOptionsSessionConfigSelectGroupList) isSessionConfigSelectOptionsVariant() {}
-
-type sessionConfigSelectOptionsVariant interface{ isSessionConfigSelectOptionsVariant() }
-
 type SessionConfigSelectOptions struct {
-	variant sessionConfigSelectOptionsVariant
+	SessionConfigSelectOptionList *SessionConfigSelectOptionsSessionConfigSelectOptionList `json:"-"`
+	SessionConfigSelectGroupList  *SessionConfigSelectOptionsSessionConfigSelectGroupList  `json:"-"`
 }
 
 func (s SessionConfigSelectOptions) MarshalJSON() ([]byte, error) {
-	if s.variant == nil {
-		return nil, fmt.Errorf("no variant is set for SessionConfigSelectOptions")
+	if s.SessionConfigSelectOptionList != nil {
+		return json.Marshal(*s.SessionConfigSelectOptionList)
 	}
-	return json.Marshal(s.variant)
+	if s.SessionConfigSelectGroupList != nil {
+		return json.Marshal(*s.SessionConfigSelectGroupList)
+	}
+	return nil, fmt.Errorf("no variant is set for SessionConfigSelectOptions")
 }
 func (s *SessionConfigSelectOptions) UnmarshalJSON(data []byte) error {
+	*s = SessionConfigSelectOptions{}
 	var items []map[string]json.RawMessage
 	if err := json.Unmarshal(data, &items); err == nil && len(items) > 0 {
 		if _, ok := items[0]["value"]; ok {
@@ -2216,7 +5102,7 @@ func (s *SessionConfigSelectOptions) UnmarshalJSON(data []byte) error {
 			if err := json.Unmarshal(data, &va0); err != nil {
 				return err
 			}
-			s.variant = va0
+			s.SessionConfigSelectOptionList = &va0
 			return nil
 		}
 		if _, ok := items[0]["group"]; ok {
@@ -2224,43 +5110,51 @@ func (s *SessionConfigSelectOptions) UnmarshalJSON(data []byte) error {
 			if err := json.Unmarshal(data, &va1); err != nil {
 				return err
 			}
-			s.variant = va1
+			s.SessionConfigSelectGroupList = &va1
 			return nil
 		}
 	}
 	{
 		var vf0 SessionConfigSelectOptionsSessionConfigSelectOptionList
 		if err := json.Unmarshal(data, &vf0); err == nil {
-			s.variant = vf0
+			s.SessionConfigSelectOptionList = &vf0
 			return nil
 		}
 	}
 	{
 		var vf1 SessionConfigSelectOptionsSessionConfigSelectGroupList
 		if err := json.Unmarshal(data, &vf1); err == nil {
-			s.variant = vf1
+			s.SessionConfigSelectGroupList = &vf1
 			return nil
 		}
 	}
 	return fmt.Errorf("data does not match any variant of SessionConfigSelectOptions")
 }
-func (s *SessionConfigSelectOptions) AsSessionConfigSelectOptionList() (SessionConfigSelectOptionsSessionConfigSelectOptionList, bool) {
-	v, ok := s.variant.(SessionConfigSelectOptionsSessionConfigSelectOptionList)
-	return v, ok
+func (s *SessionConfigSelectOptions) AsSessionConfigSelectOptionList() ([]SessionConfigSelectOption, bool) {
+	if s.SessionConfigSelectOptionList == nil {
+		var zero []SessionConfigSelectOption
+		return zero, false
+	}
+	return []SessionConfigSelectOption(*s.SessionConfigSelectOptionList), true
 }
-func (s *SessionConfigSelectOptions) AsSessionConfigSelectGroupList() (SessionConfigSelectOptionsSessionConfigSelectGroupList, bool) {
-	v, ok := s.variant.(SessionConfigSelectOptionsSessionConfigSelectGroupList)
-	return v, ok
+func (s *SessionConfigSelectOptions) AsSessionConfigSelectGroupList() ([]SessionConfigSelectGroup, bool) {
+	if s.SessionConfigSelectGroupList == nil {
+		var zero []SessionConfigSelectGroup
+		return zero, false
+	}
+	return []SessionConfigSelectGroup(*s.SessionConfigSelectGroupList), true
 }
 
 // NewSessionConfigSelectOptionsSessionConfigSelectOptionList creates a SessionConfigSelectOptions holding a SessionConfigSelectOptionList variant.
 func NewSessionConfigSelectOptionsSessionConfigSelectOptionList(v []SessionConfigSelectOption) SessionConfigSelectOptions {
-	return SessionConfigSelectOptions{variant: SessionConfigSelectOptionsSessionConfigSelectOptionList(v)}
+	vv := SessionConfigSelectOptionsSessionConfigSelectOptionList(v)
+	return SessionConfigSelectOptions{SessionConfigSelectOptionList: &vv}
 }
 
 // NewSessionConfigSelectOptionsSessionConfigSelectGroupList creates a SessionConfigSelectOptions holding a SessionConfigSelectGroupList variant.
 func NewSessionConfigSelectOptionsSessionConfigSelectGroupList(v []SessionConfigSelectGroup) SessionConfigSelectOptions {
-	return SessionConfigSelectOptions{variant: SessionConfigSelectOptionsSessionConfigSelectGroupList(v)}
+	vv := SessionConfigSelectOptionsSessionConfigSelectGroupList(v)
+	return SessionConfigSelectOptions{SessionConfigSelectGroupList: &vv}
 }
 
 // Unique identifier for a session configuration option value.
@@ -2301,6 +5195,13 @@ type ExtRequest = json.RawMessage
 // See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
 type ExtResponse = json.RawMessage
 
+func (v *AcceptNesNotification) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	return nil
+}
+
 func (v *AudioContent) Validate() error {
 	if v.Data == "" {
 		return fmt.Errorf("data is required")
@@ -2311,7 +5212,37 @@ func (v *AudioContent) Validate() error {
 	return nil
 }
 
+func (v *AuthEnvVar) Validate() error {
+	if v.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	return nil
+}
+
 func (v *AuthMethodAgent) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if v.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	return nil
+}
+
+func (v *AuthMethodEnvVar) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if v.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if v.Vars == nil {
+		return fmt.Errorf("vars is required")
+	}
+	return nil
+}
+
+func (v *AuthMethodTerminal) Validate() error {
 	if v.ID == "" {
 		return fmt.Errorf("id is required")
 	}
@@ -2363,9 +5294,40 @@ func (v *CancelNotification) Validate() error {
 	return nil
 }
 
+func (v *CancelRequestNotification) Validate() error {
+	return nil
+}
+
+func (v *CloseNesRequest) Validate() error {
+	return nil
+}
+
+func (v *CloseNesResponse) Validate() error {
+	return nil
+}
+
+func (v *CloseSessionRequest) Validate() error {
+	return nil
+}
+
+func (v *CloseSessionResponse) Validate() error {
+	return nil
+}
+
+func (v *CompleteElicitationNotification) Validate() error {
+	return nil
+}
+
 func (v *ConfigOptionUpdate) Validate() error {
 	if v.ConfigOptions == nil {
 		return fmt.Errorf("configOptions is required")
+	}
+	return nil
+}
+
+func (v *Cost) Validate() error {
+	if v.Currency == "" {
+		return fmt.Errorf("currency is required")
 	}
 	return nil
 }
@@ -2384,12 +5346,77 @@ func (v *CreateTerminalResponse) Validate() error {
 	return nil
 }
 
+func (v *DidChangeDocumentNotification) Validate() error {
+	if v.ContentChanges == nil {
+		return fmt.Errorf("contentChanges is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *DidCloseDocumentNotification) Validate() error {
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *DidFocusDocumentNotification) Validate() error {
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *DidOpenDocumentNotification) Validate() error {
+	if v.LanguageID == "" {
+		return fmt.Errorf("languageId is required")
+	}
+	if v.Text == "" {
+		return fmt.Errorf("text is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *DidSaveDocumentNotification) Validate() error {
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
 func (v *Diff) Validate() error {
 	if v.NewText == "" {
 		return fmt.Errorf("newText is required")
 	}
 	if v.Path == "" {
 		return fmt.Errorf("path is required")
+	}
+	return nil
+}
+
+func (v *DisableProvidersRequest) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	return nil
+}
+
+func (v *DisableProvidersResponse) Validate() error {
+	return nil
+}
+
+func (v *EnumOption) Validate() error {
+	if v.Const == "" {
+		return fmt.Errorf("const is required")
+	}
+	if v.Title == "" {
+		return fmt.Errorf("title is required")
 	}
 	return nil
 }
@@ -2408,6 +5435,17 @@ func (v *Error) Validate() error {
 	if v.Message == "" {
 		return fmt.Errorf("message is required")
 	}
+	return nil
+}
+
+func (v *ForkSessionRequest) Validate() error {
+	if v.Cwd == "" {
+		return fmt.Errorf("cwd is required")
+	}
+	return nil
+}
+
+func (v *ForkSessionResponse) Validate() error {
 	return nil
 }
 
@@ -2460,6 +5498,17 @@ func (v *KillTerminalResponse) Validate() error {
 	return nil
 }
 
+func (v *ListProvidersRequest) Validate() error {
+	return nil
+}
+
+func (v *ListProvidersResponse) Validate() error {
+	if v.Providers == nil {
+		return fmt.Errorf("providers is required")
+	}
+	return nil
+}
+
 func (v *ListSessionsRequest) Validate() error {
 	return nil
 }
@@ -2482,6 +5531,14 @@ func (v *LoadSessionRequest) Validate() error {
 }
 
 func (v *LoadSessionResponse) Validate() error {
+	return nil
+}
+
+func (v *LogoutRequest) Validate() error {
+	return nil
+}
+
+func (v *LogoutResponse) Validate() error {
 	return nil
 }
 
@@ -2523,6 +5580,155 @@ func (v *MCPServerStdio) Validate() error {
 	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
+	}
+	return nil
+}
+
+func (v *ModelInfo) Validate() error {
+	if v.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	return nil
+}
+
+func (v *NesDiagnostic) Validate() error {
+	if v.Message == "" {
+		return fmt.Errorf("message is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *NesEditHistoryEntry) Validate() error {
+	if v.Diff == "" {
+		return fmt.Errorf("diff is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *NesEditSuggestion) Validate() error {
+	if v.Edits == nil {
+		return fmt.Errorf("edits is required")
+	}
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *NesExcerpt) Validate() error {
+	if v.Text == "" {
+		return fmt.Errorf("text is required")
+	}
+	return nil
+}
+
+func (v *NesJumpSuggestion) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *NesOpenFile) Validate() error {
+	if v.LanguageID == "" {
+		return fmt.Errorf("languageId is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *NesRecentFile) Validate() error {
+	if v.LanguageID == "" {
+		return fmt.Errorf("languageId is required")
+	}
+	if v.Text == "" {
+		return fmt.Errorf("text is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *NesRelatedSnippet) Validate() error {
+	if v.Excerpts == nil {
+		return fmt.Errorf("excerpts is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *NesRenameSuggestion) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if v.NewName == "" {
+		return fmt.Errorf("newName is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *NesRepository) Validate() error {
+	if v.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if v.Owner == "" {
+		return fmt.Errorf("owner is required")
+	}
+	if v.RemoteURL == "" {
+		return fmt.Errorf("remoteUrl is required")
+	}
+	return nil
+}
+
+func (v *NesSearchAndReplaceSuggestion) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if v.Replace == "" {
+		return fmt.Errorf("replace is required")
+	}
+	if v.Search == "" {
+		return fmt.Errorf("search is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *NesTextEdit) Validate() error {
+	if v.NewText == "" {
+		return fmt.Errorf("newText is required")
+	}
+	return nil
+}
+
+func (v *NesUserAction) Validate() error {
+	if v.Action == "" {
+		return fmt.Errorf("action is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
 	}
 	return nil
 }
@@ -2573,6 +5779,23 @@ func (v *PromptResponse) Validate() error {
 	return nil
 }
 
+func (v *ProviderCurrentConfig) Validate() error {
+	if v.BaseURL == "" {
+		return fmt.Errorf("baseUrl is required")
+	}
+	return nil
+}
+
+func (v *ProviderInfo) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if v.Supported == nil {
+		return fmt.Errorf("supported is required")
+	}
+	return nil
+}
+
 func (v *ReadTextFileRequest) Validate() error {
 	if v.Path == "" {
 		return fmt.Errorf("path is required")
@@ -2583,6 +5806,13 @@ func (v *ReadTextFileRequest) Validate() error {
 func (v *ReadTextFileResponse) Validate() error {
 	if v.Content == "" {
 		return fmt.Errorf("content is required")
+	}
+	return nil
+}
+
+func (v *RejectNesNotification) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
 	}
 	return nil
 }
@@ -2616,6 +5846,17 @@ func (v *ResourceLink) Validate() error {
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
 	}
+	return nil
+}
+
+func (v *ResumeSessionRequest) Validate() error {
+	if v.Cwd == "" {
+		return fmt.Errorf("cwd is required")
+	}
+	return nil
+}
+
+func (v *ResumeSessionResponse) Validate() error {
 	return nil
 }
 
@@ -2657,11 +5898,28 @@ func (v *SessionModeState) Validate() error {
 	return nil
 }
 
+func (v *SessionModelState) Validate() error {
+	if v.AvailableModels == nil {
+		return fmt.Errorf("availableModels is required")
+	}
+	return nil
+}
+
 func (v *SessionNotification) Validate() error {
 	return nil
 }
 
-func (v *SetSessionConfigOptionRequest) Validate() error {
+func (v *SetProvidersRequest) Validate() error {
+	if v.BaseURL == "" {
+		return fmt.Errorf("baseUrl is required")
+	}
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	return nil
+}
+
+func (v *SetProvidersResponse) Validate() error {
 	return nil
 }
 
@@ -2677,6 +5935,36 @@ func (v *SetSessionModeRequest) Validate() error {
 }
 
 func (v *SetSessionModeResponse) Validate() error {
+	return nil
+}
+
+func (v *SetSessionModelRequest) Validate() error {
+	return nil
+}
+
+func (v *SetSessionModelResponse) Validate() error {
+	return nil
+}
+
+func (v *StartNesRequest) Validate() error {
+	return nil
+}
+
+func (v *StartNesResponse) Validate() error {
+	return nil
+}
+
+func (v *SuggestNesRequest) Validate() error {
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *SuggestNesResponse) Validate() error {
+	if v.Suggestions == nil {
+		return fmt.Errorf("suggestions is required")
+	}
 	return nil
 }
 
@@ -2708,12 +5996,26 @@ func (v *TextContent) Validate() error {
 	return nil
 }
 
+func (v *TextDocumentContentChangeEvent) Validate() error {
+	if v.Text == "" {
+		return fmt.Errorf("text is required")
+	}
+	return nil
+}
+
 func (v *TextResourceContents) Validate() error {
 	if v.Text == "" {
 		return fmt.Errorf("text is required")
 	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *TitledMultiSelectItems) Validate() error {
+	if v.AnyOf == nil {
+		return fmt.Errorf("anyOf is required")
 	}
 	return nil
 }
@@ -2739,6 +6041,13 @@ func (v *UnstructuredCommandInput) Validate() error {
 	return nil
 }
 
+func (v *UntitledMultiSelectItems) Validate() error {
+	if v.Enum == nil {
+		return fmt.Errorf("enum is required")
+	}
+	return nil
+}
+
 func (v *WaitForTerminalExitRequest) Validate() error {
 	if v.TerminalID == "" {
 		return fmt.Errorf("terminalId is required")
@@ -2747,6 +6056,16 @@ func (v *WaitForTerminalExitRequest) Validate() error {
 }
 
 func (v *WaitForTerminalExitResponse) Validate() error {
+	return nil
+}
+
+func (v *WorkspaceFolder) Validate() error {
+	if v.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
 	return nil
 }
 
@@ -2772,6 +6091,9 @@ func (v *AgentCapabilities) UnmarshalJSON(data []byte) error {
 	}
 	var raw map[string]json.RawMessage
 	_ = json.Unmarshal(data, &raw)
+	if rm, ok := raw["auth"]; !ok || string(rm) == "null" {
+		_ = json.Unmarshal([]byte("{}"), &a.Auth)
+	}
 	if rm, ok := raw["loadSession"]; !ok || string(rm) == "null" {
 		_ = json.Unmarshal([]byte("false"), &a.LoadSession)
 	}
@@ -2788,6 +6110,39 @@ func (v *AgentCapabilities) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (v *AuthCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias AuthCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	_ = json.Unmarshal(data, &raw)
+	if rm, ok := raw["terminal"]; !ok || string(rm) == "null" {
+		_ = json.Unmarshal([]byte("false"), &a.Terminal)
+	}
+	*v = AuthCapabilities(a)
+	return nil
+}
+
+func (v *AuthEnvVar) UnmarshalJSON(data []byte) error {
+	type Alias AuthEnvVar
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	_ = json.Unmarshal(data, &raw)
+	if rm, ok := raw["optional"]; !ok || string(rm) == "null" {
+		_ = json.Unmarshal([]byte("false"), &a.Optional)
+	}
+	if rm, ok := raw["secret"]; !ok || string(rm) == "null" {
+		_ = json.Unmarshal([]byte("true"), &a.Secret)
+	}
+	*v = AuthEnvVar(a)
+	return nil
+}
+
 func (v *ClientCapabilities) UnmarshalJSON(data []byte) error {
 	type Alias ClientCapabilities
 	var a Alias
@@ -2796,6 +6151,9 @@ func (v *ClientCapabilities) UnmarshalJSON(data []byte) error {
 	}
 	var raw map[string]json.RawMessage
 	_ = json.Unmarshal(data, &raw)
+	if rm, ok := raw["auth"]; !ok || string(rm) == "null" {
+		_ = json.Unmarshal([]byte("{\"terminal\":false}"), &a.Auth)
+	}
 	if rm, ok := raw["fs"]; !ok || string(rm) == "null" {
 		_ = json.Unmarshal([]byte("{\"readTextFile\":false,\"writeTextFile\":false}"), &a.FS)
 	}
@@ -2803,6 +6161,24 @@ func (v *ClientCapabilities) UnmarshalJSON(data []byte) error {
 		_ = json.Unmarshal([]byte("false"), &a.Terminal)
 	}
 	*v = ClientCapabilities(a)
+	return nil
+}
+
+func (v *ElicitationSchema) UnmarshalJSON(data []byte) error {
+	type Alias ElicitationSchema
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	_ = json.Unmarshal(data, &raw)
+	if rm, ok := raw["properties"]; !ok || string(rm) == "null" {
+		_ = json.Unmarshal([]byte("{}"), &a.Properties)
+	}
+	if rm, ok := raw["type"]; !ok || string(rm) == "null" {
+		_ = json.Unmarshal([]byte("\"object\""), &a.Type)
+	}
+	*v = ElicitationSchema(a)
 	return nil
 }
 
@@ -2833,7 +6209,7 @@ func (v *InitializeRequest) UnmarshalJSON(data []byte) error {
 	var raw map[string]json.RawMessage
 	_ = json.Unmarshal(data, &raw)
 	if rm, ok := raw["clientCapabilities"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("{\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false}"), &a.ClientCapabilities)
+		_ = json.Unmarshal([]byte("{\"auth\":{\"terminal\":false},\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false}"), &a.ClientCapabilities)
 	}
 	*v = InitializeRequest(a)
 	return nil
@@ -2848,7 +6224,7 @@ func (v *InitializeResponse) UnmarshalJSON(data []byte) error {
 	var raw map[string]json.RawMessage
 	_ = json.Unmarshal(data, &raw)
 	if rm, ok := raw["agentCapabilities"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("{\"loadSession\":false,\"mcpCapabilities\":{\"http\":false,\"sse\":false},\"promptCapabilities\":{\"audio\":false,\"embeddedContext\":false,\"image\":false},\"sessionCapabilities\":{}}"), &a.AgentCapabilities)
+		_ = json.Unmarshal([]byte("{\"auth\":{},\"loadSession\":false,\"mcpCapabilities\":{\"http\":false,\"sse\":false},\"promptCapabilities\":{\"audio\":false,\"embeddedContext\":false,\"image\":false},\"sessionCapabilities\":{}}"), &a.AgentCapabilities)
 	}
 	if rm, ok := raw["authMethods"]; !ok || string(rm) == "null" {
 		_ = json.Unmarshal([]byte("[]"), &a.AuthMethods)
@@ -2904,18 +6280,38 @@ const (
 // AgentMethods method names
 var AgentMethods = struct {
 	Authenticate           string
+	DocumentDidChange      string
+	DocumentDidClose       string
+	DocumentDidFocus       string
+	DocumentDidOpen        string
+	DocumentDidSave        string
 	Initialize             string
+	Logout                 string
+	NesAccept              string
+	NesClose               string
+	NesReject              string
+	NesStart               string
+	NesSuggest             string
+	ProvidersDisable       string
+	ProvidersList          string
+	ProvidersSet           string
 	SessionCancel          string
+	SessionClose           string
+	SessionFork            string
 	SessionList            string
 	SessionLoad            string
 	SessionNew             string
 	SessionPrompt          string
+	SessionResume          string
 	SessionSetConfigOption string
 	SessionSetMode         string
-}{Authenticate: "authenticate", Initialize: "initialize", SessionCancel: "session/cancel", SessionList: "session/list", SessionLoad: "session/load", SessionNew: "session/new", SessionPrompt: "session/prompt", SessionSetConfigOption: "session/set_config_option", SessionSetMode: "session/set_mode"}
+	SessionSetModel        string
+}{Authenticate: "authenticate", DocumentDidChange: "document/didChange", DocumentDidClose: "document/didClose", DocumentDidFocus: "document/didFocus", DocumentDidOpen: "document/didOpen", DocumentDidSave: "document/didSave", Initialize: "initialize", Logout: "logout", NesAccept: "nes/accept", NesClose: "nes/close", NesReject: "nes/reject", NesStart: "nes/start", NesSuggest: "nes/suggest", ProvidersDisable: "providers/disable", ProvidersList: "providers/list", ProvidersSet: "providers/set", SessionCancel: "session/cancel", SessionClose: "session/close", SessionFork: "session/fork", SessionList: "session/list", SessionLoad: "session/load", SessionNew: "session/new", SessionPrompt: "session/prompt", SessionResume: "session/resume", SessionSetConfigOption: "session/set_config_option", SessionSetMode: "session/set_mode", SessionSetModel: "session/set_model"}
 
 // ClientMethods method names
 var ClientMethods = struct {
+	ElicitationComplete      string
+	ElicitationCreate        string
 	FSReadTextFile           string
 	FSWriteTextFile          string
 	SessionRequestPermission string
@@ -2925,4 +6321,4 @@ var ClientMethods = struct {
 	TerminalOutput           string
 	TerminalRelease          string
 	TerminalWaitForExit      string
-}{FSReadTextFile: "fs/read_text_file", FSWriteTextFile: "fs/write_text_file", SessionRequestPermission: "session/request_permission", SessionUpdate: "session/update", TerminalCreate: "terminal/create", TerminalKill: "terminal/kill", TerminalOutput: "terminal/output", TerminalRelease: "terminal/release", TerminalWaitForExit: "terminal/wait_for_exit"}
+}{ElicitationComplete: "elicitation/complete", ElicitationCreate: "elicitation/create", FSReadTextFile: "fs/read_text_file", FSWriteTextFile: "fs/write_text_file", SessionRequestPermission: "session/request_permission", SessionUpdate: "session/update", TerminalCreate: "terminal/create", TerminalKill: "terminal/kill", TerminalOutput: "terminal/output", TerminalRelease: "terminal/release", TerminalWaitForExit: "terminal/wait_for_exit"}
