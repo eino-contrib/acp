@@ -8,6 +8,7 @@ import (
 
 	acp "github.com/eino-contrib/acp"
 	"github.com/eino-contrib/acp/internal/jsonrpc"
+	acplog "github.com/eino-contrib/acp/internal/log"
 )
 
 // SSEWriter — writes JSON-RPC messages as SSE events on a POST response.
@@ -59,6 +60,7 @@ func (w *SSEWriter) writeMessage(msg *jsonrpc.Message) error {
 	if err != nil {
 		return err
 	}
+	acplog.Access(w.ctx.Context(), "http-server", acplog.AccessDirectionSend, data)
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err := w.ctx.WriteSSEEvent(data); err != nil {

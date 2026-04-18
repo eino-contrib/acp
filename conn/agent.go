@@ -7,7 +7,6 @@ import (
 	acp "github.com/eino-contrib/acp"
 	"github.com/eino-contrib/acp/internal/connspi"
 	"github.com/eino-contrib/acp/internal/jsonrpc"
-	acplog "github.com/eino-contrib/acp/internal/log"
 	"github.com/eino-contrib/acp/internal/safe"
 )
 
@@ -18,7 +17,6 @@ type AgentConnection struct {
 	sender               connspi.Sender
 	jsonrpcConn          *jsonrpc.Connection // non-nil only for WS/stdio (has read loop)
 	agent                acp.Agent
-	logger               acplog.Logger
 	requestHandlers      map[string]requestDispatcher
 	notificationHandlers map[string]notificationDispatcher
 }
@@ -36,8 +34,7 @@ func NewAgentConnectionFromTransport(agent acp.Agent, transport jsonrpc.Transpor
 		panic("acp: NewAgentConnectionFromTransport called with nil transport")
 	}
 	asc := &AgentConnection{
-		agent:  agent,
-		logger: acplog.Default(),
+		agent: agent,
 	}
 	asc.requestHandlers = newAgentRequestHandlers(agent, asc)
 	asc.notificationHandlers = newAgentNotificationHandlers(asc)
@@ -47,26 +44,25 @@ func NewAgentConnectionFromTransport(agent acp.Agent, transport jsonrpc.Transpor
 	return asc
 }
 
-// NewAgentConnection constructs an agent-side connection backed by an SDK
-// internal Sender. The parameter type lives in internal/connspi, so this
-// constructor is only reachable from SDK packages (e.g. server) and is not
-// usable by external code.
+// NewAgentConnectionSPI constructs an agent-side connection backed by an SDK
+// internal Sender. This constructor is sealed: it requires a capability
+// token (connspi.AgentSPIKey) whose type lives in internal/connspi and so
+// cannot be named — let alone constructed — by code outside this module.
 //
 // Used for HTTP direct-dispatch where there is no JSON-RPC read loop.
 // External callers should use NewAgentConnectionFromTransport instead.
 //
 // agent and sender must be non-nil; passing nil panics.
-func NewAgentConnection(agent acp.Agent, sender connspi.Sender) *AgentConnection {
+func NewAgentConnectionSPI(_ connspi.AgentSPIKey, agent acp.Agent, sender connspi.Sender) *AgentConnection {
 	if agent == nil {
-		panic("acp: NewAgentConnection called with nil agent")
+		panic("acp: NewAgentConnectionSPI called with nil agent")
 	}
 	if sender == nil {
-		panic("acp: NewAgentConnection called with nil sender")
+		panic("acp: NewAgentConnectionSPI called with nil sender")
 	}
 	asc := &AgentConnection{
 		agent:  agent,
 		sender: sender,
-		logger: acplog.Default(),
 	}
 	asc.requestHandlers = newAgentRequestHandlers(agent, asc)
 	asc.notificationHandlers = newAgentNotificationHandlers(asc)
@@ -84,7 +80,7 @@ func (a *AgentConnection) Start(ctx context.Context) error {
 	if a.jsonrpcConn == nil {
 		return nil
 	}
-	safe.GoWithLogger(a.logger, func() {
+	safe.Go(func() {
 		_ = a.jsonrpcConn.Start(ctx)
 	})
 	return a.jsonrpcConn.WaitUntilStarted(ctx)
@@ -145,12 +141,12 @@ func (a *AgentConnection) CallExtNotification(ctx context.Context, method string
 
 // --- Inbound dispatch ---
 
-// InboundDispatcher returns the request/notification dispatch closures bound
-// to this connection. The return type is defined in internal/connspi, so
-// external callers cannot use it meaningfully; SDK internal glue (such as the
-// HTTP direct-dispatch path in internal/httpserver) uses it to drive the
-// connection without exposing a wider API surface on AgentConnection.
-func (a *AgentConnection) InboundDispatcher() connspi.Dispatcher {
+// InboundDispatcherSPI returns the request/notification dispatch closures
+// bound to this connection. The method is sealed with a capability token
+// from internal/connspi so external code cannot name or construct its
+// argument; only SDK glue (the HTTP direct-dispatch path in
+// internal/httpserver) can drive the connection through this hook.
+func (a *AgentConnection) InboundDispatcherSPI(_ connspi.AgentSPIKey) connspi.Dispatcher {
 	return connspi.Dispatcher{
 		Request:      a.handleRequest,
 		Notification: a.handleNotification,

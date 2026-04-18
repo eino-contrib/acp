@@ -63,15 +63,17 @@ func downloadFile(url, dest string, timeout time.Duration) error {
 		return fmt.Errorf("fetching %s: HTTP %d", url, resp.StatusCode)
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return err
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dest), err)
 	}
 	f, err := os.Create(dest)
 	if err != nil {
-		return err
+		return fmt.Errorf("create %s: %w", dest, err)
 	}
 	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	return err
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		return fmt.Errorf("write %s (from %s): %w", dest, url, err)
+	}
+	return nil
 }
 
 func resolveCLIPaths(cwd, schemaPath, metaPath, output, schemaURL, metaURL string) (string, string, string) {

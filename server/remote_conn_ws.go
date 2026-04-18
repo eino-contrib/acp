@@ -6,6 +6,7 @@ import (
 
 	acpconn "github.com/eino-contrib/acp/conn"
 	"github.com/eino-contrib/acp/internal/jsonrpc"
+	acplog "github.com/eino-contrib/acp/internal/log"
 	"github.com/eino-contrib/acp/internal/wsserver"
 	"github.com/google/uuid"
 	"github.com/hertz-contrib/websocket"
@@ -29,17 +30,18 @@ func (s *ACPServer) newWSConn(parent context.Context) (*wsConn, error) {
 	connCtx, connCancel := context.WithCancel(parentCtx)
 
 	wsTransport := wsserver.New()
-	wsTransport.Logger = s.logger
 
 	agent := s.factory(connCtx)
 	connID := uuid.NewString()
 	opts := []jsonrpc.ConnectionOption{
 		jsonrpc.WithMaxConsecutiveParseErrors(10),
-		jsonrpc.WithLogger(s.logger),
 		jsonrpc.WithConnectionLabel(connID),
 	}
 	if s.requestTimeout > 0 {
 		opts = append(opts, jsonrpc.WithRequestTimeout(s.requestTimeout))
+	}
+	if s.notificationErrorHandler != nil {
+		opts = append(opts, jsonrpc.WithNotificationErrorHandler(s.notificationErrorHandler))
 	}
 	agentConn := acpconn.NewAgentConnectionFromTransport(agent, wsTransport, opts...)
 	if aware, ok := agent.(ConnectionAwareAgent); ok {
@@ -68,10 +70,14 @@ func (s *ACPServer) newWSConn(parent context.Context) (*wsConn, error) {
 func (wc *wsConn) Close() {
 	wc.connCancel()
 	if err := wc.agentConn.Close(); err != nil {
-		wc.server.logger.CtxError(wc.connCtx, "close websocket connection %s: %v", wc.id, err)
+		acplog.CtxDebug(wc.connCtx, "close websocket connection %s: %v", wc.id, err)
 	}
 }
 
-func (wc *wsConn) Serve(ctx context.Context, wsConn *websocket.Conn) {
-	wc.transport.ServeConn(ctx, wsConn)
+// Serve drives the WebSocket reader/writer using the connection-level
+// context. The HTTP handler's request ctx is intentionally NOT used here: Hertz
+// may cancel it once the upgrade handler returns, which would terminate an
+// otherwise-healthy long-lived WS connection.
+func (wc *wsConn) Serve(wsConn *websocket.Conn) {
+	wc.transport.ServeConn(wc.connCtx, wsConn)
 }

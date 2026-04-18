@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eino-contrib/acp/internal/connspi"
 	acplog "github.com/eino-contrib/acp/internal/log"
 	"github.com/eino-contrib/acp/internal/safe"
 )
@@ -15,21 +16,37 @@ type connTable struct {
 	mu          sync.RWMutex
 	conns       map[string]*httpRemoteConnection
 	idleTimeout time.Duration
-	logger      acplog.Logger
 
 	done       chan struct{}
 	closeOnce  sync.Once
 	reaperOnce sync.Once
 	reaperWg   sync.WaitGroup
+
+	// rootCtx is set on first startReaper call and used as the base context
+	// for background log emissions (eviction, close). It is never cancelled
+	// by the table itself — Debug/Info do not observe Done.
+	rootCtxMu sync.RWMutex
+	rootCtx   context.Context
 }
 
-func newConnTable(idleTimeout time.Duration, logger acplog.Logger) *connTable {
+func newConnTable(idleTimeout time.Duration) *connTable {
 	return &connTable{
 		conns:       make(map[string]*httpRemoteConnection),
 		idleTimeout: idleTimeout,
-		logger:      logger,
 		done:        make(chan struct{}),
 	}
+}
+
+// logCtx returns a context annotated with connID suitable for Ctx* log calls.
+// Falls back to context.Background when no rootCtx has been installed yet.
+func (t *connTable) logCtx(connID string) context.Context {
+	t.rootCtxMu.RLock()
+	base := t.rootCtx
+	t.rootCtxMu.RUnlock()
+	if base == nil {
+		base = context.Background()
+	}
+	return connspi.WithConnectionID(base, connID)
 }
 
 func (t *connTable) add(c *httpRemoteConnection) {
@@ -39,7 +56,9 @@ func (t *connTable) add(c *httpRemoteConnection) {
 }
 
 // get returns the connection for id. If present but idle, it is evicted and
-// (nil, false) is returned.
+// (nil, false) is returned. The idle check and deletion are performed
+// atomically via evictIfIdle so a connection that became active between the
+// read and the evict cannot be wrongly deleted (TOCTOU).
 func (t *connTable) get(id string) (*httpRemoteConnection, bool) {
 	t.mu.RLock()
 	c, ok := t.conns[id]
@@ -48,7 +67,7 @@ func (t *connTable) get(id string) (*httpRemoteConnection, bool) {
 		return nil, false
 	}
 	if c.IsIdle(t.idleTimeout) {
-		t.delete(id)
+		t.evictIfIdle(id)
 		return nil, false
 	}
 	return c, true
@@ -66,7 +85,7 @@ func (t *connTable) delete(id string) (*httpRemoteConnection, bool) {
 		return nil, false
 	}
 	if err := c.Close(); err != nil {
-		t.logger.CtxInfo(context.Background(), "close connection %s: %v", id, err)
+		acplog.CtxDebug(t.logCtx(id), "close connection: %v", err)
 	}
 	return c, true
 }
@@ -74,13 +93,18 @@ func (t *connTable) delete(id string) (*httpRemoteConnection, bool) {
 // startReaper spawns the idle reaper on first call. rootCtx is an external
 // stop signal so server shutdown also stops the reaper.
 func (t *connTable) startReaper(rootCtx context.Context) {
+	t.rootCtxMu.Lock()
+	if t.rootCtx == nil {
+		t.rootCtx = rootCtx
+	}
+	t.rootCtxMu.Unlock()
 	t.reaperOnce.Do(func() {
 		interval := reaperInterval(t.idleTimeout)
 		if interval <= 0 {
 			return
 		}
 		t.reaperWg.Add(1)
-		safe.GoWithLogger(t.logger, func() {
+		safe.Go(func() {
 			defer t.reaperWg.Done()
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
@@ -112,7 +136,7 @@ func (t *connTable) evictIdle() {
 	t.mu.RUnlock()
 	for _, id := range staleIDs {
 		if c, ok := t.evictIfIdle(id); ok && c != nil {
-			c.Logger().CtxInfo(context.Background(), "evicted stale remote HTTP connection %s", id)
+			acplog.CtxInfo(t.logCtx(id), "evicted stale remote HTTP connection (idle timeout exceeded)")
 		}
 	}
 }
@@ -134,7 +158,7 @@ func (t *connTable) evictIfIdle(id string) (*httpRemoteConnection, bool) {
 	delete(t.conns, id)
 	t.mu.Unlock()
 	if err := c.Close(); err != nil {
-		t.logger.CtxInfo(context.Background(), "close connection %s: %v", id, err)
+		acplog.CtxDebug(t.logCtx(id), "close connection: %v", err)
 	}
 	return c, true
 }
@@ -154,7 +178,7 @@ func (t *connTable) close() {
 	t.mu.Unlock()
 	for _, c := range conns {
 		if err := c.Close(); err != nil {
-			t.logger.CtxInfo(context.Background(), "close connection: %v", err)
+			acplog.CtxDebug(t.logCtx(c.id), "close connection: %v", err)
 		}
 	}
 }

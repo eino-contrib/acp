@@ -73,6 +73,7 @@ func (g *Generator) collectDefaults(s *Schema) []defaultEntry {
 func (g *Generator) generateDefaultUnmarshalJSON(name string, defaults []defaultEntry) {
 	goName := toTitleCase(name)
 	g.needJSON = true
+	g.needFmt = true
 
 	// Check if this type already has a custom UnmarshalJSON (from discriminated union generation).
 	// Struct types with defaults should NOT conflict with union types.
@@ -85,15 +86,21 @@ func (g *Generator) generateDefaultUnmarshalJSON(name string, defaults []default
 	fmt.Fprintf(&g.buf, "\t\treturn err\n")
 	fmt.Fprintf(&g.buf, "\t}\n")
 
-	// Parse raw keys to detect missing/null fields
+	// Parse raw keys to detect missing/null fields. If the top-level unmarshal
+	// into Alias succeeded the JSON must be an object, so a failure here is a
+	// real anomaly worth surfacing rather than silently skipping defaults.
 	fmt.Fprintf(&g.buf, "\tvar raw map[string]json.RawMessage\n")
-	fmt.Fprintf(&g.buf, "\t_ = json.Unmarshal(data, &raw)\n")
+	fmt.Fprintf(&g.buf, "\tif err := json.Unmarshal(data, &raw); err != nil {\n")
+	fmt.Fprintf(&g.buf, "\t\treturn fmt.Errorf(\"%s: decode raw fields: %%w\", err)\n", goName)
+	fmt.Fprintf(&g.buf, "\t}\n")
 
 	for _, d := range defaults {
 		// Escape the JSON for use in a Go string literal
 		escaped := escapeGoString(d.rawJSON)
 		fmt.Fprintf(&g.buf, "\tif rm, ok := raw[%q]; !ok || string(rm) == \"null\" {\n", d.jsonName)
-		fmt.Fprintf(&g.buf, "\t\t_ = json.Unmarshal([]byte(%s), &a.%s)\n", escaped, d.goName)
+		fmt.Fprintf(&g.buf, "\t\tif err := json.Unmarshal([]byte(%s), &a.%s); err != nil {\n", escaped, d.goName)
+		fmt.Fprintf(&g.buf, "\t\t\treturn fmt.Errorf(\"%s: apply default for %s: %%w\", err)\n", goName, d.jsonName)
+		fmt.Fprintf(&g.buf, "\t\t}\n")
 		fmt.Fprintf(&g.buf, "\t}\n")
 	}
 

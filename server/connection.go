@@ -7,7 +7,9 @@ import (
 	"github.com/google/uuid"
 
 	acpconn "github.com/eino-contrib/acp/conn"
+	"github.com/eino-contrib/acp/internal/connspi"
 	acphttpserver "github.com/eino-contrib/acp/internal/httpserver"
+	"github.com/eino-contrib/acp/internal/safe"
 )
 
 func (s *ACPServer) newHTTPConnection(parent context.Context) (*httpRemoteConnection, error) {
@@ -20,7 +22,6 @@ func (s *ACPServer) newHTTPConnection(parent context.Context) (*httpRemoteConnec
 	connCtx, connCancel := context.WithCancel(parentCtx)
 
 	httpConn := acphttpserver.NewConnection()
-	httpConn.Logger = s.logger
 	httpConn.PendingQueueSize = s.pendingQueueSize
 
 	pendingReqs := acphttpserver.NewPendingRequests()
@@ -30,13 +31,12 @@ func (s *ACPServer) newHTTPConnection(parent context.Context) (*httpRemoteConnec
 
 	c := &httpRemoteConnection{
 		id:          connID,
-		logger:      s.logger,
 		connCancel:  connCancel,
 		done:        make(chan struct{}),
 		httpConn:    httpConn,
 		pendingReqs: pendingReqs,
 	}
-	c.mergedDone = acphttpserver.MergeDone(c.done, s.done)
+	c.mergedDone = safe.MergeDone(c.done, s.done)
 
 	agent := s.factory(connCtx)
 
@@ -44,25 +44,27 @@ func (s *ACPServer) newHTTPConnection(parent context.Context) (*httpRemoteConnec
 	sender := &httpAgentSender{
 		httpConn:    httpConn,
 		pendingReqs: pendingReqs,
-		logger:      s.logger,
 		done:        make(chan struct{}),
 	}
 	c.sender = sender
 
+	spiKey := connspi.NewAgentSPIKey()
+
 	// Create AgentConnection with the sender (no jsonrpc.Connection).
-	c.conn = acpconn.NewAgentConnection(agent, sender)
+	c.conn = acpconn.NewAgentConnectionSPI(spiKey, agent, sender)
 	if aware, ok := agent.(ConnectionAwareAgent); ok {
 		aware.SetClientConnection(c.conn)
 	}
 
 	// Cache the ProtocolConnection so we don't recreate it per request.
 	c.protocolConn = acphttpserver.NewProtocolConnection(acphttpserver.ProtocolConnectionConfig{
-		ConnectionID: c.id,
-		HTTPConn:     c.httpConn,
-		Dispatcher:   c.conn.InboundDispatcher(),
-		PendingReqs:  c.pendingReqs,
-		Done:         c.mergedDone,
-		Close:        c.Close,
+		ConnectionID:        c.id,
+		HTTPConn:            c.httpConn,
+		Dispatcher:          c.conn.InboundDispatcherSPI(spiKey),
+		PendingReqs:         c.pendingReqs,
+		Done:                c.mergedDone,
+		Close:               c.Close,
+		MaxInflightDispatch: s.maxInflightDispatch,
 	})
 
 	s.conns.add(c)

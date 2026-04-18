@@ -42,6 +42,20 @@ var (
 	ErrConnNotStarted = errors.New("connection not started")
 	// ErrConnClosed indicates a JSON-RPC connection has been closed.
 	ErrConnClosed = errors.New("connection closed")
+	// ErrNoSessionID indicates a message could not be routed because no session
+	// ID was found in params or the call-site context. Agent authors get this
+	// when calling SendRequest/SendNotification on a Streamable HTTP connection
+	// without passing the routing key.
+	ErrNoSessionID = errors.New("no session ID available for routing")
+	// ErrPendingCancelled indicates a pending reverse-call was cancelled before
+	// a response arrived (e.g. the connection's pending tracker was closed).
+	ErrPendingCancelled = errors.New("pending request cancelled")
+	// ErrSenderClosed indicates the sender was closed while a reverse-call was
+	// waiting for its response.
+	ErrSenderClosed = errors.New("sender closed")
+	// ErrUnknownSession indicates the session ID resolved for routing does not
+	// correspond to an active session on the connection.
+	ErrUnknownSession = errors.New("unknown session")
 )
 
 // Transport is the interface for reading/writing JSON-RPC messages.

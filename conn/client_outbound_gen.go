@@ -6,7 +6,6 @@ import (
 	"context"
 
 	acp "github.com/eino-contrib/acp"
-	"github.com/eino-contrib/acp/internal/connspi"
 	"github.com/eino-contrib/acp/internal/jsonrpc"
 )
 
@@ -93,52 +92,38 @@ func (c *ClientConnection) ListSessions(ctx context.Context, params acp.ListSess
 }
 
 // LoadSession sends a session/load request to the agent. When the underlying
-// transport implements SessionListenerStarter (e.g. Streamable HTTP), it
-// automatically opens a GET SSE listener for the new session so that
-// server-initiated messages are received without extra caller effort.
+// transport supports session listeners (e.g. Streamable HTTP), the
+// ClientConnection automatically opens a GET SSE listener for the new
+// session so that server-initiated messages are received without extra
+// caller effort.
 //
-// The returned error reflects the RPC outcome only. If the RPC
-// succeeds but the local listener fails to start, the error is
-// reported via the handler registered with
-// WithSessionListenerErrorHandler (or logged if none is set) and the
-// method returns (resp, nil). The session exists on the server, so
-// callers must not retry as if the RPC had failed.
+// The returned error reflects the RPC outcome only. Listener failures
+// are reported via the handler registered with
+// WithSessionListenerErrorHandler (or logged if none is set).
 func (c *ClientConnection) LoadSession(ctx context.Context, params acp.LoadSessionRequest) (acp.LoadSessionResponse, error) {
 	resp, err := jsonrpc.SendRequestTyped[acp.LoadSessionResponse](c.conn, ctx, acp.MethodAgentLoadSession, params)
 	if err != nil {
 		return resp, err
 	}
-
-	if hook := connspi.GetSessionListenerHook(c.transport); hook != nil && params.SessionID != "" {
-		if lErr := hook.Start(ctx, string(params.SessionID)); lErr != nil {
-			c.reportListenerError(string(params.SessionID), lErr)
-		}
-	}
+	c.startSessionListener(ctx, string(params.SessionID))
 	return resp, nil
 }
 
 // NewSession sends a session/new request to the agent. When the underlying
-// transport implements SessionListenerStarter (e.g. Streamable HTTP), it
-// automatically opens a GET SSE listener for the new session so that
-// server-initiated messages are received without extra caller effort.
+// transport supports session listeners (e.g. Streamable HTTP), the
+// ClientConnection automatically opens a GET SSE listener for the new
+// session so that server-initiated messages are received without extra
+// caller effort.
 //
-// The returned error reflects the RPC outcome only. If the RPC
-// succeeds but the local listener fails to start, the error is
-// reported via the handler registered with
-// WithSessionListenerErrorHandler (or logged if none is set) and the
-// method returns (resp, nil). The session exists on the server, so
-// callers must not retry as if the RPC had failed.
+// The returned error reflects the RPC outcome only. Listener failures
+// are reported via the handler registered with
+// WithSessionListenerErrorHandler (or logged if none is set).
 func (c *ClientConnection) NewSession(ctx context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
 	resp, err := jsonrpc.SendRequestTyped[acp.NewSessionResponse](c.conn, ctx, acp.MethodAgentNewSession, params)
 	if err != nil {
 		return resp, err
 	}
-
-	if hook := connspi.GetSessionListenerHook(c.transport); hook != nil && resp.SessionID != "" {
-		if lErr := hook.Start(ctx, string(resp.SessionID)); lErr != nil {
-			c.reportListenerError(string(resp.SessionID), lErr)
-		}
-	}
+	c.startSessionListener(ctx, string(resp.SessionID))
 	return resp, nil
 }
 

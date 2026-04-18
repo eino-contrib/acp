@@ -34,17 +34,28 @@ func newUnboundedQueue() *unboundedQueue {
 // Push appends m to the queue. Never blocks. Returns false if the queue has
 // already been closed (in which case m is dropped — this only happens after
 // Close and is by design: shutdown is the only allowed dropping point).
+//
+// The wakeup channel is only rotated on the empty→non-empty boundary: once a
+// waiter has been woken and the queue stays non-empty, subsequent Push calls
+// skip the allocation+close. This keeps the hot path allocation-free under
+// backpressure.
 func (q *unboundedQueue) Push(m *Message) bool {
 	q.mu.Lock()
 	if q.closed {
 		q.mu.Unlock()
 		return false
 	}
+	wasEmpty := q.items.Len() == 0
 	q.items.PushBack(m)
-	signal := q.notEmpty
-	q.notEmpty = make(chan struct{})
+	var signal chan struct{}
+	if wasEmpty {
+		signal = q.notEmpty
+		q.notEmpty = make(chan struct{})
+	}
 	q.mu.Unlock()
-	close(signal)
+	if signal != nil {
+		close(signal)
+	}
 	return true
 }
 

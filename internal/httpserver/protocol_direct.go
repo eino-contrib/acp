@@ -3,10 +3,11 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
-	"runtime/debug"
 	"strconv"
+	"sync"
 
 	acp "github.com/eino-contrib/acp"
 	"github.com/eino-contrib/acp/internal/connspi"
@@ -29,19 +30,27 @@ func handleDirectPost(ctx HandlerContext, server ProtocolServer, conn *ProtocolC
 	msg *ParsedPost, sessionID string) {
 
 	if msg.IsRequest {
-		effectiveSessionID := RequestSessionID(msg.Method, sessionID, msg.Params)
+		effectiveSessionID, err := RequestSessionID(msg.Method, sessionID, msg.Params)
+		if err != nil {
+			ctx.WriteError(http.StatusBadRequest, err.Error())
+			return
+		}
 		handleDirectRequestPost(ctx, server, conn, msg, effectiveSessionID)
 		return
 	}
 
 	if msg.IsNotification {
-		effectiveSessionID := RequestSessionID(msg.Method, sessionID, msg.Params)
-		handleDirectNotification(ctx, conn, msg, effectiveSessionID, server.Logger)
+		effectiveSessionID, err := RequestSessionID(msg.Method, sessionID, msg.Params)
+		if err != nil {
+			ctx.WriteError(http.StatusBadRequest, err.Error())
+			return
+		}
+		handleDirectNotification(ctx, conn, msg, effectiveSessionID)
 		return
 	}
 
 	if msg.IsResponse {
-		handleDirectClientResponse(ctx, conn, msg, server.Logger)
+		handleDirectClientResponse(ctx, conn, msg)
 		return
 	}
 
@@ -54,10 +63,41 @@ func handleDirectPost(ctx HandlerContext, server ProtocolServer, conn *ProtocolC
 func handleDirectRequestPost(ctx HandlerContext, server ProtocolServer, conn *ProtocolConnection,
 	msg *ParsedPost, sessionID string) directRequestOutcome {
 
-	conn.httpConn.BeginRequest()
-	defer conn.httpConn.EndRequest()
-
 	outcome := directRequestOutcome{}
+
+	// Cap concurrent direct-dispatch handlers. Acquired before BeginRequest /
+	// SSE headers so overflow can surface as a clean HTTP 503 instead of a
+	// half-written SSE stream, and released by the background dispatch
+	// goroutine (below) so the slot stays reserved for the actual handler
+	// lifetime — not just for the outer HTTP request lifetime, which may end
+	// earlier if RequestTimeout fires.
+	releaseSlot := conn.tryAcquireDispatch()
+	if releaseSlot == nil {
+		ctx.SetResponseHeader(acptransport.HeaderConnectionID, conn.ConnectionID())
+		ctx.WriteError(http.StatusServiceUnavailable, "server busy: too many inflight requests")
+		outcome.rpcErr = acp.ErrServerBusy("server busy: too many inflight requests")
+		return outcome
+	}
+	// slotReleased guards the slot against double-release: the background
+	// dispatch goroutine releases on exit; the outer function also releases
+	// in the rare aborted-before-spawn paths. CAS-style via sync.Once.
+	var slotOnce sync.Once
+	release := func() { slotOnce.Do(releaseSlot) }
+	spawnedDispatch := false
+	defer func() {
+		if !spawnedDispatch {
+			release()
+		}
+	}()
+
+	// BeginRequest is bracketed by the background handler goroutine (see
+	// below), not by this outer function. When RequestTimeout fires, the
+	// outer function returns so the HTTP response can be finalised, but the
+	// user handler may still be running. Decrementing activeHandlers here
+	// would let the idle reaper reclaim the connection while a background
+	// handler holds references to it (Session.Send, sseWriter, …), producing
+	// use-after-close failures on long-lived connections.
+	conn.httpConn.BeginRequest()
 
 	// Set up SSE response headers.
 	ctx.SetResponseHeader(acptransport.HeaderConnectionID, conn.ConnectionID())
@@ -93,27 +133,80 @@ func handleDirectRequestPost(ctx HandlerContext, server ProtocolServer, conn *Pr
 	defer cancel()
 
 	// Monitor connection/request close.
-	safe.CancelOnDone(server.Logger, cancel, reqCtx.Done(), ctx.Done(), conn.Done())
+	safe.CancelOnDone(cancel, reqCtx.Done(), ctx.Done(), conn.Done())
 
-	// Pre-register session before dispatch so that reverse calls and
-	// notifications from the agent handler can find the session via
-	// LookupSession. Without this, handlers for session-scoped methods
-	// (e.g. agent/loadSession) would fail to send messages because the
-	// session is not yet registered on the connection.
-	if sessionID != "" {
+	// Pre-register the session only for session/load, where the client
+	// provides the session ID and handler callbacks (notifications, reverse
+	// requests) during load must route to that session entry.
+	//
+	// We intentionally do NOT EnsureSession for:
+	//   - session/new: the authoritative sessionId is returned by the
+	//     handler; pre-registering from a client-supplied header would let
+	//     a stray header masquerade as the real session.
+	//   - other session-scoped methods: the session must already exist from
+	//     a prior session/new or session/load. Creating one here would let
+	//     any client spawn ghost sessions that bypass the normal lifecycle.
+	if sessionID != "" && msg.Method == acp.MethodAgentLoadSession {
 		conn.EnsureSession(sessionID)
 	}
 
-	// Dispatch to agent handler with panic recovery.
-	result, err := dispatchRequestSafely(reqCtx, conn.dispatcher.Request, msg.Method, msg.Params, server.Logger)
+	// Dispatch the handler in a separate goroutine so that a configured
+	// RequestTimeout can proactively return a timeout response even when the
+	// user handler does not observe ctx.Done(). This mirrors the WS/stdio
+	// semantics in internal/jsonrpc.runRequestHandler; without it, a
+	// misbehaving handler would hang the HTTP POST indefinitely and clients
+	// would see different timeout behavior across transports.
+	//
+	// EndRequest fires from inside the goroutine so activeHandlers stays
+	// positive for as long as the user handler is actually running. Pairing
+	// it with BeginRequest on the outer function would release the
+	// connection to the idle reaper as soon as the HTTP response is
+	// finalised, even if the handler is still alive and about to touch
+	// connection-owned state.
+	type dispatchResult struct {
+		result any
+		err    error
+	}
+	resultCh := make(chan dispatchResult, 1)
+	spawnedDispatch = true
+	safe.Go(func() {
+		defer release()
+		defer conn.httpConn.EndRequest()
+		r, e := dispatchRequestSafely(reqCtx, conn.dispatcher.Request, msg.Method, msg.Params)
+		resultCh <- dispatchResult{result: r, err: e}
+	})
+
+	var (
+		result     any
+		handlerErr error
+		aborted    bool
+	)
+	select {
+	case res := <-resultCh:
+		result = res.result
+		handlerErr = res.err
+	case <-reqCtx.Done():
+		if errors.Is(reqCtx.Err(), context.DeadlineExceeded) {
+			handlerErr = acp.ErrRequestCanceled("request deadline exceeded on server")
+			acplog.CtxWarn(reqCtx, "direct dispatch timeout on method %q after %v", msg.Method, server.RequestTimeout)
+		} else {
+			// Client disconnected or connection is shutting down; there is
+			// no one to receive a response. Let the handler drain through
+			// the buffered channel and return without writing to SSE.
+			acplog.CtxDebug(reqCtx, "direct dispatch aborted on method %q: %v", msg.Method, reqCtx.Err())
+			aborted = true
+		}
+	}
+
+	if aborted {
+		return outcome
+	}
 
 	// Convert error to RPC error.
-	if err != nil {
-		outcome.rpcErr = jsonrpc.ToResponseError(err)
+	if handlerErr != nil {
+		outcome.rpcErr = jsonrpc.ToResponseError(handlerErr)
 		if jsonrpc.IsHiddenInternalError(outcome.rpcErr) {
-			if server.Logger != nil {
-				server.Logger.CtxError(reqCtx, "direct dispatch handler error on method %q: %v", msg.Method, err)
-			}
+			acplog.CtxError(reqCtx, "direct dispatch handler error on method %q: %v", msg.Method, handlerErr)
 		}
 	}
 
@@ -136,7 +229,7 @@ func handleDirectRequestPost(ctx HandlerContext, server ProtocolServer, conn *Pr
 	// Write the final JSON-RPC response.
 	if writeErr := sseWriter.WriteResponse(msg.ID, result, outcome.rpcErr); writeErr != nil {
 		outcome.writeErr = writeErr
-		acplog.OrDefault(server.Logger).Warn("failed to write direct dispatch response: %v", writeErr)
+		acplog.CtxError(reqCtx, "failed to write direct dispatch response: %v", writeErr)
 	}
 
 	return outcome
@@ -149,15 +242,32 @@ func handleDirectInitializePost(ctx HandlerContext, server ProtocolServer, conn 
 
 // handleDirectNotification handles a JSON-RPC notification from the client
 // via direct dispatch.
-func handleDirectNotification(ctx HandlerContext, conn *ProtocolConnection, msg *ParsedPost, sessionID string, logger acplog.Logger) {
+func handleDirectNotification(ctx HandlerContext, conn *ProtocolConnection, msg *ParsedPost, sessionID string) {
+	// Share the inflight-dispatch budget with request handlers: notification
+	// handlers can also block arbitrarily and would otherwise accumulate
+	// hertz worker goroutines unbounded. Overflow surfaces as HTTP 503 since
+	// notifications have no JSON-RPC response channel.
+	release := conn.tryAcquireDispatch()
+	if release == nil {
+		ctx.WriteError(http.StatusServiceUnavailable, "server busy: too many inflight requests")
+		return
+	}
+	defer release()
+
+	// Bracket the notification handler with Begin/End so the idle reaper
+	// does not evict the connection while a long-running notification is
+	// still processing. This mirrors the request path.
+	conn.httpConn.BeginRequest()
+	defer conn.httpConn.EndRequest()
+
 	// Dispatch to agent notification handler.
 	if conn.dispatcher.Notification != nil {
 		notifCtx, cancel := context.WithCancel(connspi.WithSessionID(baseHandlerContext(ctx), sessionID))
-		safe.CancelOnDone(logger, cancel, notifCtx.Done(), conn.Done())
+		safe.CancelOnDone(cancel, notifCtx.Done(), conn.Done())
 		defer cancel()
 
-		if err := dispatchNotificationSafely(notifCtx, conn.dispatcher.Notification, msg.Method, msg.Params, logger); err != nil {
-			acplog.OrDefault(logger).CtxWarn(notifCtx, "notification %s dispatch error: %v", msg.Method, err)
+		if err := dispatchNotificationSafely(notifCtx, conn.dispatcher.Notification, msg.Method, msg.Params); err != nil {
+			acplog.CtxError(notifCtx, "notification %s dispatch error: %v", msg.Method, err)
 		}
 	}
 
@@ -166,7 +276,7 @@ func handleDirectNotification(ctx HandlerContext, conn *ProtocolConnection, msg 
 
 // handleDirectClientResponse handles a JSON-RPC response from the client
 // (in response to an agent reverse call sent via GET SSE).
-func handleDirectClientResponse(ctx HandlerContext, conn *ProtocolConnection, msg *ParsedPost, logger acplog.Logger) {
+func handleDirectClientResponse(ctx HandlerContext, conn *ProtocolConnection, msg *ParsedPost) {
 	if conn.pendingReqs == nil {
 		ctx.WriteError(http.StatusBadRequest, "no pending requests tracker")
 		return
@@ -190,7 +300,7 @@ func handleDirectClientResponse(ctx HandlerContext, conn *ProtocolConnection, ms
 	}
 
 	if !conn.pendingReqs.Deliver(idKey, resp) {
-		acplog.OrDefault(logger).Warn("no pending request for response %s", idKey)
+		acplog.Debug("no pending request for response %s", idKey)
 	}
 
 	ctx.SetStatusCode(http.StatusAccepted)
@@ -199,11 +309,12 @@ func handleDirectClientResponse(ctx HandlerContext, conn *ProtocolConnection, ms
 // Helpers.
 
 // dispatchRequestSafely calls the agent dispatcher with panic recovery.
-func dispatchRequestSafely(ctx context.Context, dispatch func(context.Context, string, json.RawMessage) (any, error), method string, params json.RawMessage, logger acplog.Logger) (result any, err error) {
+func dispatchRequestSafely(ctx context.Context, dispatch func(context.Context, string, json.RawMessage) (any, error), method string, params json.RawMessage) (result any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			panicErr := fmt.Errorf("request handler panic: %v\n%s", r, debug.Stack())
-			acplog.OrDefault(logger).CtxError(ctx, "%v", panicErr)
+			panicErr := fmt.Errorf("request handler panic: %v", r)
+			acplog.CtxError(ctx, "request handler panic on method %q: %v", method, r)
+			acplog.CtxDebug(ctx, "request handler panic stack on method %q: %s", method, safe.TruncatedStack())
 			result = nil
 			err = acp.ErrInternalError("internal error panic", panicErr)
 		}
@@ -218,11 +329,12 @@ func dispatchRequestSafely(ctx context.Context, dispatch func(context.Context, s
 // dispatchNotificationSafely calls the notification dispatcher with panic
 // recovery. Mirrors dispatchRequestSafely so HTTP direct-dispatch gives the
 // same crash containment guarantees for notifications as for requests.
-func dispatchNotificationSafely(ctx context.Context, dispatch func(context.Context, string, json.RawMessage) error, method string, params json.RawMessage, logger acplog.Logger) (err error) {
+func dispatchNotificationSafely(ctx context.Context, dispatch func(context.Context, string, json.RawMessage) error, method string, params json.RawMessage) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			panicErr := fmt.Errorf("notification handler panic: method=%q %v\n%s", method, r, debug.Stack())
-			acplog.OrDefault(logger).CtxError(ctx, "%v", panicErr)
+			panicErr := fmt.Errorf("notification handler panic: method=%q %v", method, r)
+			acplog.CtxError(ctx, "notification handler panic on method %q: %v", method, r)
+			acplog.CtxDebug(ctx, "notification handler panic stack on method %q: %s", method, safe.TruncatedStack())
 			err = acp.ErrInternalError("internal error panic method="+method, panicErr)
 		}
 	}()

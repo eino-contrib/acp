@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +29,22 @@ type NotificationHandler func(ctx context.Context, method string, params json.Ra
 // on dispatch (queues are unbounded), so this bounds only concurrent handler
 // execution. See WithRequestWorkers to override.
 const defaultRequestWorkers = 8
+
+// defaultMaxPendingDispatch caps the intake queue depth by default so a
+// misbehaving or flooding peer cannot grow the dispatch queue without bound.
+// Reached-cap triggers the ErrServerBusy overflow path and terminates the
+// connection — shedding load is preferable to silent memory growth inside
+// the host process. Callers who want the legacy unbounded behavior set
+// WithMaxPendingDispatch to a negative value.
+const defaultMaxPendingDispatch = 4096
+
+// defaultShutdownTimeout bounds how long Close/Start will wait for queued
+// notification handlers to drain after the connection context is cancelled.
+// When the deadline expires the drain context is cancelled (so cooperative
+// handlers can observe the shutdown) and wg.Wait is abandoned (so a single
+// stuck handler cannot pin the connection forever). Configurable via
+// WithShutdownTimeout.
+const defaultShutdownTimeout = 30 * time.Second
 
 const genericInternalErrorMessage = "internal error"
 
@@ -81,13 +96,41 @@ func WithRequestWorkers(n int) ConnectionOption {
 	}
 }
 
-// WithLogger sets the logger used by the connection for diagnostic messages
-// (parse errors, transport close failures, handler panics). A nil logger is
-// ignored and the default is retained.
-func WithLogger(logger acplog.Logger) ConnectionOption {
+// WithMaxPendingDispatch caps the depth of each dispatch queue (the shared
+// request/notification intake and the ordered-notification queue). When a new
+// frame would push a queue beyond this limit, the connection is terminated
+// with a ServerBusy error.
+//
+// Default is defaultMaxPendingDispatch — safe ceiling on memory growth when a
+// peer floods faster than handlers can drain. Pass a positive value to tune;
+// pass a negative value to explicitly disable the cap (unbounded — the legacy
+// "never drop" behavior, which accepts unbounded memory growth under
+// overload). Zero is a no-op.
+func WithMaxPendingDispatch(n int) ConnectionOption {
 	return func(c *Connection) {
-		if logger != nil {
-			c.logger = logger
+		switch {
+		case n > 0:
+			c.maxPendingDispatch = n
+		case n < 0:
+			c.maxPendingDispatch = 0
+		}
+	}
+}
+
+// WithShutdownTimeout bounds how long Close/Start wait for queued
+// notification handlers to drain after the connection context is cancelled.
+// When the deadline expires the drain context is cancelled so cooperative
+// handlers can exit, and wg.Wait is abandoned so a single stuck handler
+// cannot pin the caller forever. A positive duration sets the timeout;
+// zero selects the default (defaultShutdownTimeout); a negative value
+// disables the bound entirely (legacy "wait forever" behavior).
+func WithShutdownTimeout(d time.Duration) ConnectionOption {
+	return func(c *Connection) {
+		switch {
+		case d > 0:
+			c.shutdownTimeout = d
+		case d < 0:
+			c.shutdownTimeout = -1
 		}
 	}
 }
@@ -98,6 +141,17 @@ func WithLogger(logger acplog.Logger) ConnectionOption {
 func WithConnectionLabel(label string) ConnectionOption {
 	return func(c *Connection) {
 		c.label = label
+	}
+}
+
+// WithNotificationErrorHandler registers a callback invoked when a
+// notification handler returns an error or a handler panics. Since
+// notifications have no response, errors would otherwise be visible only in
+// logs. The callback is invoked synchronously from the dispatch goroutine;
+// panics inside it are recovered and logged. Passing nil clears the hook.
+func WithNotificationErrorHandler(fn func(method string, err error)) ConnectionOption {
+	return func(c *Connection) {
+		c.OnError = fn
 	}
 }
 
@@ -181,13 +235,39 @@ type Connection struct {
 	// requestWorkers caps the size of the worker pool that drains
 	// requestQueue, bounding concurrent handler execution.
 	requestWorkers int
+	// maxPendingDispatch caps the depth of each dispatch queue. Zero means
+	// unbounded. When the cap is exceeded the connection terminates with
+	// ErrServerBusy instead of silently growing memory.
+	maxPendingDispatch int
+	// shutdownTimeout caps how long Close/Start wait for queued notification
+	// handlers to drain after ctx cancellation. When the deadline expires
+	// the drain context is cancelled and wg.Wait is abandoned. Zero selects
+	// defaultShutdownTimeout; a negative value disables the bound.
+	shutdownTimeout time.Duration
 
-	// logger is the diagnostic sink for parse errors, handler panics, and
-	// transport close failures. Never nil after construction.
-	logger acplog.Logger
+	// drainCtxOnce guards the lazy creation of drainCtx/drainCancel. The
+	// drain context is created the first time a worker observes c.ctx as
+	// cancelled and handed to handlers in place of context.WithoutCancel so
+	// cooperative handlers can observe a bounded shutdown.
+	drainCtxOnce sync.Once
+	drainCtx     context.Context
+	drainCancel  context.CancelFunc
+
 	// label is a human-readable connection identifier (e.g. a session or
 	// connection ID) attached to panic and error log lines for correlation.
 	label string
+	// activeHandlers tracks the number of user handler invocations (request
+	// + notification) currently in flight. Inc'd around
+	// handleRequestSafely/handleNotificationSafely and observed by the
+	// shutdown path to report how many handlers pinned wg when
+	// waitWithShutdownTimeout fires. Purely diagnostic — does not gate any
+	// code path.
+	activeHandlers atomic.Int32
+	// parentCtx is the caller-supplied context passed to Start. Kept so the
+	// Start return path can distinguish a caller-side cancellation (parent
+	// Err() non-nil) from a local Close()-driven shutdown (parent Err() nil).
+	// Never mutated after Start's one-time init.
+	parentCtx context.Context
 	// ctx is the per-connection context. It is cancelled on Close or on
 	// transport EOF and is propagated into every handler invocation.
 	ctx context.Context
@@ -238,8 +318,9 @@ func NewConnection(transport Transport, requestHandler MethodHandler, notificati
 		transport:           transport,
 		requestHandler:      requestHandler,
 		notificationHandler: notificationHandler,
-		logger:              acplog.Default(),
 		requestWorkers:      defaultRequestWorkers,
+		maxPendingDispatch:  defaultMaxPendingDispatch,
+		shutdownTimeout:     defaultShutdownTimeout,
 		requestQueue:        newUnboundedQueue(),
 		ready:               make(chan struct{}),
 		done:                make(chan struct{}),
@@ -262,19 +343,20 @@ func NewConnection(transport Transport, requestHandler MethodHandler, notificati
 func (c *Connection) Start(ctx context.Context) error {
 	c.startMu.Lock()
 	if !c.started.Load() {
+		c.parentCtx = ctx
 		c.ctx, c.cancel = context.WithCancel(ctx)
 		c.started.Store(true)
 		close(c.ready)
 
 		c.wg.Add(1)
-		safe.GoWithLogger(c.logger, c.readLoop)
+		safe.Go(c.readLoop)
 		if c.orderedNotificationMatcher != nil {
 			c.wg.Add(1)
-			safe.GoWithLogger(c.logger, c.processOrderedNotifications)
+			safe.Go(c.processOrderedNotifications)
 		}
 		for i := 0; i < c.requestWorkers; i++ {
 			c.wg.Add(1)
-			safe.GoWithLogger(c.logger, c.requestWorkerLoop)
+			safe.Go(c.requestWorkerLoop)
 		}
 	}
 	connCtx := c.ctx
@@ -282,7 +364,7 @@ func (c *Connection) Start(ctx context.Context) error {
 
 	<-connCtx.Done()
 	if err := c.closeTransport(); err != nil {
-		c.logf("close transport: %v", err)
+		c.logDebugf("close transport: %v", err)
 	}
 	// Signal done BEFORE waiting for handler goroutines. This unblocks
 	// SendRequest callers immediately when the connection is shutting down,
@@ -296,11 +378,22 @@ func (c *Connection) Start(ctx context.Context) error {
 	if c.orderedNotificationQueue != nil {
 		c.orderedNotificationQueue.Close()
 	}
-	c.wg.Wait()
+	c.waitWithShutdownTimeout()
 	if err := c.TerminalError(); err != nil {
 		return err
 	}
-	return connCtx.Err()
+	// Distinguish caller-side cancellation from a local Close(). The parent
+	// context is the caller's ctx; cancelling our derived `connCtx` does NOT
+	// propagate back up, so `parentCtx.Err() != nil` means the caller's own
+	// context fired (timeout/cancel) — surface that error. Otherwise the
+	// shutdown was driven by Close() and we return nil so callers don't have
+	// to filter context.Canceled out of their error paths.
+	if c.parentCtx != nil {
+		if err := c.parentCtx.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // WaitUntilStarted waits until Start has initialized the connection.
@@ -336,13 +429,92 @@ func (c *Connection) Close() error {
 	err := c.closeTransport()
 	c.closeOnce.Do(func() { close(c.done) })
 	if started {
-		c.wg.Wait()
+		c.waitWithShutdownTimeout()
 	}
 	return err
 }
 
-// Done returns a channel that's closed when the connection is done.
-// Safe to call before Start — the returned channel will close once
+// waitWithShutdownTimeout blocks on c.wg with a bound dictated by
+// shutdownTimeout. The drain context carries the same deadline so
+// cooperative handlers eventually observe cancellation; if any handler
+// ignores ctx and refuses to return, wg.Wait is abandoned with a log line
+// and the handler is allowed to continue on its own goroutine — preferable
+// to pinning the caller (and the transport close path) forever.
+//
+// Caveat: the waiter goroutine spawned below still calls c.wg.Wait() and
+// therefore blocks until every stuck handler eventually returns (Go offers
+// no way to cancel wg.Wait). That waiter shares the handler's fate — both
+// exit when the handler finally finishes, or both leak forever if it
+// doesn't. Abandoning the caller after the timeout is the best we can do
+// here; the active-handler count is logged on timeout so operators can spot
+// the leaked handler(s) responsible.
+//
+// A negative shutdownTimeout restores the legacy unbounded behaviour.
+func (c *Connection) waitWithShutdownTimeout() {
+	timeout := c.shutdownTimeout
+	if timeout < 0 {
+		c.wg.Wait()
+		c.releaseDrainCtx()
+		return
+	}
+	if timeout == 0 {
+		timeout = defaultShutdownTimeout
+	}
+
+	waited := make(chan struct{})
+	safe.Go(func() {
+		c.wg.Wait()
+		close(waited)
+	})
+	select {
+	case <-waited:
+	case <-time.After(timeout):
+		c.logf("shutdown timeout (%v) exceeded waiting for handlers; abandoning wait (active handlers=%d)", timeout, c.activeHandlers.Load())
+	}
+	c.releaseDrainCtx()
+}
+
+// getDrainCtx returns a context handed to notification handlers that are
+// still draining after c.ctx has been cancelled. The context is derived from
+// context.Background() so queued handlers do not observe the shutdown
+// immediately, but it carries a deadline equal to shutdownTimeout so a
+// well-behaved handler eventually sees cancellation and can exit. Handlers
+// that ignore ctx still run to completion, but they no longer block the
+// caller indefinitely (see waitWithShutdownTimeout).
+func (c *Connection) getDrainCtx() context.Context {
+	c.drainCtxOnce.Do(func() {
+		timeout := c.shutdownTimeout
+		if timeout < 0 {
+			// Legacy behaviour: never cancel the drain context. Handlers
+			// that ignore ctx will still let wg.Wait run unbounded.
+			c.drainCtx = context.WithoutCancel(c.ctx)
+			c.drainCancel = func() {}
+			return
+		}
+		if timeout == 0 {
+			timeout = defaultShutdownTimeout
+		}
+		c.drainCtx, c.drainCancel = context.WithTimeout(context.WithoutCancel(c.ctx), timeout)
+	})
+	return c.drainCtx
+}
+
+// releaseDrainCtx releases the drain context's timer and cancel resources
+// once the shutdown path has stopped waiting on it. Safe to call when the
+// drain context was never materialised — getDrainCtx lazily creates a
+// no-op cancel in that case.
+func (c *Connection) releaseDrainCtx() {
+	_ = c.getDrainCtx()
+	if c.drainCancel != nil {
+		c.drainCancel()
+	}
+}
+
+// Done returns a channel that is closed when the connection is no longer
+// usable: the transport has been closed or Close was called. This is an
+// entered-shutdown signal, not a "fully stopped" barrier — background
+// worker and drain goroutines may still be running briefly after the
+// channel closes. Safe to call before Start; the channel stays open until
 // the connection eventually shuts down.
 func (c *Connection) Done() <-chan struct{} {
 	return c.done
@@ -448,10 +620,25 @@ func (c *Connection) readLoop() {
 				c.setTerminalError(fmt.Errorf("too many consecutive parse errors (%d), closing connection", consecutiveParseErrors))
 				return
 			}
-			// Per JSON-RPC 2.0 spec, send a parse error response with id: null.
-			errResp := NewErrorResponse(nil, acp.NewRPCError(int(acp.ErrorCodeParseError), "parse error", nil))
+			// Per JSON-RPC 2.0 spec, -32700 (Parse Error) is only for JSON
+			// that cannot be tokenised. JSON that is syntactically valid but
+			// violates JSON-RPC semantics (invalid id type, result+error both
+			// present, etc.) is -32600 (Invalid Request). When the id can be
+			// recovered from a lightweight envelope we echo it back; otherwise
+			// we use null per spec.
+			var (
+				errCode = acp.ErrorCodeParseError
+				errMsg  = "parse error"
+				errID   *ID
+			)
+			if json.Valid(data) {
+				errCode = acp.ErrorCodeInvalidRequest
+				errMsg = "invalid request: " + err.Error()
+				errID = recoverRequestID(data)
+			}
+			errResp := NewErrorResponse(errID, acp.NewRPCError(int(errCode), errMsg, nil))
 			if writeErr := c.writeMessage(c.ctx, errResp); writeErr != nil {
-				c.logf("write parse error response: %v", writeErr)
+				c.logf("write %s response: %v", errMsg, writeErr)
 			}
 			continue
 		}
@@ -483,9 +670,13 @@ func (c *Connection) readLoop() {
 			}
 			c.handleResponse(&msg)
 		} else if msg.IsRequest() {
-			c.dispatchRequest(&msg)
+			if !c.dispatchRequest(&msg) {
+				return
+			}
 		} else if msg.IsNotification() {
-			c.dispatchNotification(&msg)
+			if !c.dispatchNotification(&msg) {
+				return
+			}
 		} else {
 			errResp := NewErrorResponse(msg.ID, acp.NewRPCError(int(acp.ErrorCodeInvalidRequest), "invalid message: not a request, notification, or response", nil))
 			if writeErr := c.writeMessage(c.ctx, errResp); writeErr != nil {
@@ -513,7 +704,7 @@ func (c *Connection) handleResponse(msg *Message) {
 		// The pending entry is deleted on timeout/ctx-cancel/close, so a late
 		// response from the peer arriving here is expected under load and not
 		// actionable. Log at debug level instead of surfacing through OnError.
-		c.logf("late or unexpected response for request %s (already timed out or cancelled)", key)
+		c.logDebugf("late or unexpected response for request %s (already timed out or cancelled)", key)
 		return
 	}
 	pr := val.(*pendingResponse)
@@ -550,9 +741,11 @@ func (c *Connection) handleRequest(ctx context.Context, msg *Message, respond fu
 }
 
 func (c *Connection) handleRequestSafely(ctx context.Context, msg *Message, respond func(*Message)) {
+	c.activeHandlers.Add(1)
+	defer c.activeHandlers.Add(-1)
 	defer func() {
 		if r := recover(); r != nil {
-			panicErr := fmt.Errorf("request handler panic: method=%q %s: %v\n%s", msg.Method, c.panicContext(msg), r, debug.Stack())
+			panicErr := fmt.Errorf("request handler panic: method=%q %s: %v\n%s", msg.Method, c.panicContext(msg), r, safe.TruncatedStack())
 			c.reportError(msg.Method, panicErr)
 			respond(NewErrorResponse(msg.ID, acp.ErrInternalError(genericInternalErrorMessage, panicErr)))
 		}
@@ -563,13 +756,21 @@ func (c *Connection) handleRequestSafely(ctx context.Context, msg *Message, resp
 
 // dispatchRequest hands a Request off to the worker pool. Non-blocking: the
 // read loop never waits for a worker to become available. A worker picks it
-// up and runs runRequestHandler.
-func (c *Connection) dispatchRequest(msg *Message) {
+// up and runs runRequestHandler. Returns false when the configured dispatch
+// cap (WithMaxPendingDispatch) is exceeded; in that case the overflow path
+// has already replied to the peer with ErrServerBusy and set the connection's
+// terminal error, so the read loop should exit.
+func (c *Connection) dispatchRequest(msg *Message) bool {
 	if msg == nil {
-		return
+		return true
+	}
+	if c.maxPendingDispatch > 0 && c.requestQueue.Len() >= c.maxPendingDispatch {
+		c.handleDispatchOverflow(msg, "request")
+		return false
 	}
 	msgCopy := *msg
 	c.requestQueue.Push(&msgCopy)
+	return true
 }
 
 // runRequestHandler is called by a worker. It runs the user handler
@@ -603,7 +804,7 @@ func (c *Connection) runRequestHandler(msg *Message) {
 
 	if c.requestTimeout > 0 {
 		c.wg.Add(1)
-		safe.GoWithLogger(c.logger, func() {
+		safe.Go(func() {
 			defer c.wg.Done()
 			select {
 			case <-reqCtx.Done():
@@ -635,7 +836,7 @@ func (c *Connection) requestWorkerLoop() {
 		case msg.IsNotification():
 			ctx := c.ctx
 			if ctx.Err() != nil {
-				ctx = context.WithoutCancel(c.ctx)
+				ctx = c.getDrainCtx()
 			}
 			c.handleNotificationSafely(ctx, msg)
 		}
@@ -651,7 +852,6 @@ func (c *Connection) connectionClosedError() error {
 
 func (c *Connection) handleNotification(ctx context.Context, msg *Message) {
 	if c.notificationHandler == nil {
-		c.reportError(msg.Method, fmt.Errorf("notification handler not configured"))
 		return
 	}
 	if ctx == nil {
@@ -664,9 +864,11 @@ func (c *Connection) handleNotification(ctx context.Context, msg *Message) {
 }
 
 func (c *Connection) handleNotificationSafely(ctx context.Context, msg *Message) {
+	c.activeHandlers.Add(1)
+	defer c.activeHandlers.Add(-1)
 	defer func() {
 		if r := recover(); r != nil {
-			c.reportError(msg.Method, fmt.Errorf("notification handler panic: method=%q %s: %v\n%s", msg.Method, c.panicContext(msg), r, debug.Stack()))
+			c.reportError(msg.Method, fmt.Errorf("notification handler panic: method=%q %s: %v\n%s", msg.Method, c.panicContext(msg), r, safe.TruncatedStack()))
 		}
 	}()
 
@@ -675,18 +877,52 @@ func (c *Connection) handleNotificationSafely(ctx context.Context, msg *Message)
 
 // dispatchNotification hands a Notification off to a queue. Ordered methods
 // go to the single-consumer ordered queue; everything else joins Requests on
-// the shared worker-pool intake queue. Non-blocking in both cases.
-func (c *Connection) dispatchNotification(msg *Message) {
+// the shared worker-pool intake queue. Returns false when the configured
+// dispatch cap (WithMaxPendingDispatch) is exceeded; in that case the
+// overflow path has set the terminal error and the read loop should exit.
+func (c *Connection) dispatchNotification(msg *Message) bool {
 	if msg == nil {
-		return
+		return true
 	}
 
 	msgCopy := *msg
 	if c.shouldOrderNotification(msgCopy.Method) {
+		if c.maxPendingDispatch > 0 && c.orderedNotificationQueue.Len() >= c.maxPendingDispatch {
+			c.handleDispatchOverflow(msg, "ordered-notification")
+			return false
+		}
 		c.orderedNotificationQueue.Push(&msgCopy)
-		return
+		return true
+	}
+	if c.maxPendingDispatch > 0 && c.requestQueue.Len() >= c.maxPendingDispatch {
+		c.handleDispatchOverflow(msg, "notification")
+		return false
 	}
 	c.requestQueue.Push(&msgCopy)
+	return true
+}
+
+// handleDispatchOverflow is invoked when the dispatch cap is exceeded for
+// the given incoming frame. For Requests it attempts a best-effort
+// ErrServerBusy response so the peer sees a clean failure; for Notifications
+// there is no response channel, so it only logs. It always records a terminal
+// error so Start/WaitErr surface the overload condition to the caller.
+func (c *Connection) handleDispatchOverflow(msg *Message, kind string) {
+	limit := c.maxPendingDispatch
+	termErr := fmt.Errorf("dispatch queue overflow (kind=%s limit=%d)", kind, limit)
+	c.setTerminalError(termErr)
+	if msg != nil && msg.IsRequest() {
+		errResp := NewErrorResponse(msg.ID, acp.ErrServerBusy("dispatch queue full"))
+		if writeErr := c.writeMessage(c.ctx, errResp); writeErr != nil {
+			c.logDebugf("write server-busy response: %v", writeErr)
+		}
+	}
+	c.logf("dispatch queue overflow (kind=%s method=%q limit=%d): terminating connection", kind, func() string {
+		if msg == nil {
+			return ""
+		}
+		return msg.Method
+	}(), limit)
 }
 
 func (c *Connection) shouldOrderNotification(method string) bool {
@@ -710,7 +946,7 @@ func (c *Connection) processOrderedNotifications() {
 		}
 		ctx := c.ctx
 		if ctx.Err() != nil {
-			ctx = context.WithoutCancel(c.ctx)
+			ctx = c.getDrainCtx()
 		}
 		c.handleNotificationSafely(ctx, msg)
 	}
@@ -719,6 +955,14 @@ func (c *Connection) processOrderedNotifications() {
 func (c *Connection) reportError(method string, err error) {
 	c.logf("jsonrpc error on method %q: %v", method, err)
 	if c.OnError != nil {
+		// OnError is a user-supplied callback. A panic here must not abort
+		// the caller (e.g. handleRequestSafely still needs to send a response
+		// after reportError).
+		defer func() {
+			if r := recover(); r != nil {
+				c.logf("jsonrpc OnError callback panic on method %q: %v\n%s", method, r, safe.TruncatedStack())
+			}
+		}()
 		c.OnError(method, err)
 	}
 }
@@ -754,8 +998,29 @@ func (c *Connection) panicContext(msg *Message) string {
 	return out
 }
 
+// truncateBytes returns data as a string, truncated to at most maxLen bytes.
+// If truncation occurs, an ellipsis marker is appended.
+func truncateBytes(data []byte, maxLen int) string {
+	if len(data) <= maxLen {
+		return string(data)
+	}
+	return string(data[:maxLen]) + "...(truncated)"
+}
+
 func (c *Connection) logf(format string, args ...any) {
-	c.logger.Error(format, args...)
+	if c.label != "" {
+		acplog.Error("[conn=%s] "+format, append([]any{c.label}, args...)...)
+		return
+	}
+	acplog.Error(format, args...)
+}
+
+func (c *Connection) logDebugf(format string, args ...any) {
+	if c.label != "" {
+		acplog.Debug("[conn=%s] "+format, append([]any{c.label}, args...)...)
+		return
+	}
+	acplog.Debug(format, args...)
 }
 
 // ToResponseError converts an error to an RPCError suitable for a JSON-RPC
@@ -798,15 +1063,11 @@ func SendRequestTyped[T any](sender RequestSender, ctx context.Context, method s
 	var zero T
 	raw, err := sender.SendRequest(ctx, method, params)
 	if err != nil {
-		if len(raw) > 0 {
-			acplog.Default().Error("send request error: %v, raw response: %s", err, string(raw))
-			return zero, acp.ErrInternalError(err.Error(), map[string]string{"error": string(raw)})
-		}
 		return zero, err
 	}
 	var result T
 	if err := json.Unmarshal(raw, &result); err != nil {
-		acplog.Default().Error("unmarshal response error: %v, raw response: %s", err, string(raw))
+		acplog.CtxError(ctx, "unmarshal response error: %v, raw response length: %d, preview: %s", err, len(raw), truncateBytes(raw, 256))
 		return zero, acp.ErrInternalError(fmt.Sprintf("unmarshal response for %s", method), err)
 	}
 	return result, nil

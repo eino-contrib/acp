@@ -9,6 +9,7 @@ import (
 	"github.com/hertz-contrib/websocket"
 
 	acphttpserver "github.com/eino-contrib/acp/internal/httpserver"
+	acplog "github.com/eino-contrib/acp/internal/log"
 	acptransport "github.com/eino-contrib/acp/transport"
 )
 
@@ -42,14 +43,16 @@ func (s *ACPServer) serveHTTP(ctx context.Context, c *app.RequestContext) {
 func (s *ACPServer) handleWebSocket(ctx context.Context, c *app.RequestContext) {
 	wc, err := s.newWSConn(ctx)
 	if err != nil {
-		s.logger.CtxError(ctx, "create websocket connection failed: %v", err)
+		acplog.CtxWarn(ctx, "create websocket connection failed: %v", err)
 		acphttpserver.WriteHertzText(c, http.StatusInternalServerError, "failed to create connection")
 		return
 	}
 
 	c.Response.Header.Set(acptransport.HeaderConnectionID, wc.id)
+	s.trackWSConn(wc)
 	err = s.upgrader.Upgrade(c, func(wsConn *websocket.Conn) {
-		wc.Serve(ctx, wsConn)
+		defer s.untrackWSConn(wc.id)
+		wc.Serve(wsConn)
 		wc.Close()
 	})
 	if err != nil {

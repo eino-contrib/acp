@@ -49,7 +49,7 @@ func TestStartReturnsOnContextCancel(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	safe.GoWithLogger(acplog.Default(), func() {
+	safe.Go(func() {
 		done <- conn.Start(ctx)
 	})
 
@@ -175,7 +175,7 @@ func TestSendNotificationUsesCallerContextForWrite(t *testing.T) {
 	defer cancelConn()
 
 	done := make(chan error, 1)
-	safe.GoWithLogger(acplog.Default(), func() {
+	safe.Go(func() {
 		done <- conn.Start(connCtx)
 	})
 
@@ -274,9 +274,9 @@ func TestNotificationsProcessedInOrder(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	safe.GoWithLogger(acplog.Default(), func() {
+	safe.Go(func() {
 		if err := conn.Start(ctx); err != nil {
-			acplog.Default().Error("start ordered notification test connection: %v", err)
+			acplog.Error("start ordered notification test connection: %v", err)
 		}
 	})
 	if err := conn.WaitUntilStarted(ctx); err != nil {
@@ -343,7 +343,7 @@ func TestSessionUpdateNotificationsAreUnorderedByDefault(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	safe.GoWithLogger(acplog.Default(), func() {
+	safe.Go(func() {
 		done <- conn.Start(ctx)
 	})
 	if err := conn.WaitUntilStarted(ctx); err != nil {
@@ -393,7 +393,7 @@ func TestStartReportsNullIDErrorResponse(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	safe.GoWithLogger(acplog.Default(), func() {
+	safe.Go(func() {
 		done <- conn.Start(ctx)
 	})
 	if err := conn.WaitUntilStarted(ctx); err != nil {
@@ -450,7 +450,7 @@ func TestQueuedNotificationsDrainWithoutCanceledContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	safe.GoWithLogger(acplog.Default(), func() {
+	safe.Go(func() {
 		done <- conn.Start(ctx)
 	})
 	if err := conn.WaitUntilStarted(ctx); err != nil {
@@ -517,7 +517,7 @@ func TestUnorderedNotificationsDoNotBlockEachOther(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	safe.GoWithLogger(acplog.Default(), func() {
+	safe.Go(func() {
 		done <- conn.Start(ctx)
 	})
 	if err := conn.WaitUntilStarted(ctx); err != nil {
@@ -557,7 +557,7 @@ func TestRequestHandlerPanicReturnsInternalErrorResponse(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	safe.GoWithLogger(acplog.Default(), func() {
+	safe.Go(func() {
 		done <- conn.Start(ctx)
 	})
 	if err := conn.WaitUntilStarted(ctx); err != nil {
@@ -649,7 +649,7 @@ func TestNotificationHandlerPanicDoesNotStopProcessing(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	safe.GoWithLogger(acplog.Default(), func() {
+	safe.Go(func() {
 		done <- conn.Start(ctx)
 	})
 	if err := conn.WaitUntilStarted(ctx); err != nil {

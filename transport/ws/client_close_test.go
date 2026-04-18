@@ -7,8 +7,6 @@ import (
 	"net"
 	"testing"
 	"time"
-
-	acplog "github.com/eino-contrib/acp/internal/log"
 )
 
 func TestWebSocketClientTransportCloseDoesNotBlockOnBusyWriter(t *testing.T) {
@@ -19,7 +17,6 @@ func TestWebSocketClientTransportCloseDoesNotBlockOnBusyWriter(t *testing.T) {
 		connected:   true,
 		inbox:       make(chan json.RawMessage, 1),
 		done:        make(chan struct{}),
-		logger:      acplog.Default(),
 		writePermit: make(chan struct{}, 1),
 	}
 	transport.writePermit <- struct{}{}
