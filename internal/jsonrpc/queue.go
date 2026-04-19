@@ -4,6 +4,8 @@ import (
 	"container/list"
 	"context"
 	"sync"
+
+	acplog "github.com/eino-contrib/acp/internal/log"
 )
 
 // unboundedQueue is an unbounded FIFO of *Message entries.
@@ -22,12 +24,14 @@ type unboundedQueue struct {
 	notEmpty chan struct{} // closed to wake waiters, replaced with a fresh chan on each signal
 	items    *list.List
 	closed   bool
+	name     string
 }
 
-func newUnboundedQueue() *unboundedQueue {
+func newUnboundedQueue(name string) *unboundedQueue {
 	return &unboundedQueue{
 		items:    list.New(),
 		notEmpty: make(chan struct{}),
+		name:     name,
 	}
 }
 
@@ -47,12 +51,14 @@ func (q *unboundedQueue) Push(m *Message) bool {
 	}
 	wasEmpty := q.items.Len() == 0
 	q.items.PushBack(m)
+	depth := q.items.Len()
 	var signal chan struct{}
 	if wasEmpty {
 		signal = q.notEmpty
 		q.notEmpty = make(chan struct{})
 	}
 	q.mu.Unlock()
+	acplog.SampledDebug(100, "queue %s: push method=%s depth=%d", q.name, m.Method, depth)
 	if signal != nil {
 		close(signal)
 	}
@@ -68,8 +74,11 @@ func (q *unboundedQueue) Pop(ctx context.Context) (*Message, bool) {
 		if q.items.Len() > 0 {
 			front := q.items.Front()
 			q.items.Remove(front)
+			depth := q.items.Len()
 			q.mu.Unlock()
-			return front.Value.(*Message), true
+			msg := front.Value.(*Message)
+			acplog.SampledInfo(100, "queue %s: pop method=%s depth=%d", q.name, msg.Method, depth)
+			return msg, true
 		}
 		if q.closed {
 			q.mu.Unlock()

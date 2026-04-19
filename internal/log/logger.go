@@ -5,6 +5,7 @@ package log
 import (
 	"context"
 	"log"
+	"math/rand"
 	"sync/atomic"
 
 	"github.com/eino-contrib/acp/internal/connspi"
@@ -152,4 +153,16 @@ func CtxWarn(ctx context.Context, format string, v ...interface{}) {
 }
 func CtxError(ctx context.Context, format string, v ...interface{}) {
 	Get().CtxError(ctx, prefix+ctxPrefix(ctx)+format, v...)
+}
+
+func SampledDebug(rate int, format string, v ...interface{}) {
+	if rate > 0 && rand.Intn(rate) == 0 {
+		Debug(format, v...)
+	}
+}
+
+func SampledInfo(rate int, format string, v ...interface{}) {
+	if rate > 0 && rand.Intn(rate) == 0 {
+		Info(format, v...)
+	}
 }
