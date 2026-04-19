@@ -60,11 +60,12 @@ func (p *EnvelopePayload) UnmarshalJSON(data []byte) error {
 // Envelope is a lightweight JSON-RPC envelope used for message classification
 // and metadata extraction without full deserialization.
 type Envelope struct {
-	ID     *json.RawMessage `json:"id,omitempty"`
-	Method string           `json:"method,omitempty"`
-	Params EnvelopePayload  `json:"params,omitempty"`
-	Result EnvelopePayload  `json:"result,omitempty"`
-	Error  *acp.RPCError    `json:"error,omitempty"`
+	JSONRPC string           `json:"jsonrpc,omitempty"`
+	ID      *json.RawMessage `json:"id,omitempty"`
+	Method  string           `json:"method,omitempty"`
+	Params  EnvelopePayload  `json:"params,omitempty"`
+	Result  EnvelopePayload  `json:"result,omitempty"`
+	Error   *acp.RPCError    `json:"error,omitempty"`
 }
 
 // ParseEnvelope parses the JSON-RPC envelope from raw bytes.
@@ -74,6 +75,28 @@ func ParseEnvelope(data []byte) (Envelope, error) {
 		return Envelope{}, err
 	}
 	return envelope, nil
+}
+
+// recoverRequestID extracts the "id" field from a syntactically valid but
+// semantically invalid JSON-RPC frame so that error responses can echo it
+// back to the peer. Returns nil when the id is missing, null, or not a
+// valid JSON-RPC id (integer or string) — in which case the spec requires
+// replying with id:null.
+func recoverRequestID(data []byte) *ID {
+	var probe struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return nil
+	}
+	if len(probe.ID) == 0 || string(probe.ID) == "null" {
+		return nil
+	}
+	var id ID
+	if err := json.Unmarshal(probe.ID, &id); err != nil {
+		return nil
+	}
+	return &id
 }
 
 // IsRequest reports whether the envelope represents a JSON-RPC request.

@@ -1,9 +1,13 @@
-// Package log defines the Logger interface used by ACP transports.
+// Package log defines the Logger interface and the process-wide global logger
+// used by ACP transports.
 package log
 
 import (
 	"context"
 	"log"
+	"sync/atomic"
+
+	"github.com/eino-contrib/acp/internal/connspi"
 )
 
 // Logger is the interface used by ACP transports for diagnostic logging.
@@ -23,36 +27,129 @@ type Logger interface {
 	CtxError(ctx context.Context, format string, v ...interface{})
 }
 
-// Default returns the default Logger implementation used by ACP.
-// It writes via the standard log package using Printf semantics.
-func Default() Logger { return defaultLogger{} }
+// prefix is prepended to every format string emitted through the package-level
+// helpers below. Keeping it centralised means neither the default logger nor
+// user-installed loggers need to know about the SDK marker at construction
+// time — every message that flows through the SDK carries it.
+const prefix = "[ACP-SDK] "
 
-// OrDefault returns l if non-nil, otherwise the default Logger. Transports
-// accept a nil Logger to mean "use the default"; call OrDefault at the call
-// site instead of duplicating the nil check.
-func OrDefault(l Logger) Logger {
-	if l != nil {
-		return l
-	}
-	return Default()
-}
-
-// defaultLogger wraps the standard log package.
+// defaultLogger wraps the standard log package. Level markers are inlined here
+// because the standard library logger has no notion of severity; structured
+// loggers installed via Set typically attach their own level tags.
+//
+// Debug/CtxDebug are intentionally no-ops. The SDK emits very verbose
+// diagnostics at Debug (every JSON-RPC frame passes through Access() at this
+// level), and defaulting that to stderr would turn a protocol-level mistake on
+// the peer's side into log DoS on the host. Callers who want full-fidelity
+// debug output must install their own Logger via Set.
 type defaultLogger struct{}
 
-func (defaultLogger) Debug(format string, v ...interface{}) { log.Printf(format, v...) }
-func (defaultLogger) Info(format string, v ...interface{})  { log.Printf(format, v...) }
-func (defaultLogger) Warn(format string, v ...interface{})  { log.Printf("WARN: "+format, v...) }
-func (defaultLogger) Error(format string, v ...interface{}) { log.Printf("ERROR: "+format, v...) }
-func (defaultLogger) CtxDebug(_ context.Context, format string, v ...interface{}) {
-	log.Printf(format, v...)
+func (defaultLogger) Debug(format string, v ...interface{}) {
+	log.Printf("[DEBUG] "+format, v...)
+}
+func (defaultLogger) Info(format string, v ...interface{}) {
+	log.Printf("[INFO] "+format, v...)
+}
+func (defaultLogger) Warn(format string, v ...interface{}) {
+	log.Printf("[WARN] "+format, v...)
+}
+func (defaultLogger) Error(format string, v ...interface{}) {
+	log.Printf("[ERROR] "+format, v...)
+}
+
+func (defaultLogger) CtxDebug(ctx context.Context, format string, v ...interface{}) {
+	log.Printf("[DEBUG] "+format, v...)
 }
 func (defaultLogger) CtxInfo(_ context.Context, format string, v ...interface{}) {
-	log.Printf(format, v...)
+	log.Printf("[INFO] "+format, v...)
 }
 func (defaultLogger) CtxWarn(_ context.Context, format string, v ...interface{}) {
-	log.Printf("WARN: "+format, v...)
+	log.Printf("[WARN] "+format, v...)
 }
 func (defaultLogger) CtxError(_ context.Context, format string, v ...interface{}) {
-	log.Printf("ERROR: "+format, v...)
+	log.Printf("[ERROR] "+format, v...)
+}
+
+// globalLogger holds the process-wide Logger. Callers swap it via Set; every
+// log call inside the SDK reads it through Get. The stored value is always a
+// *loggerHolder so atomic.Value sees a single concrete type across Stores.
+var globalLogger atomic.Value // *loggerHolder
+
+type loggerHolder struct{ Logger }
+
+func init() {
+	globalLogger.Store(&loggerHolder{Logger: defaultLogger{}})
+}
+
+// Get returns the current global logger. Never nil.
+func Get() Logger {
+	if v := globalLogger.Load(); v != nil {
+		if h, ok := v.(*loggerHolder); ok && h != nil && h.Logger != nil {
+			return h.Logger
+		}
+	}
+	return defaultLogger{}
+}
+
+// Set replaces the global logger. Passing nil restores the default standard
+// library-backed logger so callers can reset to the built-in behavior.
+//
+// If the logger does not implement DebugEnabler, Access() conservatively
+// assumes Debug is DISABLED and will skip frame payload logging. Implement
+// DebugEnabler and return true to opt in to full access logs.
+func Set(l Logger) {
+	if l == nil {
+		globalLogger.Store(&loggerHolder{Logger: defaultLogger{}})
+		return
+	}
+	if _, ok := l.(DebugEnabler); !ok {
+		// Use the incoming logger itself to emit the warning so the message
+		// reaches whatever backend the caller just installed.
+		l.Warn(prefix + "installed Logger does not implement log.DebugEnabler; " +
+			"transport access logs are DISABLED by default. " +
+			"Implement DebugEnabler and return true from DebugEnabled() to enable full access logs.")
+	}
+	globalLogger.Store(&loggerHolder{Logger: l})
+}
+
+// Package-level helpers forward to the current global logger. Every entry
+// carries the shared [ACP-SDK] prefix so log scrapers can trace messages back
+// to the SDK regardless of which backend is installed.
+
+func Debug(format string, v ...interface{}) { Get().Debug(prefix+format, v...) }
+func Info(format string, v ...interface{})  { Get().Info(prefix+format, v...) }
+func Warn(format string, v ...interface{})  { Get().Warn(prefix+format, v...) }
+func Error(format string, v ...interface{}) { Get().Error(prefix+format, v...) }
+
+// ctxPrefix extracts well-known context fields (ConnectionID, SessionID) and
+// renders them as a bracketed prefix so every Ctx* log entry carries the
+// request-scoped identifiers without each call site having to format them.
+func ctxPrefix(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	cid := connspi.ConnectionIDFromContext(ctx)
+	sid := connspi.SessionIDFromContext(ctx)
+	switch {
+	case cid != "" && sid != "":
+		return "[conn=" + cid + " session=" + sid + "] "
+	case cid != "":
+		return "[conn=" + cid + "] "
+	case sid != "":
+		return "[session=" + sid + "] "
+	}
+	return ""
+}
+
+func CtxDebug(ctx context.Context, format string, v ...interface{}) {
+	Get().CtxDebug(ctx, prefix+ctxPrefix(ctx)+format, v...)
+}
+func CtxInfo(ctx context.Context, format string, v ...interface{}) {
+	Get().CtxInfo(ctx, prefix+ctxPrefix(ctx)+format, v...)
+}
+func CtxWarn(ctx context.Context, format string, v ...interface{}) {
+	Get().CtxWarn(ctx, prefix+ctxPrefix(ctx)+format, v...)
+}
+func CtxError(ctx context.Context, format string, v ...interface{}) {
+	Get().CtxError(ctx, prefix+ctxPrefix(ctx)+format, v...)
 }

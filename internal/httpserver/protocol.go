@@ -25,6 +25,20 @@ type ProtocolConnection struct {
 	dispatcher  connspi.Dispatcher
 	pendingReqs *PendingRequests
 
+	// dispatchSlots is a counting semaphore that caps the number of concurrent
+	// in-flight direct-dispatch handlers on this connection. Both request and
+	// notification paths acquire a slot before invoking the user handler and
+	// release it when the handler returns. Overflow (non-blocking acquire
+	// fails) fails the POST fast with ErrServerBusy, mirroring the overflow
+	// behavior of jsonrpc.Connection for WS/stdio — without this cap a burst
+	// of slow handlers could spawn unbounded goroutines via safe.Go() inside
+	// handleDirectRequestPost, since RequestTimeout only unblocks the outer
+	// HTTP handler and does not abort the background dispatch goroutine.
+	//
+	// nil when the connection is created without a cap (MaxInflightDispatch
+	// <= 0 intentionally disables the limit).
+	dispatchSlots chan struct{}
+
 	done    <-chan struct{}
 	closeFn func() error
 }
@@ -37,7 +51,16 @@ type ProtocolConnectionConfig struct {
 	PendingReqs  *PendingRequests
 	Done         <-chan struct{}
 	Close        func() error
+	// MaxInflightDispatch caps the number of concurrent direct-dispatch
+	// handlers. Zero selects DefaultMaxInflightDispatch. Negative disables
+	// the cap.
+	MaxInflightDispatch int
 }
+
+// DefaultMaxInflightDispatch is the default cap on concurrent direct-dispatch
+// handlers per HTTP connection. Chosen to match jsonrpc.defaultMaxPendingDispatch
+// so the two transports shed load at comparable thresholds.
+const DefaultMaxInflightDispatch = 4096
 
 // NewProtocolConnection creates a ProtocolConnection from the given config.
 func NewProtocolConnection(cfg ProtocolConnectionConfig) *ProtocolConnection {
@@ -49,7 +72,30 @@ func NewProtocolConnection(cfg ProtocolConnectionConfig) *ProtocolConnection {
 		done:         cfg.Done,
 		closeFn:      cfg.Close,
 	}
+	switch {
+	case cfg.MaxInflightDispatch == 0:
+		pc.dispatchSlots = make(chan struct{}, DefaultMaxInflightDispatch)
+	case cfg.MaxInflightDispatch > 0:
+		pc.dispatchSlots = make(chan struct{}, cfg.MaxInflightDispatch)
+	}
 	return pc
+}
+
+// tryAcquireDispatch attempts to reserve a dispatch slot without blocking.
+// Returns a release func on success and nil on overflow. When no cap is
+// configured (dispatchSlots == nil) acquire always succeeds and the release
+// func is a no-op.
+func (c *ProtocolConnection) tryAcquireDispatch() func() {
+	if c == nil || c.dispatchSlots == nil {
+		return func() {}
+	}
+	select {
+	case c.dispatchSlots <- struct{}{}:
+		slots := c.dispatchSlots
+		return func() { <-slots }
+	default:
+		return nil
+	}
 }
 
 // ConnectionID returns the connection identifier.
@@ -112,7 +158,9 @@ func (c *ProtocolConnection) CloseConnection() {
 		return
 	}
 	if c.closeFn != nil {
-		c.closeFn()
+		if err := c.closeFn(); err != nil {
+			acplog.Warn("httpserver: close connection %s: %v", c.connectionID, err)
+		}
 		return
 	}
 	if c.httpConn != nil {
@@ -135,7 +183,6 @@ type ProtocolServer struct {
 	// MaxMessageSize caps the size (in bytes) of a single Streamable HTTP POST
 	// body. Zero means transport.DefaultMaxMessageSize.
 	MaxMessageSize int
-	Logger         acplog.Logger
 }
 
 // HandleProtocolPost runs the Streamable HTTP POST logic using direct agent dispatch.
@@ -166,11 +213,13 @@ func HandleProtocolPost(ctx HandlerContext, server ProtocolServer) {
 		return
 	}
 
-	msg, errMsg, code := ParsePostBody(body)
+	msg, errMsg, code := ParsePostBody(baseHandlerContext(ctx), body)
 	if errMsg != "" {
 		ctx.WriteError(code, errMsg)
 		return
 	}
+
+	acplog.Access(baseHandlerContext(ctx), "http-server", acplog.AccessDirectionRecv, msg.Body)
 
 	connectionID := ctx.RequestHeader(acptransport.HeaderConnectionID)
 	sessionID := ctx.RequestHeader(acptransport.HeaderSessionID)
@@ -257,6 +306,15 @@ func HandleProtocolGet(ctx HandlerContext, server ProtocolServer) {
 	streamGen, evicted := sess.BindStream(writeFn)
 	defer sess.UnbindStream(streamGen)
 
+	// Bracket the listener with Begin/End so the idle reaper cannot evict a
+	// connection whose only current activity is a long-lived GET SSE stream.
+	// Without this the reaper would tear down healthy listeners whenever
+	// WithConnectionIdleTimeout is configured below the SSE keepalive
+	// interval, since keepalive Touches only refresh activity every
+	// SSEKeepaliveInterval.
+	conn.httpConn.BeginRequest()
+	defer conn.httpConn.EndRequest()
+
 	// Keep-alive ticker.
 	keepAlive := server.KeepAliveInterval
 	if keepAlive <= 0 {
@@ -311,9 +369,7 @@ func handleInitializePost(ctx HandlerContext, server ProtocolServer, msg *Parsed
 		if status == 0 {
 			status = http.StatusInternalServerError
 		}
-		if server.Logger != nil {
-			server.Logger.Error("create protocol connection failed: status=%d err=%v", status, err)
-		}
+		acplog.Warn("create protocol connection failed: status=%d err=%v", status, err)
 		ctx.WriteError(status, connectionCreateErrorMessage(status, err))
 		return
 	}

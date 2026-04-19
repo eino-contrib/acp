@@ -12,32 +12,8 @@ import (
 	"time"
 
 	"github.com/eino-contrib/acp/internal/jsonrpc"
-	acplog "github.com/eino-contrib/acp/internal/log"
 	acptransport "github.com/eino-contrib/acp/transport"
 )
-
-type testLogger struct{}
-
-func (testLogger) Debug(string, ...interface{})                      {}
-func (testLogger) Info(string, ...interface{})                       {}
-func (testLogger) Warn(string, ...interface{})                       {}
-func (testLogger) Error(string, ...interface{})                      {}
-func (testLogger) CtxDebug(context.Context, string, ...interface{})  {}
-func (testLogger) CtxInfo(context.Context, string, ...interface{})   {}
-func (testLogger) CtxWarn(context.Context, string, ...interface{})   {}
-func (testLogger) CtxError(context.Context, string, ...interface{})  {}
-
-func TestClientTransportWithClientLogger(t *testing.T) {
-	t.Parallel()
-
-	logger := testLogger{}
-	client := NewClientTransport("http://example.invalid", WithClientLogger(logger))
-	defer client.Close()
-
-	if got := acplog.OrDefault(client.logger); got != logger {
-		t.Fatalf("logger = %#v, want %#v", got, logger)
-	}
-}
 
 func TestClientTransportPersistsCookies(t *testing.T) {
 	call := 0

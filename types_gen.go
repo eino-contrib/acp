@@ -6090,21 +6090,33 @@ func (v *AgentCapabilities) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("AgentCapabilities: decode raw fields: %w", err)
+	}
 	if rm, ok := raw["auth"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("{}"), &a.Auth)
+		if err := json.Unmarshal([]byte("{}"), &a.Auth); err != nil {
+			return fmt.Errorf("AgentCapabilities: apply default for auth: %w", err)
+		}
 	}
 	if rm, ok := raw["loadSession"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("false"), &a.LoadSession)
+		if err := json.Unmarshal([]byte("false"), &a.LoadSession); err != nil {
+			return fmt.Errorf("AgentCapabilities: apply default for loadSession: %w", err)
+		}
 	}
 	if rm, ok := raw["mcpCapabilities"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("{\"http\":false,\"sse\":false}"), &a.MCPCapabilities)
+		if err := json.Unmarshal([]byte("{\"http\":false,\"sse\":false}"), &a.MCPCapabilities); err != nil {
+			return fmt.Errorf("AgentCapabilities: apply default for mcpCapabilities: %w", err)
+		}
 	}
 	if rm, ok := raw["promptCapabilities"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("{\"audio\":false,\"embeddedContext\":false,\"image\":false}"), &a.PromptCapabilities)
+		if err := json.Unmarshal([]byte("{\"audio\":false,\"embeddedContext\":false,\"image\":false}"), &a.PromptCapabilities); err != nil {
+			return fmt.Errorf("AgentCapabilities: apply default for promptCapabilities: %w", err)
+		}
 	}
 	if rm, ok := raw["sessionCapabilities"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("{}"), &a.SessionCapabilities)
+		if err := json.Unmarshal([]byte("{}"), &a.SessionCapabilities); err != nil {
+			return fmt.Errorf("AgentCapabilities: apply default for sessionCapabilities: %w", err)
+		}
 	}
 	*v = AgentCapabilities(a)
 	return nil
@@ -6117,9 +6129,13 @@ func (v *AuthCapabilities) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("AuthCapabilities: decode raw fields: %w", err)
+	}
 	if rm, ok := raw["terminal"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("false"), &a.Terminal)
+		if err := json.Unmarshal([]byte("false"), &a.Terminal); err != nil {
+			return fmt.Errorf("AuthCapabilities: apply default for terminal: %w", err)
+		}
 	}
 	*v = AuthCapabilities(a)
 	return nil
@@ -6132,12 +6148,18 @@ func (v *AuthEnvVar) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("AuthEnvVar: decode raw fields: %w", err)
+	}
 	if rm, ok := raw["optional"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("false"), &a.Optional)
+		if err := json.Unmarshal([]byte("false"), &a.Optional); err != nil {
+			return fmt.Errorf("AuthEnvVar: apply default for optional: %w", err)
+		}
 	}
 	if rm, ok := raw["secret"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("true"), &a.Secret)
+		if err := json.Unmarshal([]byte("true"), &a.Secret); err != nil {
+			return fmt.Errorf("AuthEnvVar: apply default for secret: %w", err)
+		}
 	}
 	*v = AuthEnvVar(a)
 	return nil
@@ -6150,15 +6172,23 @@ func (v *ClientCapabilities) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("ClientCapabilities: decode raw fields: %w", err)
+	}
 	if rm, ok := raw["auth"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("{\"terminal\":false}"), &a.Auth)
+		if err := json.Unmarshal([]byte("{\"terminal\":false}"), &a.Auth); err != nil {
+			return fmt.Errorf("ClientCapabilities: apply default for auth: %w", err)
+		}
 	}
 	if rm, ok := raw["fs"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("{\"readTextFile\":false,\"writeTextFile\":false}"), &a.FS)
+		if err := json.Unmarshal([]byte("{\"readTextFile\":false,\"writeTextFile\":false}"), &a.FS); err != nil {
+			return fmt.Errorf("ClientCapabilities: apply default for fs: %w", err)
+		}
 	}
 	if rm, ok := raw["terminal"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("false"), &a.Terminal)
+		if err := json.Unmarshal([]byte("false"), &a.Terminal); err != nil {
+			return fmt.Errorf("ClientCapabilities: apply default for terminal: %w", err)
+		}
 	}
 	*v = ClientCapabilities(a)
 	return nil
@@ -6171,12 +6201,18 @@ func (v *ElicitationSchema) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("ElicitationSchema: decode raw fields: %w", err)
+	}
 	if rm, ok := raw["properties"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("{}"), &a.Properties)
+		if err := json.Unmarshal([]byte("{}"), &a.Properties); err != nil {
+			return fmt.Errorf("ElicitationSchema: apply default for properties: %w", err)
+		}
 	}
 	if rm, ok := raw["type"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("\"object\""), &a.Type)
+		if err := json.Unmarshal([]byte("\"object\""), &a.Type); err != nil {
+			return fmt.Errorf("ElicitationSchema: apply default for type: %w", err)
+		}
 	}
 	*v = ElicitationSchema(a)
 	return nil
@@ -6189,12 +6225,18 @@ func (v *FileSystemCapabilities) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("FileSystemCapabilities: decode raw fields: %w", err)
+	}
 	if rm, ok := raw["readTextFile"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("false"), &a.ReadTextFile)
+		if err := json.Unmarshal([]byte("false"), &a.ReadTextFile); err != nil {
+			return fmt.Errorf("FileSystemCapabilities: apply default for readTextFile: %w", err)
+		}
 	}
 	if rm, ok := raw["writeTextFile"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("false"), &a.WriteTextFile)
+		if err := json.Unmarshal([]byte("false"), &a.WriteTextFile); err != nil {
+			return fmt.Errorf("FileSystemCapabilities: apply default for writeTextFile: %w", err)
+		}
 	}
 	*v = FileSystemCapabilities(a)
 	return nil
@@ -6207,9 +6249,13 @@ func (v *InitializeRequest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("InitializeRequest: decode raw fields: %w", err)
+	}
 	if rm, ok := raw["clientCapabilities"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("{\"auth\":{\"terminal\":false},\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false}"), &a.ClientCapabilities)
+		if err := json.Unmarshal([]byte("{\"auth\":{\"terminal\":false},\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false}"), &a.ClientCapabilities); err != nil {
+			return fmt.Errorf("InitializeRequest: apply default for clientCapabilities: %w", err)
+		}
 	}
 	*v = InitializeRequest(a)
 	return nil
@@ -6222,12 +6268,18 @@ func (v *InitializeResponse) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("InitializeResponse: decode raw fields: %w", err)
+	}
 	if rm, ok := raw["agentCapabilities"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("{\"auth\":{},\"loadSession\":false,\"mcpCapabilities\":{\"http\":false,\"sse\":false},\"promptCapabilities\":{\"audio\":false,\"embeddedContext\":false,\"image\":false},\"sessionCapabilities\":{}}"), &a.AgentCapabilities)
+		if err := json.Unmarshal([]byte("{\"auth\":{},\"loadSession\":false,\"mcpCapabilities\":{\"http\":false,\"sse\":false},\"promptCapabilities\":{\"audio\":false,\"embeddedContext\":false,\"image\":false},\"sessionCapabilities\":{}}"), &a.AgentCapabilities); err != nil {
+			return fmt.Errorf("InitializeResponse: apply default for agentCapabilities: %w", err)
+		}
 	}
 	if rm, ok := raw["authMethods"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("[]"), &a.AuthMethods)
+		if err := json.Unmarshal([]byte("[]"), &a.AuthMethods); err != nil {
+			return fmt.Errorf("InitializeResponse: apply default for authMethods: %w", err)
+		}
 	}
 	*v = InitializeResponse(a)
 	return nil
@@ -6240,12 +6292,18 @@ func (v *MCPCapabilities) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("MCPCapabilities: decode raw fields: %w", err)
+	}
 	if rm, ok := raw["http"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("false"), &a.HTTP)
+		if err := json.Unmarshal([]byte("false"), &a.HTTP); err != nil {
+			return fmt.Errorf("MCPCapabilities: apply default for http: %w", err)
+		}
 	}
 	if rm, ok := raw["sse"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("false"), &a.SSE)
+		if err := json.Unmarshal([]byte("false"), &a.SSE); err != nil {
+			return fmt.Errorf("MCPCapabilities: apply default for sse: %w", err)
+		}
 	}
 	*v = MCPCapabilities(a)
 	return nil
@@ -6258,15 +6316,23 @@ func (v *PromptCapabilities) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("PromptCapabilities: decode raw fields: %w", err)
+	}
 	if rm, ok := raw["audio"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("false"), &a.Audio)
+		if err := json.Unmarshal([]byte("false"), &a.Audio); err != nil {
+			return fmt.Errorf("PromptCapabilities: apply default for audio: %w", err)
+		}
 	}
 	if rm, ok := raw["embeddedContext"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("false"), &a.EmbeddedContext)
+		if err := json.Unmarshal([]byte("false"), &a.EmbeddedContext); err != nil {
+			return fmt.Errorf("PromptCapabilities: apply default for embeddedContext: %w", err)
+		}
 	}
 	if rm, ok := raw["image"]; !ok || string(rm) == "null" {
-		_ = json.Unmarshal([]byte("false"), &a.Image)
+		if err := json.Unmarshal([]byte("false"), &a.Image); err != nil {
+			return fmt.Errorf("PromptCapabilities: apply default for image: %w", err)
+		}
 	}
 	*v = PromptCapabilities(a)
 	return nil

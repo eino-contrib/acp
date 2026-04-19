@@ -6,6 +6,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/sse"
+	acplog "github.com/eino-contrib/acp/internal/log"
 )
 
 // hertzContext adapts a Hertz request context to HandlerContext.
@@ -56,7 +57,9 @@ func (h *hertzContext) SetStatusCode(code int) {
 }
 
 func (h *hertzContext) Flush() {
-	_ = h.c.Flush()
+	if err := h.c.Flush(); err != nil {
+		acplog.CtxDebug(h.Context(), "flush hertz response: %v", err)
+	}
 }
 
 func (h *hertzContext) Done() <-chan struct{} {
@@ -83,7 +86,9 @@ func (h *hertzContext) WriteSSEKeepAlive() error {
 
 func (h *hertzContext) CloseSSE() {
 	if h.writer != nil {
-		_ = h.writer.Close()
+		if err := h.writer.Close(); err != nil {
+			acplog.CtxDebug(h.Context(), "close hertz sse writer: %v", err)
+		}
 		h.writer = nil
 	}
 }

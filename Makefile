@@ -1,9 +1,23 @@
-.PHONY: gen test test-race vet ci build run-agent run-client run-ws
+.PHONY: gen gen-refresh test test-race vet ci build run-agent run-client run-ws
 
 GO ?= go
 AGENT_ADDR ?= :18080
 
+# gen regenerates the SDK from the checked-in schema snapshots under
+# cmd/generate/schema/. This is deterministic and offline — CI and local
+# development share the exact same inputs. Use gen-refresh to pull the
+# latest schema from upstream before generating.
 gen:
+	$(GO) run ./cmd/generate \
+		-output ./types_gen.go \
+		-package acp \
+		-download=false
+
+# gen-refresh downloads the latest upstream schema/meta files into
+# cmd/generate/schema/ and then regenerates. Commit the refreshed schema
+# files alongside the generated Go code so subsequent `make gen` runs
+# reproduce the same output.
+gen-refresh:
 	$(GO) run ./cmd/generate \
 		-output ./types_gen.go \
 		-package acp \
@@ -22,6 +36,7 @@ ci: vet test test-race
 
 build:
 	@mkdir -p bin
+	$(GO) generate ./...
 	$(GO) build -o bin/agent ./examples/agent
 	$(GO) build -o bin/client ./examples/client
 

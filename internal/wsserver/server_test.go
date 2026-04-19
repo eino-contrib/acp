@@ -17,7 +17,6 @@ import (
 	"github.com/cloudwego/hertz/pkg/network/standard"
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
-	acplog "github.com/eino-contrib/acp/internal/log"
 	"github.com/eino-contrib/acp/internal/safe"
 	acptransport "github.com/eino-contrib/acp/transport"
 	"github.com/hertz-contrib/websocket"
@@ -49,17 +48,6 @@ type readResult struct {
 	data        []byte
 	err         error
 }
-
-type testLogger struct{}
-
-func (testLogger) Debug(string, ...interface{})                      {}
-func (testLogger) Info(string, ...interface{})                       {}
-func (testLogger) Warn(string, ...interface{})                       {}
-func (testLogger) Error(string, ...interface{})                      {}
-func (testLogger) CtxDebug(context.Context, string, ...interface{})  {}
-func (testLogger) CtxInfo(context.Context, string, ...interface{})   {}
-func (testLogger) CtxWarn(context.Context, string, ...interface{})   {}
-func (testLogger) CtxError(context.Context, string, ...interface{})  {}
 
 func (c *stubMessageConn) ReadMessage() (int, []byte, error) {
 	return 0, nil, c.readErr
@@ -445,7 +433,7 @@ func startHertzWebSocketServer(t *testing.T, transport *Transport) (string, func
 	})
 
 	errCh := make(chan error, 1)
-	safe.GoWithLogger(acplog.Default(), func() {
+	safe.Go(func() {
 		errCh <- srv.Run()
 	})
 

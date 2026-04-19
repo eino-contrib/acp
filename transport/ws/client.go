@@ -30,7 +30,6 @@ type WebSocketClientTransport struct {
 	hClient       *hclient.Client
 	hUpgrader     *websocket.ClientUpgrader
 	cookieJar     http.CookieJar
-	logger        acplog.Logger
 	customHeaders map[string]string
 
 	connectMu sync.Mutex
@@ -63,21 +62,22 @@ var _ acptransport.Transport = (*WebSocketClientTransport)(nil)
 // ClientTransportOption configures a WebSocket client transport.
 type ClientTransportOption func(*WebSocketClientTransport)
 
-// WithLogger sets the logger used by the WebSocket client transport.
-func WithLogger(logger acplog.Logger) ClientTransportOption {
-	return func(t *WebSocketClientTransport) {
-		if logger == nil {
-			logger = acplog.Default()
-		}
-		t.logger = logger
-	}
-}
-
 // WithCustomHeaders sets custom HTTP headers sent with the WebSocket upgrade
-// request. This can be used for authentication tokens or other metadata.
+// request. This can be used for authentication tokens or other metadata. The
+// provided map is snapshotted at option time; later mutations by the caller
+// do not affect the transport. Keys collide-and-override any built-in headers
+// with the same name (Set semantics, not Add).
 func WithCustomHeaders(headers map[string]string) ClientTransportOption {
 	return func(t *WebSocketClientTransport) {
-		t.customHeaders = headers
+		if len(headers) == 0 {
+			t.customHeaders = nil
+			return
+		}
+		snapshot := make(map[string]string, len(headers))
+		for k, v := range headers {
+			snapshot[k] = v
+		}
+		t.customHeaders = snapshot
 	}
 }
 
@@ -88,7 +88,6 @@ func NewWebSocketClientTransport(baseURL string, opts ...ClientTransportOption) 
 		baseURL:     normalizeWebSocketURL(baseURL),
 		inbox:       make(chan json.RawMessage, acptransport.DefaultInboxSize),
 		done:        make(chan struct{}),
-		logger:      acplog.Default(),
 		writePermit: make(chan struct{}, 1),
 	}
 	transport.writePermit <- struct{}{}
@@ -176,7 +175,7 @@ func (t *WebSocketClientTransport) startReadLoop() {
 		defer func() {
 			if r := recover(); r != nil {
 				err := fmt.Errorf("readLoop panic: %v", r)
-				acplog.OrDefault(t.logger).Error("[ws] %v", err)
+				acplog.Error("[ws] readLoop recovered from panic: %v", err)
 				t.setTerminalError(err)
 			}
 		}()
@@ -226,6 +225,7 @@ func (t *WebSocketClientTransport) ReadMessage(ctx context.Context) (json.RawMes
 			}
 			return nil, io.EOF
 		}
+		acplog.Access(ctx, "ws-client", acplog.AccessDirectionRecv, msg)
 		return msg, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -236,6 +236,11 @@ func (t *WebSocketClientTransport) ReadMessage(ctx context.Context) (json.RawMes
 		return nil, io.EOF
 	}
 }
+
+// defaultWriteTimeout caps the time a single WebSocket write may take when the
+// caller provided no deadline. This mirrors the server-side defaultSocketWriteTimeout
+// in internal/wsserver to prevent slow/stalled peers from blocking writes indefinitely.
+const defaultWriteTimeout = 30 * time.Second
 
 // WriteMessage sends a JSON-RPC message over the WebSocket.
 func (t *WebSocketClientTransport) WriteMessage(ctx context.Context, data json.RawMessage) error {
@@ -256,12 +261,15 @@ func (t *WebSocketClientTransport) WriteMessage(ctx context.Context, data json.R
 		return acptransport.ErrTransportClosed
 	}
 
-	if deadline, ok := ctx.Deadline(); ok {
-		if err := conn.SetWriteDeadline(deadline); err != nil {
-			acplog.OrDefault(t.logger).Error("set websocket write deadline: %v", err)
-		}
-		defer conn.SetWriteDeadline(time.Time{})
+	deadline, hasDeadline := ctx.Deadline()
+	if !hasDeadline {
+		deadline = time.Now().Add(defaultWriteTimeout)
 	}
+	if err := conn.SetWriteDeadline(deadline); err != nil {
+		acplog.Debug("set websocket write deadline: %v", err)
+	}
+	defer conn.SetWriteDeadline(time.Time{})
+	acplog.Access(ctx, "ws-client", acplog.AccessDirectionSend, data)
 	return conn.WriteMessage(websocket.TextMessage, data)
 }
 
@@ -285,12 +293,12 @@ func (t *WebSocketClientTransport) Close() error {
 			_ = conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
 			closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
 			if err := conn.WriteMessage(websocket.CloseMessage, closeMsg); err != nil {
-				acplog.OrDefault(t.logger).Error("write websocket close frame: %v", err)
+				acplog.Debug("write websocket close frame: %v", err)
 			}
 			_ = conn.SetWriteDeadline(time.Time{})
 			t.releaseWritePermit()
 		} else {
-			acplog.OrDefault(t.logger).Info("skip websocket close frame: writer busy")
+			acplog.Debug("skip websocket close frame: writer busy")
 		}
 		conn.Close()
 	}
@@ -414,7 +422,7 @@ func (t *WebSocketClientTransport) storeHertzCookies(resp *protocol.Response, ra
 
 func (t *WebSocketClientTransport) applyCustomHeaders(req *protocol.Request) {
 	for key, value := range t.customHeaders {
-		req.Header.Add(key, value)
+		req.Header.Set(key, value)
 	}
 }
 

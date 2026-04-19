@@ -8,6 +8,7 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/hertz-contrib/websocket"
 
@@ -26,19 +27,33 @@ import (
 // Each Transport is created fresh per WebSocket upgrade (see
 // server.newWSConn), so at most one ServeConn call is ever in flight. The
 // activeConn pointer is kept under an atomic to synchronize WriteMessage
-// callers with ServeConn's setup/teardown.
+// callers with ServeConn's setup/teardown. A second ServeConn call on the
+// same Transport is rejected via the serving flag — catching future misuse
+// rather than silently corrupting state.
 type Transport struct {
 	inbox chan json.RawMessage
 	done  chan struct{}
 	once  sync.Once
 
+	serving    atomic.Bool
 	activeConn atomic.Pointer[activeServerConnection]
-
-	// Logger, if non-nil, receives debug/error messages.
-	Logger log.Logger
 }
 
 const defaultMaxReadMessageSize int64 = int64(transport.DefaultMaxMessageSize)
+
+// defaultOutboxSendTimeout caps the time a WriteMessage call will wait for the
+// outbox to accept a message when the caller provided no deadline. Without
+// this cap a slow peer (or a peer that stopped reading) would back-pressure
+// into handler goroutines — because jsonrpc.Connection.respond writes using
+// the connection-level context, which has no deadline — and eventually exhaust
+// the worker pool.
+const defaultOutboxSendTimeout = 10 * time.Second
+
+// defaultSocketWriteTimeout caps the time a single ws.WriteMessage call may
+// spend pushing bytes to the socket. A hung TCP write is the other half of
+// the slow-peer problem and this deadline guarantees the writer goroutine
+// cannot be stuck forever on a single frame.
+const defaultSocketWriteTimeout = 30 * time.Second
 
 type activeServerConnection struct {
 	outbox chan json.RawMessage
@@ -54,6 +69,12 @@ type messageConn interface {
 
 type readLimitSetter interface {
 	SetReadLimit(int64)
+}
+
+// writeDeadliner is satisfied by *websocket.Conn and is used by the writer
+// goroutine to bound the time spent on a single socket write.
+type writeDeadliner interface {
+	SetWriteDeadline(time.Time) error
 }
 
 var _ transport.Transport = (*Transport)(nil)
@@ -72,8 +93,16 @@ func New() *Transport {
 //
 // It blocks until the connection closes or the context is cancelled.
 // The caller is responsible for closing the WebSocket connection afterward.
+//
+// A Transport serves at most one connection in its lifetime: repeated
+// ServeConn calls (concurrent or sequential) log an error and return
+// immediately. Callers must construct a fresh Transport per upgrade.
 func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
-	logger := t.logger()
+	if !t.serving.CompareAndSwap(false, true) {
+		log.CtxError(ctx, "ws-server: ServeConn called more than once on the same Transport; construct a fresh Transport per upgrade")
+		return
+	}
+
 	serveCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -89,14 +118,15 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 	closeWS := func() {
 		closeOnce.Do(func() {
 			if err := ws.Close(); err != nil {
-				logger.CtxError(serveCtx, "close websocket server connection: %v", err)
+				log.CtxDebug(serveCtx, "close websocket server connection: %v", err)
 			}
 		})
 	}
 
 	// Writer goroutine: reads from outbox and sends as WS text frames.
 	writerDone := make(chan struct{})
-	safe.GoWithLogger(logger, func() {
+	deadliner, hasDeadliner := ws.(writeDeadliner)
+	safe.Go(func() {
 		defer close(writerDone)
 		for {
 			select {
@@ -104,8 +134,14 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 				if !ok {
 					return
 				}
+				log.Access(serveCtx, "ws-server", log.AccessDirectionSend, msg)
+				if hasDeadliner {
+					if err := deadliner.SetWriteDeadline(time.Now().Add(defaultSocketWriteTimeout)); err != nil {
+						log.CtxDebug(serveCtx, "set websocket write deadline: %v", err)
+					}
+				}
 				if err := ws.WriteMessage(websocket.TextMessage, msg); err != nil {
-					logger.CtxError(serveCtx, "write websocket message: %v", err)
+					log.CtxError(serveCtx, "write websocket message: %v", err)
 					return
 				}
 			case <-connState.done:
@@ -120,7 +156,7 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 
 	// Closer goroutine: ensures the WebSocket is closed when the context is
 	// cancelled or the transport is closed, unblocking the reader loop.
-	safe.GoWithLogger(logger, func() {
+	safe.Go(func() {
 		select {
 		case <-serveCtx.Done():
 			closeWS()
@@ -146,7 +182,7 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 		if err != nil {
 			if !errors.Is(err, io.EOF) &&
 				!websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				logger.CtxError(serveCtx, "read websocket message: %v", err)
+				log.CtxDebug(serveCtx, "read websocket message: %v", err)
 			}
 			return
 		}
@@ -156,14 +192,16 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 
 		if !validatedFirstMessage {
 			if err := validateInitialWebSocketMessage(data); err != nil {
-				logger.CtxError(serveCtx, "reject websocket connection: %v", err)
+				log.CtxWarn(serveCtx, "reject websocket connection: %v", err)
 				if writeErr := ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, err.Error())); writeErr != nil {
-					logger.CtxError(serveCtx, "write websocket close frame: %v", writeErr)
+					log.CtxDebug(serveCtx, "write websocket close frame: %v", writeErr)
 				}
 				return
 			}
 			validatedFirstMessage = true
 		}
+
+		log.Access(serveCtx, "ws-server", log.AccessDirectionRecv, data)
 
 		select {
 		case t.inbox <- transport.CloneMessage(data):
@@ -173,13 +211,6 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 			return
 		}
 	}
-}
-
-func (t *Transport) logger() log.Logger {
-	if t.Logger != nil {
-		return t.Logger
-	}
-	return log.Default()
 }
 
 func validateInitialWebSocketMessage(data []byte) error {
@@ -214,6 +245,11 @@ func (t *Transport) ReadMessage(ctx context.Context) (json.RawMessage, error) {
 
 // WriteMessage sends a JSON-RPC message over the WebSocket.
 // Implements Transport.
+//
+// If the caller provided no ctx deadline, the outbox wait is capped at
+// defaultOutboxSendTimeout so a slow or stalled peer cannot indefinitely
+// block the caller (most notably jsonrpc.Connection.respond, which uses the
+// connection-level context that has no deadline).
 func (t *Transport) WriteMessage(ctx context.Context, data json.RawMessage) error {
 	select {
 	case <-t.done:
@@ -227,13 +263,32 @@ func (t *Transport) WriteMessage(ctx context.Context, data json.RawMessage) erro
 	}
 	msg := transport.CloneMessage(data)
 
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultOutboxSendTimeout)
+		defer cancel()
+	}
+
 	select {
 	case conn.outbox <- msg:
-		return nil
+		// Re-check close signals to close the ambiguity window: Go's select
+		// picks at random when multiple cases are ready, so a concurrently
+		// closed conn.done / t.done could race with the send case. Without
+		// this verification a message that lands in an orphaned outbox
+		// (writer goroutine already exited) would be silently dropped while
+		// the caller sees nil.
+		select {
+		case <-conn.done:
+			return transport.ErrTransportClosed
+		case <-t.done:
+			return transport.ErrTransportClosed
+		default:
+			return nil
+		}
 	case <-conn.done:
 		return transport.ErrTransportClosed
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("ws-server: outbox send blocked: %w", ctx.Err())
 	case <-t.done:
 		return transport.ErrTransportClosed
 	}

@@ -10,17 +10,6 @@ import (
 	acptransport "github.com/eino-contrib/acp/transport"
 )
 
-type testProtocolLogger struct{}
-
-func (testProtocolLogger) Debug(string, ...interface{})                     {}
-func (testProtocolLogger) Info(string, ...interface{})                      {}
-func (testProtocolLogger) Warn(string, ...interface{})                      {}
-func (testProtocolLogger) Error(string, ...interface{})                     {}
-func (testProtocolLogger) CtxDebug(context.Context, string, ...interface{}) {}
-func (testProtocolLogger) CtxInfo(context.Context, string, ...interface{})  {}
-func (testProtocolLogger) CtxWarn(context.Context, string, ...interface{})  {}
-func (testProtocolLogger) CtxError(context.Context, string, ...interface{}) {}
-
 func TestHandleProtocolPostPassesRequestContextToAgent(t *testing.T) {
 	type traceKey struct{}
 
@@ -47,7 +36,6 @@ func TestHandleProtocolPostPassesRequestContextToAgent(t *testing.T) {
 			}
 			return conn, true
 		},
-		Logger: testProtocolLogger{},
 	}
 
 	ctx := newStubHandlerContext()
@@ -97,7 +85,6 @@ func TestHandleProtocolPostClosesFailedInitializeConnection(t *testing.T) {
 			createTrace = ctx.Value(traceKey{})
 			return conn, 0, nil
 		},
-		Logger: testProtocolLogger{},
 	}
 
 	ctx := newStubHandlerContext()

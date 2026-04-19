@@ -39,16 +39,17 @@ func (p *PendingRequests) NextID() int64 {
 // The caller should defer Cancel(idKey) to clean up if the context is cancelled
 // before a response arrives.
 // Returns nil if the PendingRequests has been closed.
+//
+// The channel is allocated under p.mu after the closed check so a concurrent
+// Close() cannot strand a freshly allocated channel, and so the closed check
+// and insert are linearised.
 func (p *PendingRequests) Register(idKey string) chan ReverseCallResponse {
-	if p.closed.Load() {
-		return nil
-	}
-	ch := make(chan ReverseCallResponse, 1)
 	p.mu.Lock()
 	if p.closed.Load() {
 		p.mu.Unlock()
 		return nil
 	}
+	ch := make(chan ReverseCallResponse, 1)
 	p.pending[idKey] = ch
 	p.mu.Unlock()
 	return ch

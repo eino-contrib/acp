@@ -334,10 +334,10 @@ To refresh `schema.json` and `meta.json` from the upstream ACP repository
 before regenerating:
 
 ```bash
-go run ./cmd/generate -download=true
+make gen-refresh
 ```
 
-If needed, adjust the network budget:
+If you need to tune the network budget, invoke the generator directly:
 
 ```bash
 go run ./cmd/generate -download=true -download-timeout=30s
@@ -351,6 +351,135 @@ make test
 make test-race
 make build
 ```
+
+## Configuration & Limits
+
+The transport layer exposes knobs for message size, timeouts, buffers, worker
+concurrency, and reconnect behavior. All defaults can be overridden with the
+`With*` option functions at construction time. Paths below are relative to the
+repository root.
+
+### Common (applies to every transport)
+
+These options are attached to `conn.NewClientConnection(...)` and shape the
+shared JSON-RPC connection underneath every transport.
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `conn.WithRequestTimeout(d)` | `0` (disabled) | Per-request deadline for inbound handlers |
+| `conn.WithRequestWorkers(n)` | `8` | Worker pool size per connection |
+| `conn.WithMaxConsecutiveParseErrors(n)` | `0` (unbounded) | Close after N consecutive parse / bad-JSON-RPC errors |
+| `conn.WithConnectionLabel(label)` | empty | Label attached to connection logs |
+| `conn.WithOrderedNotificationMatcher(fn)` | `session/update` matcher | Selects notifications dispatched in strict order |
+| `conn.WithSessionListenerErrorHandler(fn)` | noop | Receives GET SSE listener errors (HTTP only) |
+
+Shared constants (defined in `transport/transport.go`):
+
+| Constant | Default |
+| --- | --- |
+| `transport.DefaultMaxMessageSize` | `10 MB` |
+| `transport.DefaultInboxSize` | `1024` |
+| `transport.DefaultOutboxSize` | `1024` |
+
+### Stdio
+
+Constructed with `stdio.NewTransport(reader, writer, opts...)`.
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `stdio.WithMaxMessageSize(n)` | `10 MB` | Max size of a single inbound NDJSON line |
+| `stdio.WithInitialBufSize(n)` | `64 KB` | Initial scanner buffer |
+
+Stdio has no keepalive, request timeout, or reconnect; lifecycle is bound to
+the subprocess pipes.
+
+### Streamable HTTP
+
+Server-side options (via `server.NewACPServer(..., opts...)`):
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `server.WithEndpoint(path)` | `/acp` | Mount path |
+| `server.WithRequestTimeout(d)` | `5 min` | Deadline for a single POST waiting for its response; `0` disables |
+| `server.WithConnectionIdleTimeout(d)` | `5 min` | HTTP connection idle eviction; `0` disables |
+| `server.WithMaxHTTPMessageSize(n)` | `10 MB` | POST body limit; oversize returns HTTP 413 |
+| `server.WithPendingQueueSize(n)` | `256` | Messages buffered between session creation and the first GET SSE listener |
+
+Server-side internals (defined by the HTTP handler, not user-tunable):
+
+| Setting | Default | Location |
+| --- | --- | --- |
+| SSE keepalive interval | `30 s` | `internal/httpserver/parse.go` |
+| Idle-reaper interval | `min(timeout/2, 30 s)` | `server/conn_table.go` |
+
+Client-side options (via `httpclient.NewClientTransport(baseURL, opts...)`,
+package `transport/http/client`):
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `httpclient.WithHTTPClient(c)` | `http.DefaultClient` | Override underlying `*http.Client` |
+| `httpclient.WithClientEndpointPath(p)` | `/acp` | Target endpoint path |
+| `httpclient.WithCustomHeaders(m)` | empty | Extra request headers |
+| `httpclient.WithInboxSize(n)` | `1024` | Inbound message channel buffer |
+| `httpclient.WithSSEReconnect()` | off | Enable GET SSE auto-reconnect with exp backoff (1 s → 30 s) |
+| `httpclient.WithSSEReconnectMaxAttempts(n)` | unlimited | Cap reconnect attempts; negative = infinite |
+| `httpclient.WithSSEReconnectBackoff(base, max)` | `1 s` / `30 s` | Exponential backoff bounds |
+
+Client-side internals:
+
+| Setting | Default | Location |
+| --- | --- | --- |
+| Non-SSE JSON response cap | `8 MB` | `transport/http/client/client.go` |
+| SSE single-event cap | `10 MB` | `transport/http/client/client.go` |
+| SSE scanner buffer | `64 KB` → `10 MB` | `transport/http/client/client.go` |
+| Error-body read cap | `4 KB` | `transport/http/client/client.go` |
+
+### WebSocket
+
+Server-side options (same `server.NewACPServer(...)` constructor):
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `server.WithWebSocketUpgrader(u)` | Hertz default upgrader | Customize upgrade (subprotocols, origin check, ...) |
+
+Server-side internals:
+
+| Setting | Default | Location |
+| --- | --- | --- |
+| WebSocket read limit | `10 MB` | `internal/wsserver/server.go` |
+| Max consecutive parse errors | `10` | `server/remote_conn_ws.go` |
+
+The per-request timeout and worker-pool size are inherited from the common
+`conn.With*` options. `server.WithRequestTimeout` only applies to HTTP POSTs;
+WebSocket requests are governed by the common JSON-RPC layer and context
+propagation.
+
+Client-side options (via `ws.NewWebSocketClientTransport(baseURL, opts...)`,
+package `transport/ws`):
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `ws.WithCustomHeaders(m)` | empty | Extra headers on the upgrade request |
+
+Client-side internals:
+
+| Setting | Default | Location |
+| --- | --- | --- |
+| Close-frame write-permit wait | `100 ms` | `transport/ws/client.go` |
+| Close-frame write deadline | `500 ms` | `transport/ws/client.go` |
+
+### Cross-transport comparison
+
+| Aspect | Stdio | Streamable HTTP | WebSocket |
+| --- | --- | --- | --- |
+| Max inbound message | `10 MB` | `10 MB` (POST) | `10 MB` |
+| Per-request timeout | none (context only) | `5 min` | common layer (`conn.WithRequestTimeout`) |
+| Connection idle eviction | none | `5 min` | none |
+| Keepalive | none | SSE comment every `30 s` | none built in |
+| Reconnect | none | SSE client auto-reconnect (`1 s` → `30 s`) | none built in |
+| Parse-error close threshold | unbounded | unbounded | `10` |
+| Worker pool per connection | `8` | `8` | `8` |
+| Inbox / Outbox buffers | `1024` / `1024` | `1024` + `256` pending | `1024` / `1024` |
 
 ## Extension Methods
 

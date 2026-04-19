@@ -13,23 +13,11 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
-	acplog "github.com/eino-contrib/acp/internal/log"
 	"github.com/eino-contrib/acp/internal/safe"
 	"github.com/eino-contrib/acp/internal/wsserver"
 	acptransport "github.com/eino-contrib/acp/transport"
 	"github.com/hertz-contrib/websocket"
 )
-
-type testLogger struct{}
-
-func (testLogger) Debug(string, ...interface{})                     {}
-func (testLogger) Info(string, ...interface{})                      {}
-func (testLogger) Warn(string, ...interface{})                      {}
-func (testLogger) Error(string, ...interface{})                     {}
-func (testLogger) CtxDebug(context.Context, string, ...interface{}) {}
-func (testLogger) CtxInfo(context.Context, string, ...interface{})  {}
-func (testLogger) CtxWarn(context.Context, string, ...interface{})  {}
-func (testLogger) CtxError(context.Context, string, ...interface{}) {}
 
 type blockingWriteMessageConn struct {
 	readCh       chan struct{}
@@ -84,21 +72,6 @@ func (c *blockingWriteMessageConn) Close() error {
 func (c *blockingWriteMessageConn) SetReadLimit(int64) {}
 
 func (c *blockingWriteMessageConn) SetWriteDeadline(time.Time) error { return nil }
-
-func TestNewWebSocketClientTransportWithLogger(t *testing.T) {
-	t.Parallel()
-
-	logger := testLogger{}
-	transport, err := NewWebSocketClientTransport("ws://example.invalid", WithLogger(logger))
-	if err != nil {
-		t.Fatalf("NewWebSocketClientTransport: %v", err)
-	}
-	defer transport.Close()
-
-	if got := acplog.OrDefault(transport.logger); got != logger {
-		t.Fatalf("logger = %#v, want %#v", got, logger)
-	}
-}
 
 func TestWebSocketClientTransportUsesHertzClientByDefault(t *testing.T) {
 	serverTransport := wsserver.New()
@@ -167,7 +140,7 @@ func startHertzWebSocketServer(t *testing.T, transport *wsserver.Transport) (str
 	})
 
 	errCh := make(chan error, 1)
-	safe.GoWithLogger(acplog.Default(), func() {
+	safe.Go(func() {
 		errCh <- srv.Run()
 	})
 

@@ -3,10 +3,16 @@ package conn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	acp "github.com/eino-contrib/acp"
 )
+
+// ErrInvalidNotificationParams is returned when a notification's params fail
+// to decode (bad JSON) or fail validation. Callers can classify notification
+// errors via errors.Is(err, ErrInvalidNotificationParams).
+var ErrInvalidNotificationParams = errors.New("invalid notification params")
 
 type requestDispatcher func(context.Context, json.RawMessage) (any, error)
 
@@ -59,7 +65,7 @@ func decodeRequestParams[T any](params json.RawMessage) (T, error) {
 
 func decodeNotificationParams[T any](params json.RawMessage) (T, error) {
 	return decodeParams[T](params, func(msg string) error {
-		return fmt.Errorf("%s", msg)
+		return fmt.Errorf("%s: %w", msg, ErrInvalidNotificationParams)
 	})
 }
 

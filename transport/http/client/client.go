@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -53,21 +54,11 @@ func readErrorBody(body io.Reader) string {
 
 // maxJSONResponseSize is the maximum size of a single JSON-RPC response read
 // from the non-SSE fallback path. A single response should be much smaller
-// than the 50MB SSE stream limit; 8MB is generous for any well-formed reply.
+// than the SSE stream limit; 8MB is generous for any well-formed reply.
 const maxJSONResponseSize = 8 * 1024 * 1024
 
 // ClientTransportOption configures a ClientTransport.
 type ClientTransportOption func(*ClientTransport)
-
-// WithClientLogger sets the logger used by the HTTP client transport.
-func WithClientLogger(logger acplog.Logger) ClientTransportOption {
-	return func(t *ClientTransport) {
-		if logger == nil {
-			logger = acplog.Default()
-		}
-		t.logger = logger
-	}
-}
 
 // WithHTTPClient sets the HTTP client used for all requests.
 func WithHTTPClient(client *http.Client) ClientTransportOption {
@@ -98,9 +89,21 @@ func WithClientEndpointPath(path string) ClientTransportOption {
 	}
 }
 
+// WithCustomHeaders sets custom HTTP headers applied to every outbound
+// request. The provided map is snapshotted at option time; later mutations by
+// the caller do not affect the transport. Keys collide-and-override any
+// built-in headers with the same name (Set semantics, not Add).
 func WithCustomHeaders(headers map[string]string) ClientTransportOption {
 	return func(t *ClientTransport) {
-		t.customHeaders = headers
+		if len(headers) == 0 {
+			t.customHeaders = nil
+			return
+		}
+		snapshot := make(map[string]string, len(headers))
+		for k, v := range headers {
+			snapshot[k] = v
+		}
+		t.customHeaders = snapshot
 	}
 }
 
@@ -188,7 +191,6 @@ type ClientTransport struct {
 	endpointPath  string
 	httpClient    *http.Client
 	inboxSize     int
-	logger        acplog.Logger
 	customHeaders map[string]string
 	reconnect     *sseReconnectConfig // nil means no reconnect
 
@@ -209,9 +211,10 @@ type clientListener struct {
 	sessionID string
 	cancel    context.CancelFunc
 	body      io.Closer
+	onFailure func(error)
 }
 
-func closeClientListener(listener *clientListener, logger acplog.Logger) {
+func closeClientListener(listener *clientListener) {
 	if listener == nil {
 		return
 	}
@@ -220,10 +223,7 @@ func closeClientListener(listener *clientListener, logger acplog.Logger) {
 	}
 	if listener.body != nil {
 		if err := listener.body.Close(); err != nil {
-			if logger == nil {
-				logger = acplog.Default()
-			}
-			logger.Error("close HTTP listener body for session %s: %v", listener.sessionID, err)
+			acplog.Debug("close HTTP listener body for session %s: %v", listener.sessionID, err)
 		}
 	}
 }
@@ -242,7 +242,6 @@ func NewClientTransport(baseURL string, opts ...ClientTransportOption) *ClientTr
 		endpointPath: acphttp.DefaultACPEndpointPath,
 		httpClient:   newDefaultHTTPClient(),
 		inboxSize:    acptransport.DefaultInboxSize,
-		logger:       acplog.Default(),
 		state:        peerstate.New(),
 		listeners:    newClientListenerRegistry(),
 		activeBodies: newActiveBodyRegistry(),
@@ -296,6 +295,7 @@ func (t *ClientTransport) ReadMessage(ctx context.Context) (json.RawMessage, err
 		if !ok {
 			return nil, io.EOF
 		}
+		acplog.Access(ctx, "http-client", acplog.AccessDirectionRecv, msg)
 		return msg, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -325,10 +325,16 @@ func (t *ClientTransport) WriteMessage(ctx context.Context, data json.RawMessage
 	default:
 	}
 
-	// Parse the outgoing message to understand its shape.
+	acplog.Access(ctx, "http-client", acplog.AccessDirectionSend, data)
+
+	// Parse the outgoing message to understand its shape. If parse fails we
+	// cannot safely derive headers/routing from a zero-valued envelope, so
+	// reject the send outright instead of letting the request proceed with
+	// garbage metadata.
 	msg, err := jsonrpc.ParseEnvelope(data)
 	if err != nil {
-		acplog.OrDefault(t.logger).Error("parse outbound HTTP message metadata: %v", err)
+		acplog.CtxError(ctx, "parse outbound HTTP message metadata: %v", err)
+		return fmt.Errorf("parse outbound message: %w", err)
 	}
 	t.rememberProtocolVersionFromInitialize(msg.Method, msg.Params.ProtocolVersion)
 
@@ -385,13 +391,32 @@ func (t *ClientTransport) WriteMessage(ctx context.Context, data json.RawMessage
 	// background goroutine so WriteMessage does not block the caller.
 	ct := resp.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "text/event-stream") {
-		safe.GoWithLogger(acplog.OrDefault(t.logger), func() {
-			t.consumeRequestSSEStream(msg.ID, resp.Body)
+		rawID := msg.ID
+		safe.GoRecover(func() {
+			t.consumeRequestSSEStream(rawID, resp.Body)
+		}, func(recovered any) {
+			// Panic in SSE consumer would leave the pending request waiter
+			// hung forever. Inject a synthetic error response so the caller
+			// unblocks instead of waiting for a response that will never come.
+			if t.isClosed() {
+				return
+			}
+			cause := fmt.Errorf("SSE consumer panic: %v", recovered)
+			if injectErr := t.enqueueRequestFailure(rawID, cause); injectErr != nil && !t.isClosed() {
+				acplog.Debug("enqueue synthetic failure after SSE panic: %v", injectErr)
+			}
 		})
 		return nil
 	}
 
 	// Fallback: single JSON response (Content-Type: application/json).
+	// Per the Streamable HTTP transport spec, a 2xx response to a request
+	// that is not SSE must be JSON with a non-empty body carrying the
+	// JSON-RPC response; anything else would leave the caller hung.
+	if !strings.HasPrefix(ct, "application/json") {
+		defer resp.Body.Close()
+		return fmt.Errorf("POST %s: HTTP %d: unexpected Content-Type %q (want text/event-stream or application/json)", t.baseURL, resp.StatusCode, ct)
+	}
 	// Read the entire body as a single message. Read one extra byte so we
 	// can distinguish a body that fits within the limit from one that was
 	// silently truncated by io.LimitReader (which returns EOF without error).
@@ -403,34 +428,35 @@ func (t *ClientTransport) WriteMessage(ctx context.Context, data json.RawMessage
 	if int64(len(body)) > maxJSONResponseSize {
 		return fmt.Errorf("response exceeded max JSON size (%d bytes)", maxJSONResponseSize)
 	}
-	if len(body) > 0 {
-		if !t.enqueue(json.RawMessage(body)) {
-			return acptransport.ErrTransportClosed
-		}
+	if len(body) == 0 {
+		return fmt.Errorf("POST %s: HTTP %d: empty JSON body for request response", t.baseURL, resp.StatusCode)
+	}
+	if !t.enqueue(json.RawMessage(body)) {
+		return acptransport.ErrTransportClosed
 	}
 	return nil
 }
 
 // SessionListenerHook returns the start/stop hooks that internal/connspi
-// uses to wire up GET SSE listeners. The return type lives in
-// internal/connspi so external callers cannot consume it; the method is
-// public only because the cross-package type assertion in internal/connspi
-// requires an exported method name.
-func (t *ClientTransport) SessionListenerHook() *connspi.SessionListenerHook {
+// uses to wire up GET SSE listeners. The method is sealed: it takes a
+// capability token (connspi.SessionListenerHookKey) that external callers
+// cannot construct because the key type lives in an internal package, so
+// this method is effectively callable only from within the module.
+func (t *ClientTransport) SessionListenerHook(connspi.SessionListenerHookKey) *connspi.SessionListenerHook {
 	return &connspi.SessionListenerHook{
-		Start: func(ctx context.Context, sessionID string) error {
+		Start: func(ctx context.Context, sessionID string, onFailure func(error)) error {
 			if sessionID == "" {
 				return fmt.Errorf("session ID is required to start a listener")
 			}
-			return t.startListener(ctx, sessionID)
+			return t.startListener(ctx, sessionID, onFailure)
 		},
 		Stop: func() {
-			t.listeners.StopAll(acplog.OrDefault(t.logger))
+			t.listeners.StopAll()
 		},
 	}
 }
 
-func (t *ClientTransport) startListener(ctx context.Context, sessionID string) error {
+func (t *ClientTransport) startListener(ctx context.Context, sessionID string, onFailure func(error)) error {
 	if sessionID == "" {
 		return fmt.Errorf("session ID is required to start a listener")
 	}
@@ -458,12 +484,13 @@ func (t *ClientTransport) startListener(ctx context.Context, sessionID string) e
 		sessionID: sessionID,
 		cancel:    cancel,
 		body:      body,
+		onFailure: onFailure,
 	}
 	replaced := t.listeners.Replace(sessionID, listener)
-	closeClientListener(replaced, acplog.OrDefault(t.logger))
+	closeClientListener(replaced)
 
-	safe.GoWithLogger(acplog.OrDefault(t.logger), func() {
-		t.readSSELoopWithReconnect(listenerCtx, cancel, sessionID, body)
+	safe.Go(func() {
+		t.readSSELoopWithReconnect(listenerCtx, cancel, sessionID, body, onFailure)
 	})
 	return nil
 }
@@ -497,6 +524,11 @@ func (t *ClientTransport) dialSSEListener(ctx context.Context, sessionID string)
 		resp.Body.Close()
 		return nil, fmt.Errorf("GET SSE connect: HTTP %d: %s", resp.StatusCode, bodyStr)
 	}
+	ct := resp.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/event-stream") {
+		resp.Body.Close()
+		return nil, fmt.Errorf("GET SSE connect: unexpected Content-Type %q (want text/event-stream)", ct)
+	}
 	return resp.Body, nil
 }
 
@@ -508,7 +540,7 @@ func (t *ClientTransport) dialSSEListener(ctx context.Context, sessionID string)
 // ended, or reconnect retries are exhausted — the listener is torn down for
 // this session only; the transport remains usable for other sessions and for
 // POSTs on this session. See failListener for the detailed failure semantics.
-func (t *ClientTransport) readSSELoopWithReconnect(ctx context.Context, cancel context.CancelFunc, sessionID string, body io.ReadCloser) {
+func (t *ClientTransport) readSSELoopWithReconnect(ctx context.Context, cancel context.CancelFunc, sessionID string, body io.ReadCloser, onFailure func(error)) {
 	// Use a variable so the deferred cleanup always targets the latest body.
 	currentBody := body
 	defer func() {
@@ -516,15 +548,18 @@ func (t *ClientTransport) readSSELoopWithReconnect(ctx context.Context, cancel c
 	}()
 
 	// First read pass — use the already-opened body.
-	if t.readSSEOnce(body) {
-		return // transport closed
+	readErr, transportClosed := t.readSSEOnce(body)
+	if transportClosed {
+		return
 	}
 
 	cfg := t.reconnect
 	if cfg == nil {
 		// No reconnect configured. The stream ended and we have no way to
-		// recover, so surface it by closing the transport.
-		t.failListener(ctx, sessionID, fmt.Errorf("SSE listener disconnected and reconnect is not configured"))
+		// recover, so surface it by tearing down this session's listener.
+		// The transport stays usable for other sessions and POSTs; see
+		// failListener for the detailed semantics.
+		t.failListener(ctx, sessionID, sseDisconnectReason(readErr, "reconnect is not configured"))
 		return
 	}
 
@@ -539,7 +574,7 @@ func (t *ClientTransport) readSSELoopWithReconnect(ctx context.Context, cancel c
 		default:
 		}
 
-		acplog.OrDefault(t.logger).CtxInfo(ctx, "GET SSE listener for session %s disconnected, reconnecting in %v (attempt %d)", sessionID, delay, attempt+1)
+		acplog.CtxDebug(ctx, "GET SSE listener for session %s disconnected, reconnecting in %v (attempt %d)", sessionID, delay, attempt+1)
 
 		select {
 		case <-time.After(delay):
@@ -554,7 +589,7 @@ func (t *ClientTransport) readSSELoopWithReconnect(ctx context.Context, cancel c
 			if ctx.Err() != nil || t.isClosed() {
 				return
 			}
-			acplog.OrDefault(t.logger).CtxError(ctx, "GET SSE reconnect for session %s failed: %v", sessionID, err)
+			acplog.CtxDebug(ctx, "GET SSE reconnect for session %s failed: %v", sessionID, err)
 			delay = nextBackoff(delay, cfg.maxDelay)
 			continue
 		}
@@ -565,6 +600,7 @@ func (t *ClientTransport) readSSELoopWithReconnect(ctx context.Context, cancel c
 			sessionID: sessionID,
 			cancel:    cancel,
 			body:      newBody,
+			onFailure: onFailure,
 		}
 		t.listeners.Replace(sessionID, listener)
 		currentBody = newBody
@@ -573,45 +609,65 @@ func (t *ClientTransport) readSSELoopWithReconnect(ctx context.Context, cancel c
 		delay = cfg.baseDelay
 		attempt = -1 // will be incremented to 0 at loop top
 
-		if t.readSSEOnce(newBody) {
-			return // transport closed
+		readErr, transportClosed = t.readSSEOnce(newBody)
+		if transportClosed {
+			return
 		}
 	}
 
-	t.failListener(ctx, sessionID, fmt.Errorf("max reconnect retries (%d) exhausted", cfg.maxRetries))
+	t.failListener(ctx, sessionID, sseDisconnectReason(readErr, fmt.Sprintf("max reconnect retries (%d) exhausted", cfg.maxRetries)))
 }
 
 // failListener surfaces a permanent GET SSE listener failure by unregistering
-// the listener for the affected session and logging the cause. The transport
-// remains usable for other sessions and for outbound POSTs on this session;
-// the upper layer can observe that server-initiated deliveries for the
-// session have stopped by the absence of pushes (and, server-side, by the
-// per-session pending queue filling up).
+// the listener for the affected session, logging the cause, and invoking the
+// per-session onFailure callback (if one was registered at Start time). The
+// transport remains usable for other sessions and for outbound POSTs on this
+// session; the upper layer observes the failure through the callback.
 //
 // No-op when the context is already cancelled (listener explicitly stopped)
-// or the transport is already closing.
+// or the transport is already closing — in those cases the listener is being
+// torn down intentionally and must not trigger onFailure.
 func (t *ClientTransport) failListener(ctx context.Context, sessionID string, cause error) {
 	if ctx.Err() != nil || t.isClosed() {
 		return
 	}
-	acplog.OrDefault(t.logger).CtxError(ctx, "GET SSE listener for session %s permanently failed: %v; server-initiated messages for this session will stop", sessionID, cause)
-	t.listeners.StopSession(sessionID, acplog.OrDefault(t.logger))
+	acplog.CtxWarn(ctx, "GET SSE listener for session %s permanently failed: %v; server-initiated messages for this session will stop", sessionID, cause)
+	listener := t.listeners.DetachSession(sessionID)
+	closeClientListener(listener)
+	if listener != nil && listener.onFailure != nil {
+		// Run user-supplied callback in a separate goroutine so a slow or
+		// panicking handler never blocks or crashes the SSE reader tear-down.
+		onFailure := listener.onFailure
+		safe.Go(func() { onFailure(cause) })
+	}
 }
 
 // readSSEOnce reads a single SSE stream until it ends or the transport is
-// closed. Returns true if the transport is closed (caller should stop).
-func (t *ClientTransport) readSSEOnce(body io.ReadCloser) (transportClosed bool) {
+// closed. Returns the stream error (nil on clean EOF) and whether the
+// transport is closed (in which case the caller should stop).
+func (t *ClientTransport) readSSEOnce(body io.ReadCloser) (readErr error, transportClosed bool) {
 	defer body.Close()
 
 	stopped := false
-	_ = t.readSSE(body, func(msg json.RawMessage) bool {
+	readErr = t.readSSE(body, func(msg json.RawMessage) bool {
 		if !t.enqueue(msg) {
 			stopped = true
 			return true
 		}
 		return false
 	})
-	return stopped || t.isClosed()
+	return readErr, stopped || t.isClosed()
+}
+
+// sseDisconnectReason composes the cause passed to failListener when a GET
+// SSE stream cannot be kept alive. If the underlying read returned a real
+// error (bad SSE framing, oversized event, network fault) it is preserved;
+// otherwise we fall back to the generic lifecycle reason.
+func sseDisconnectReason(readErr error, fallback string) error {
+	if readErr != nil {
+		return fmt.Errorf("SSE listener disconnected: %w", readErr)
+	}
+	return fmt.Errorf("SSE listener disconnected: %s", fallback)
 }
 
 // nextBackoff doubles the delay, adds random jitter [0, delay/2), and caps at maxDelay.
@@ -652,14 +708,14 @@ func (t *ClientTransport) Close() error {
 	t.closeOnce.Do(func() {
 		var closeErrs []error
 		close(t.done)
-		t.listeners.StopAll(acplog.OrDefault(t.logger))
+		t.listeners.StopAll()
 		if err := t.closeRemoteConnection(); err != nil {
 			closeErrs = append(closeErrs, err)
-			acplog.OrDefault(t.logger).Error("close remote HTTP connection: %v", err)
+			acplog.Debug("close remote HTTP connection: %v", err)
 		}
 		// Force-close active SSE bodies so that background goroutines unblock
 		// and stop writing to the inbox.
-		t.activeBodies.CloseAll(acplog.OrDefault(t.logger))
+		t.activeBodies.CloseAll()
 		// Drain the inbox so that any goroutine still writing to it does not
 		// block forever. We spin-drain until the channel is empty; the closed
 		// `done` channel and closed bodies prevent new writes from arriving.
@@ -704,11 +760,11 @@ func (t *ClientTransport) closeRemoteConnection() error {
 	if err != nil {
 		return fmt.Errorf("create DELETE request: %w", err)
 	}
+	t.applyCustomHeaders(req)
 	req.Header.Set(acptransport.HeaderConnectionID, connectionID)
 	if protocolVersion := t.ProtocolVersion(); protocolVersion != "" {
 		req.Header.Set(acptransport.HeaderProtocolVersion, protocolVersion)
 	}
-	t.applyCustomHeaders(req)
 
 	resp, err := t.httpClient.Do(req)
 	if err != nil {
@@ -716,7 +772,7 @@ func (t *ClientTransport) closeRemoteConnection() error {
 	}
 	defer resp.Body.Close()
 	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-		acplog.OrDefault(t.logger).Error("drain DELETE response body: %v", err)
+		acplog.Debug("drain DELETE response body: %v", err)
 	}
 	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound {
 		return fmt.Errorf("DELETE %s: HTTP %d", t.baseURL, resp.StatusCode)
@@ -797,7 +853,7 @@ func (t *ClientTransport) trackInboundMessage(msg json.RawMessage) {
 
 func (t *ClientTransport) applyCustomHeaders(req *http.Request) {
 	for key, value := range t.customHeaders {
-		req.Header.Add(key, value)
+		req.Header.Set(key, value)
 	}
 }
 
@@ -822,27 +878,28 @@ func (r *clientListenerRegistry) Replace(sessionID string, listener *clientListe
 	return replaced
 }
 
-func (r *clientListenerRegistry) StopAll(logger acplog.Logger) {
+func (r *clientListenerRegistry) StopAll() {
 	r.mu.Lock()
 	all := r.listeners
 	r.listeners = make(map[string]*clientListener)
 	r.mu.Unlock()
 
 	for _, listener := range all {
-		closeClientListener(listener, logger)
+		closeClientListener(listener)
 	}
 }
 
-func (r *clientListenerRegistry) StopSession(sessionID string, logger acplog.Logger) {
+// DetachSession atomically removes and returns the listener for sessionID.
+// The caller owns the returned listener and is responsible for closing it
+// (and invoking any callbacks). Returns nil if no listener is registered.
+func (r *clientListenerRegistry) DetachSession(sessionID string) *clientListener {
 	r.mu.Lock()
-	listener, ok := r.listeners[sessionID]
-	if ok {
+	listener := r.listeners[sessionID]
+	if listener != nil {
 		delete(r.listeners, sessionID)
 	}
 	r.mu.Unlock()
-	if ok {
-		closeClientListener(listener, logger)
-	}
+	return listener
 }
 
 func (r *clientListenerRegistry) RemoveIfBody(sessionID string, body io.Closer) {
@@ -876,17 +933,18 @@ func (r *activeBodyRegistry) Remove(body io.ReadCloser) {
 	r.mu.Unlock()
 }
 
-func (r *activeBodyRegistry) CloseAll(logger acplog.Logger) {
+func (r *activeBodyRegistry) CloseAll() {
 	r.mu.Lock()
 	bodies := make([]io.ReadCloser, 0, len(r.bodies))
 	for body := range r.bodies {
 		bodies = append(bodies, body)
 	}
+	r.bodies = make(map[io.ReadCloser]struct{})
 	r.mu.Unlock()
 
 	for _, body := range bodies {
-		if err := body.Close(); err != nil && logger != nil {
-			logger.Error("close POST SSE body: %v", err)
+		if err := body.Close(); err != nil {
+			acplog.Debug("close POST SSE body: %v", err)
 		}
 	}
 }
@@ -920,7 +978,7 @@ func (t *ClientTransport) consumeRequestSSEStream(rawID *json.RawMessage, body i
 		err = io.ErrUnexpectedEOF
 	}
 	if injectErr := t.enqueueRequestFailure(rawID, err); injectErr != nil && !t.isClosed() {
-		acplog.OrDefault(t.logger).Error("enqueue synthetic HTTP request failure for %s: %v", requestIDKey, injectErr)
+		acplog.Debug("enqueue synthetic HTTP request failure for %s: %v", requestIDKey, injectErr)
 	}
 }
 
@@ -930,7 +988,7 @@ func (t *ClientTransport) trackActiveSSEBody(body io.ReadCloser) func() {
 	return func() {
 		t.activeBodies.Remove(body)
 		if err := body.Close(); err != nil && !t.isClosed() {
-			acplog.OrDefault(t.logger).Error("close POST SSE body: %v", err)
+			acplog.Debug("close POST SSE body: %v", err)
 		}
 	}
 }
@@ -1036,15 +1094,50 @@ func (t *ClientTransport) isClosed() bool {
 
 // HTTP client helpers.
 
+// defaultResponseHeaderTimeout bounds the connect + response-header phase of
+// every HTTP request made by the default client. It intentionally does NOT
+// bound body reads — SSE streams on both the POST (streamed request reply)
+// and GET (long-lived listener) paths must remain open-ended.
+const defaultResponseHeaderTimeout = 30 * time.Second
+
+// defaultTLSHandshakeTimeout bounds the TLS handshake phase.
+const defaultTLSHandshakeTimeout = 10 * time.Second
+
+// defaultDialTimeout bounds the TCP dial phase.
+const defaultDialTimeout = 10 * time.Second
+
 func newDefaultHTTPClient() *http.Client {
 	jar, _ := cookiejar.New(nil)
-	return &http.Client{Jar: jar}
+	return &http.Client{
+		Jar:       jar,
+		Transport: newDefaultHTTPTransport(),
+	}
+}
+
+// newDefaultHTTPTransport returns an http.RoundTripper with dial / TLS /
+// response-header timeouts configured so a stuck server cannot hang the
+// client indefinitely while still permitting long-lived SSE body streams.
+func newDefaultHTTPTransport() http.RoundTripper {
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.ResponseHeaderTimeout = defaultResponseHeaderTimeout
+	base.TLSHandshakeTimeout = defaultTLSHandshakeTimeout
+	base.ExpectContinueTimeout = time.Second
+	if base.DialContext == nil {
+		return base
+	}
+	// Preserve the dialer but shorten its deadline via a wrapping dial func.
+	original := base.DialContext
+	base.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		dialCtx, cancel := context.WithTimeout(ctx, defaultDialTimeout)
+		defer cancel()
+		return original(dialCtx, network, addr)
+	}
+	return base
 }
 
 func ensureHTTPClientHasCookieJar(client *http.Client) *http.Client {
 	if client == nil {
-		jar, _ := cookiejar.New(nil)
-		return &http.Client{Jar: jar}
+		return newDefaultHTTPClient()
 	}
 	if client.Jar != nil {
 		return client

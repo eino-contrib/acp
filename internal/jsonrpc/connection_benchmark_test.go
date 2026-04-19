@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	acplog "github.com/eino-contrib/acp/internal/log"
 	"github.com/eino-contrib/acp/internal/safe"
 )
 
@@ -16,7 +15,7 @@ func BenchmarkConnectionRequestRoundTrip(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	safe.GoWithLogger(acplog.Default(), func() {
+	safe.Go(func() {
 		_ = conn.Start(ctx)
 	})
 	if err := conn.WaitUntilStarted(ctx); err != nil {

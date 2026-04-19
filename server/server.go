@@ -13,7 +13,6 @@ import (
 	acp "github.com/eino-contrib/acp"
 	acpconn "github.com/eino-contrib/acp/conn"
 	acphttpserver "github.com/eino-contrib/acp/internal/httpserver"
-	acplog "github.com/eino-contrib/acp/internal/log"
 	acphttp "github.com/eino-contrib/acp/transport/http"
 )
 
@@ -51,16 +50,6 @@ func WithEndpoint(endpoint string) Option {
 		if endpoint != "" {
 			s.endpoint = endpoint
 		}
-	}
-}
-
-// WithLogger enables server-side transport logging.
-func WithLogger(logger acplog.Logger) Option {
-	return func(s *ACPServer) {
-		if logger == nil {
-			logger = acplog.Default()
-		}
-		s.logger = logger
 	}
 }
 
@@ -107,26 +96,61 @@ func WithMaxHTTPMessageSize(size int) Option {
 	}
 }
 
+// WithMaxInflightDispatch caps the number of concurrent direct-dispatch
+// handlers (both requests and notifications) on a single HTTP connection.
+// Zero selects acphttpserver.DefaultMaxInflightDispatch; a negative value
+// disables the cap. Overflow surfaces as HTTP 503 so misbehaving peers or
+// long-running handlers cannot grow goroutines without bound.
+func WithMaxInflightDispatch(n int) Option {
+	return func(s *ACPServer) {
+		s.maxInflightDispatch = n
+	}
+}
+
+// WithNotificationErrorHandler registers a callback invoked when a
+// client-to-agent notification handler returns an error (or panics) on a
+// WebSocket/stdio-backed connection. Notifications have no response, so
+// failures would otherwise only be visible in SDK logs. Use this hook to
+// feed metrics or custom recovery policies.
+//
+// The callback is NOT invoked for HTTP direct-dispatch notifications: that
+// transport does not run a background JSON-RPC read loop. HTTP notification
+// errors continue to be logged at error level.
+//
+// The callback runs synchronously from the dispatch goroutine; keep it
+// short. Panics inside the callback are recovered and logged.
+func WithNotificationErrorHandler(fn func(method string, err error)) Option {
+	return func(s *ACPServer) {
+		s.notificationErrorHandler = fn
+	}
+}
+
 // ACPServer exposes ACP over Streamable HTTP and WebSocket.
 //
 // Each remote connection gets its own Agent instance and AgentConnection,
 // which keeps JSON-RPC request IDs scoped correctly and makes extension
 // requests/notifications unambiguous.
 type ACPServer struct {
-	factory               AgentFactory
-	endpoint              string
-	logger                acplog.Logger
-	upgrader              websocket.HertzUpgrader
-	requestTimeout        time.Duration
-	connectionIdleTimeout time.Duration
-	pendingQueueSize      int
-	maxHTTPMessageSize    int
+	factory                  AgentFactory
+	endpoint                 string
+	upgrader                 websocket.HertzUpgrader
+	requestTimeout           time.Duration
+	connectionIdleTimeout    time.Duration
+	pendingQueueSize         int
+	maxHTTPMessageSize       int
+	maxInflightDispatch      int
+	notificationErrorHandler func(method string, err error)
 
 	conns      *connTable
 	done       chan struct{}
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
 	once       sync.Once
+
+	// wsConns tracks active WebSocket connections so Close() can shut them
+	// down. HTTP connections are tracked separately in connTable.
+	wsConnsMu sync.Mutex
+	wsConns   map[string]*wsConn
 }
 
 // NewACPServer builds a remote ACP server without mounting it.
@@ -145,7 +169,6 @@ func NewACPServer(factory AgentFactory, opts ...Option) (*ACPServer, error) {
 	s := &ACPServer{
 		factory:               factory,
 		endpoint:              acphttp.DefaultACPEndpointPath,
-		logger:                acplog.Default(),
 		requestTimeout:        defaultRequestTimeout,
 		connectionIdleTimeout: defaultConnectionIdleTimeout,
 		done:                  make(chan struct{}),
@@ -156,7 +179,8 @@ func NewACPServer(factory AgentFactory, opts ...Option) (*ACPServer, error) {
 	for _, opt := range opts {
 		opt(s)
 	}
-	s.conns = newConnTable(s.connectionIdleTimeout, s.logger)
+	s.conns = newConnTable(s.connectionIdleTimeout)
+	s.wsConns = make(map[string]*wsConn)
 	return s, nil
 }
 
@@ -193,7 +217,6 @@ func (s *ACPServer) protocolServer() acphttpserver.ProtocolServer {
 		RequestTimeout:    s.requestTimeout,
 		KeepAliveInterval: acphttpserver.SSEKeepaliveInterval,
 		MaxMessageSize:    s.maxHTTPMessageSize,
-		Logger:            s.logger,
 	}
 }
 
@@ -205,6 +228,35 @@ func (s *ACPServer) Close() error {
 		}
 		close(s.done)
 		s.conns.close()
+		s.closeAllWSConns()
 	})
 	return nil
+}
+
+// trackWSConn registers a WebSocket connection for lifecycle management.
+func (s *ACPServer) trackWSConn(wc *wsConn) {
+	s.wsConnsMu.Lock()
+	s.wsConns[wc.id] = wc
+	s.wsConnsMu.Unlock()
+}
+
+// untrackWSConn removes a WebSocket connection from tracking.
+func (s *ACPServer) untrackWSConn(id string) {
+	s.wsConnsMu.Lock()
+	delete(s.wsConns, id)
+	s.wsConnsMu.Unlock()
+}
+
+// closeAllWSConns closes every tracked WebSocket connection.
+func (s *ACPServer) closeAllWSConns() {
+	s.wsConnsMu.Lock()
+	conns := make([]*wsConn, 0, len(s.wsConns))
+	for id, wc := range s.wsConns {
+		conns = append(conns, wc)
+		delete(s.wsConns, id)
+	}
+	s.wsConnsMu.Unlock()
+	for _, wc := range conns {
+		wc.Close()
+	}
 }

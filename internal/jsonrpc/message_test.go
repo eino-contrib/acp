@@ -34,7 +34,7 @@ func TestMessageUnmarshalPreservesNullIDResponses(t *testing.T) {
 }
 
 func TestMessageMarshalRoundTripKeepsNullID(t *testing.T) {
-	original := NewErrorResponse(nil, acp.ErrInternalError("boom"))
+	original := NewErrorResponse(nil, acp.ErrInternalError("boom", nil))
 
 	data, err := json.Marshal(original)
 	if err != nil {

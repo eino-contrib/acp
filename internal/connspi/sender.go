@@ -21,11 +21,22 @@ type Sender interface {
 }
 
 // Dispatcher carries the inbound request/notification dispatch closures bound
-// to a specific AgentConnection. conn.AgentConnection.InboundDispatcher fills
-// this struct; the HTTP direct-dispatch path in internal/httpserver consumes
-// it. The type lives in an internal package so external callers cannot
-// construct or pass the value to public APIs.
+// to a specific AgentConnection. The HTTP direct-dispatch path in
+// internal/httpserver consumes it. The type lives in an internal package so
+// external callers cannot construct or pass the value to public APIs.
 type Dispatcher struct {
 	Request      func(ctx context.Context, method string, params json.RawMessage) (any, error)
 	Notification func(ctx context.Context, method string, params json.RawMessage) error
 }
+
+// AgentSPIKey is a capability token required by the sealed AgentConnection
+// constructors and accessors in the conn package. Because this type is
+// declared in an internal package and has an unexported field, no code
+// outside this module can name it or construct it; the SDK's server glue
+// passes it when wiring up HTTP connections. See internal/connspi for the
+// same pattern applied to session listener hooks.
+type AgentSPIKey struct{ _ struct{} }
+
+// NewAgentSPIKey returns the capability token used to call the sealed
+// AgentConnection SPI methods. Callable only from within this module.
+func NewAgentSPIKey() AgentSPIKey { return AgentSPIKey{} }

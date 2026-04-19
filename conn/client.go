@@ -17,9 +17,8 @@ import (
 // and provides methods to send requests to the agent.
 type ClientConnection struct {
 	conn                 *jsonrpc.Connection
-	transport            jsonrpc.Transport
+	listenerHook         *connspi.SessionListenerHook // nil when transport has no listener capability
 	client               acp.Client
-	logger               acplog.Logger
 	listenerErrHandler   func(sessionID string, err error)
 	requestHandlers      map[string]requestDispatcher
 	notificationHandlers map[string]notificationDispatcher
@@ -35,7 +34,6 @@ type ClientConnectionOption interface {
 }
 
 type clientConnectionConfig struct {
-	logger                     acplog.Logger
 	listenerErrHandler         func(sessionID string, err error)
 	orderedNotificationMatcher func(method string) bool
 	rpcOpts                    []jsonrpc.ConnectionOption
@@ -50,15 +48,6 @@ func (f clientConnectionOptionFunc) applyClientConnectionOption(cfg *clientConne
 func withJSONRPCClientConnectionOption(opt jsonrpc.ConnectionOption) ClientConnectionOption {
 	return clientConnectionOptionFunc(func(cfg *clientConnectionConfig) {
 		cfg.rpcOpts = append(cfg.rpcOpts, opt)
-	})
-}
-
-// WithClientLogger sets the logger used by the ClientConnection for listener
-// bootstrap diagnostics and the underlying jsonrpc.Connection.
-func WithClientLogger(logger acplog.Logger) ClientConnectionOption {
-	return clientConnectionOptionFunc(func(cfg *clientConnectionConfig) {
-		cfg.logger = acplog.OrDefault(logger)
-		cfg.rpcOpts = append(cfg.rpcOpts, jsonrpc.WithLogger(logger))
 	})
 }
 
@@ -106,6 +95,18 @@ func WithConnectionLabel(label string) ClientConnectionOption {
 	return withJSONRPCClientConnectionOption(jsonrpc.WithConnectionLabel(label))
 }
 
+// WithNotificationErrorHandler registers a callback invoked when a
+// notification handler returns an error (or panics). Since notifications
+// have no response, failures would otherwise be visible only in SDK logs.
+// Use this hook to feed metrics, alerts, or custom recovery policies.
+//
+// The callback runs synchronously from the dispatch goroutine; keep it
+// short (emit a metric, enqueue to a channel, etc.). Panics inside the
+// callback are recovered and logged by the SDK.
+func WithNotificationErrorHandler(fn func(method string, err error)) ClientConnectionOption {
+	return withJSONRPCClientConnectionOption(jsonrpc.WithNotificationErrorHandler(fn))
+}
+
 // NewClientConnection creates a new client-side connection.
 //
 // client and transport must be non-nil. Passing nil panics at construction
@@ -124,9 +125,7 @@ func NewClientConnection(client acp.Client, transport jsonrpc.Transport, opts ..
 		panic("acp: NewClientConnection called with nil transport")
 	}
 
-	cfg := clientConnectionConfig{
-		logger: acplog.Default(),
-	}
+	cfg := clientConnectionConfig{}
 	for _, opt := range opts {
 		if opt == nil {
 			continue
@@ -136,10 +135,9 @@ func NewClientConnection(client acp.Client, transport jsonrpc.Transport, opts ..
 
 	csc := &ClientConnection{
 		client:             client,
-		transport:          transport,
-		logger:             cfg.logger,
 		listenerErrHandler: cfg.listenerErrHandler,
 	}
+	csc.listenerHook = connspi.GetSessionListenerHook(transport)
 	csc.requestHandlers = newClientRequestHandlers(client)
 	csc.notificationHandlers = newClientNotificationHandlers(client)
 
@@ -170,7 +168,26 @@ func (c *ClientConnection) reportListenerError(sessionID string, err error) {
 		c.listenerErrHandler(sessionID, err)
 		return
 	}
-	acplog.OrDefault(c.logger).Warn("session listener failed to start for session %s: %v", sessionID, err)
+	acplog.Warn("session listener failed to start for session %s: %v", sessionID, err)
+}
+
+// startSessionListener starts a transport-level session listener (e.g. a GET
+// SSE stream for Streamable HTTP) for the given session. Transports that do
+// not support listeners are silently skipped. Startup and runtime failures
+// are routed through reportListenerError so callers never observe them as
+// RPC errors.
+//
+// Called by the generated LoadSession/NewSession wrappers to keep session
+// listener lifecycle owned by ClientConnection rather than the generated
+// call sites.
+func (c *ClientConnection) startSessionListener(ctx context.Context, sessionID string) {
+	if c.listenerHook == nil || sessionID == "" {
+		return
+	}
+	onFailure := func(err error) { c.reportListenerError(sessionID, err) }
+	if err := c.listenerHook.Start(ctx, sessionID, onFailure); err != nil {
+		c.reportListenerError(sessionID, err)
+	}
 }
 
 // Start begins processing messages in the background. It spawns the read
@@ -180,7 +197,7 @@ func (c *ClientConnection) reportListenerError(sessionID string, err error) {
 // ctx is the connection lifetime context: cancelling it shuts down the
 // connection. Use Done() to observe termination.
 func (c *ClientConnection) Start(ctx context.Context) error {
-	safe.GoWithLogger(c.logger, func() {
+	safe.Go(func() {
 		_ = c.conn.Start(ctx)
 	})
 	return c.conn.WaitUntilStarted(ctx)
@@ -189,8 +206,8 @@ func (c *ClientConnection) Start(ctx context.Context) error {
 // Close shuts down the connection. If the underlying transport supports
 // session listeners, any active GET SSE listeners are stopped first.
 func (c *ClientConnection) Close() error {
-	if hook := connspi.GetSessionListenerHook(c.transport); hook != nil {
-		hook.Stop()
+	if c.listenerHook != nil {
+		c.listenerHook.Stop()
 	}
 	return c.conn.Close()
 }

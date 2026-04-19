@@ -14,11 +14,11 @@ import (
 	acphttpserver "github.com/eino-contrib/acp/internal/httpserver"
 	"github.com/eino-contrib/acp/internal/jsonrpc"
 	acplog "github.com/eino-contrib/acp/internal/log"
+	acptransport "github.com/eino-contrib/acp/transport"
 )
 
 type httpRemoteConnection struct {
 	id         string
-	logger     acplog.Logger
 	conn       *acpconn.AgentConnection
 	connCancel context.CancelFunc
 	done       chan struct{}
@@ -37,13 +37,6 @@ func (c *httpRemoteConnection) IsIdle(timeout time.Duration) bool {
 		return false
 	}
 	return c.httpConn.IsIdle(timeout)
-}
-
-func (c *httpRemoteConnection) Logger() acplog.Logger {
-	if c.logger != nil {
-		return c.logger
-	}
-	return acplog.Default()
 }
 
 func (c *httpRemoteConnection) ProtocolConnection() *acphttpserver.ProtocolConnection {
@@ -88,7 +81,6 @@ func (c *httpRemoteConnection) Close() error {
 type httpAgentSender struct {
 	httpConn    *acphttpserver.Connection
 	pendingReqs *acphttpserver.PendingRequests
-	logger      acplog.Logger
 	nextID      atomic.Int64
 	done        chan struct{}
 	closed      atomic.Bool
@@ -108,7 +100,7 @@ func (s *httpAgentSender) SendNotification(ctx context.Context, method string, p
 	if err != nil {
 		return err
 	}
-	return s.writeToGETSSE(sessionID, data)
+	return s.writeToGETSSE(ctx, sessionID, data, false)
 }
 
 // SendRequest sends a JSON-RPC request to the client (agent reverse call) and
@@ -126,24 +118,28 @@ func (s *httpAgentSender) SendRequest(ctx context.Context, method string, params
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	ch := s.pendingReqs.Register(idKey)
-	if ch == nil {
-		return nil, fmt.Errorf("send reverse request %s: connection closed", method)
-	}
-	defer s.pendingReqs.Cancel(idKey)
-
 	sessionID, err := resolveSessionID(ctx, params, "reverse request", method)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.writeToGETSSE(sessionID, data); err != nil {
+
+	ch := s.pendingReqs.Register(idKey)
+	if ch == nil {
+		return nil, fmt.Errorf("send reverse request %s: %w", method, acptransport.ErrSenderClosed)
+	}
+	defer s.pendingReqs.Cancel(idKey)
+
+	// Reverse requests require an active GET SSE stream: the response can
+	// only flow back over that stream, so queuing silently would leave the
+	// caller blocked until ctx expires.
+	if err := s.writeToGETSSE(ctx, sessionID, data, true); err != nil {
 		return nil, fmt.Errorf("send reverse request via GET SSE: %w", err)
 	}
 
 	select {
 	case resp, ok := <-ch:
 		if !ok {
-			return nil, fmt.Errorf("pending request cancelled")
+			return nil, fmt.Errorf("reverse request %s: %w", method, acptransport.ErrPendingCancelled)
 		}
 		if resp.Error != nil {
 			return nil, resp.Error
@@ -152,7 +148,7 @@ func (s *httpAgentSender) SendRequest(ctx context.Context, method string, params
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-s.done:
-		return nil, fmt.Errorf("HTTP sender closed")
+		return nil, fmt.Errorf("reverse request %s: %w", method, acptransport.ErrSenderClosed)
 	}
 }
 
@@ -165,7 +161,7 @@ func resolveSessionID(ctx context.Context, params any, kind, method string) (str
 		sessionID = connspi.SessionIDFromContext(ctx)
 	}
 	if sessionID == "" {
-		return "", fmt.Errorf("send %s %s: no session ID in params or context (Streamable HTTP requires sessionId for routing; include it in params or call from a session-scoped handler)", kind, method)
+		return "", fmt.Errorf("send %s %s: %w (Streamable HTTP requires sessionId for routing; include it in params or call from a session-scoped handler)", kind, method, acptransport.ErrNoSessionID)
 	}
 	return sessionID, nil
 }
@@ -183,10 +179,14 @@ func (s *httpAgentSender) Close() error {
 	return nil
 }
 
-func (s *httpAgentSender) writeToGETSSE(sessionID string, data json.RawMessage) error {
+func (s *httpAgentSender) writeToGETSSE(ctx context.Context, sessionID string, data json.RawMessage, requireLiveStream bool) error {
 	sess, ok := s.httpConn.LookupSession(sessionID)
 	if !ok {
-		return fmt.Errorf("unknown session %s", sessionID)
+		return fmt.Errorf("%w: %s", acptransport.ErrUnknownSession, sessionID)
+	}
+	acplog.Access(ctx, "http-server", acplog.AccessDirectionSend, data)
+	if requireLiveStream {
+		return sess.SendLive(data)
 	}
 	return sess.Send(data)
 }
