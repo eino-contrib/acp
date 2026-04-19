@@ -321,7 +321,7 @@ func NewConnection(transport Transport, requestHandler MethodHandler, notificati
 		requestWorkers:      defaultRequestWorkers,
 		maxPendingDispatch:  defaultMaxPendingDispatch,
 		shutdownTimeout:     defaultShutdownTimeout,
-		requestQueue:        newUnboundedQueue(),
+		requestQueue:        newUnboundedQueue("request"),
 		ready:               make(chan struct{}),
 		done:                make(chan struct{}),
 		readDone:            make(chan struct{}),
@@ -330,7 +330,7 @@ func NewConnection(transport Transport, requestHandler MethodHandler, notificati
 		opt(c)
 	}
 	if c.orderedNotificationMatcher != nil {
-		c.orderedNotificationQueue = newUnboundedQueue()
+		c.orderedNotificationQueue = newUnboundedQueue("ordered-notification")
 	}
 	return c
 }
