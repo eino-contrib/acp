@@ -1,7 +1,9 @@
-.PHONY: gen gen-refresh test test-race vet ci build run-agent run-client run-ws
+.PHONY: gen gen-refresh test test-race vet ci build run-agent run-client run-ws run-proxy
 
 GO ?= go
 AGENT_ADDR ?= :18080
+PROXY_LISTEN ?= :8080
+PROXY_AGENT_LISTEN ?= :9090
 
 # gen regenerates the SDK from the checked-in schema snapshots under
 # cmd/generate/schema/. This is deterministic and offline — CI and local
@@ -39,6 +41,7 @@ build:
 	$(GO) generate ./...
 	$(GO) build -o bin/agent ./examples/agent
 	$(GO) build -o bin/client ./examples/client
+	$(GO) build -o bin/proxy ./examples/proxy
 
 run-agent: build
 	./bin/agent -transport=http -listen=$(AGENT_ADDR)
@@ -53,6 +56,23 @@ run-ws: build
 	@sleep 1
 	@echo "Starting client ..."
 	@./bin/client -transport=ws ws://localhost$(AGENT_ADDR)/acp; \
+	EXIT_CODE=$$?; \
+	kill %1 2>/dev/null; \
+	exit $$EXIT_CODE
+
+# run-proxy brings up the full Client → Proxy → AgentServer → Agent chain in
+# one shot. The proxy binary runs with -role=all so both the proxy (on
+# PROXY_LISTEN) and the example agent-server (on PROXY_AGENT_LISTEN) live in
+# the same process. The example client then connects to the proxy at /acp,
+# completely unaware of the agent-server's existence.
+run-proxy: build
+	@-lsof -t -i $(PROXY_LISTEN) | xargs -r kill -9 2>/dev/null
+	@-lsof -t -i $(PROXY_AGENT_LISTEN) | xargs -r kill -9 2>/dev/null
+	@echo "Starting proxy (role=all) on $(PROXY_LISTEN); upstream agent-server on $(PROXY_AGENT_LISTEN) ..."
+	@./bin/proxy -role=all -proxy-listen=$(PROXY_LISTEN) -agent-listen=$(PROXY_AGENT_LISTEN) &
+	@sleep 1
+	@echo "Starting client ..."
+	@./bin/client -transport=ws ws://localhost$(PROXY_LISTEN)/acp; \
 	EXIT_CODE=$$?; \
 	kill %1 2>/dev/null; \
 	exit $$EXIT_CODE
