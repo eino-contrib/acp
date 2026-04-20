@@ -13,7 +13,7 @@ const (
 	// DefaultMaxConcurrentConnections bounds how many active north-bound
 	// WebSocket connections the proxy will serve simultaneously. Past the
 	// cap, additional upgrade attempts are rejected with HTTP 503.
-	DefaultMaxConcurrentConnections = 256
+	DefaultMaxConcurrentConnections = 10000
 
 	// DefaultHandshakeTimeout bounds how long StreamerFactory.NewStreamer
 	// may block before the proxy gives up on a south-bound dial.
@@ -99,7 +99,7 @@ func WithHeaderForwarder(f HeaderForwarder) Option {
 }
 
 // WithMaxConcurrentConnections sets the concurrent WS connection cap. Zero
-// or a negative value disables the cap (use with care). Default: 256.
+// or a negative value disables the cap (use with care). Default: 10000.
 func WithMaxConcurrentConnections(n int) Option {
 	return func(o *options) { o.maxConcurrent = n }
 }
