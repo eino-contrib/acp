@@ -1,4 +1,4 @@
-.PHONY: gen gen-refresh test test-race vet ci build run-agent run-client run-ws run-proxy
+.PHONY: gen gen-refresh test test-race vet ci build run-agent run-client run-http run-ws run-proxy
 
 GO ?= go
 AGENT_ADDR ?= :18080
@@ -47,7 +47,18 @@ run-agent: build
 	./bin/agent -transport=http -listen=$(AGENT_ADDR)
 
 run-client: build
-	./bin/client -transport=ws ws://localhost$(AGENT_ADDR)/acp
+	./bin/client -transport=ws ws://localhost$(AGENT_ADDR)
+
+run-http: build
+	@-lsof -t -i $(AGENT_ADDR) | xargs -r kill -9 2>/dev/null
+	@echo "Starting agent on $(AGENT_ADDR) ..."
+	@./bin/agent -transport=http -listen=$(AGENT_ADDR) &
+	@sleep 1
+	@echo "Starting client ..."
+	@./bin/client -transport=http http://localhost$(AGENT_ADDR); \
+	EXIT_CODE=$$?; \
+	kill %1 2>/dev/null; \
+	exit $$EXIT_CODE
 
 run-ws: build
 	@-lsof -t -i $(AGENT_ADDR) | xargs -r kill -9 2>/dev/null
@@ -55,7 +66,7 @@ run-ws: build
 	@./bin/agent -transport=http -listen=$(AGENT_ADDR) &
 	@sleep 1
 	@echo "Starting client ..."
-	@./bin/client -transport=ws ws://localhost$(AGENT_ADDR)/acp; \
+	@./bin/client -transport=ws ws://localhost$(AGENT_ADDR); \
 	EXIT_CODE=$$?; \
 	kill %1 2>/dev/null; \
 	exit $$EXIT_CODE
@@ -72,7 +83,7 @@ run-proxy: build
 	@./bin/proxy -role=all -proxy-listen=$(PROXY_LISTEN) -agent-listen=$(PROXY_AGENT_LISTEN) &
 	@sleep 1
 	@echo "Starting client ..."
-	@./bin/client -transport=ws ws://localhost$(PROXY_LISTEN)/acp; \
+	@./bin/client -transport=ws ws://localhost$(PROXY_LISTEN); \
 	EXIT_CODE=$$?; \
 	kill %1 2>/dev/null; \
 	exit $$EXIT_CODE

@@ -128,7 +128,7 @@ func startHertzWebSocketServer(t *testing.T, transport *wsserver.Transport) (str
 	srv := server.New(server.WithHostPorts(addr))
 	srv.NoHijackConnPool = true
 	upgrader := &websocket.HertzUpgrader{}
-	srv.GET("/ws", func(ctx context.Context, c *app.RequestContext) {
+	srv.GET("/acp", func(ctx context.Context, c *app.RequestContext) {
 		connID := "test-conn-id"
 		c.Response.Header.Set(acptransport.HeaderConnectionID, connID)
 		err := upgrader.Upgrade(c, func(conn *websocket.Conn) {
@@ -144,8 +144,8 @@ func startHertzWebSocketServer(t *testing.T, transport *wsserver.Transport) (str
 		errCh <- srv.Run()
 	})
 
-	baseURL := "http://" + addr + "/ws"
-	waitForHertzReady(t, baseURL)
+	baseURL := "http://" + addr
+	waitForHertzReady(t, "http://"+addr+"/acp")
 
 	return baseURL, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

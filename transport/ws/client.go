@@ -22,11 +22,13 @@ import (
 
 	acplog "github.com/eino-contrib/acp/internal/log"
 	acptransport "github.com/eino-contrib/acp/transport"
+	acphttp "github.com/eino-contrib/acp/transport/http"
 )
 
 // WebSocketClientTransport implements the Transport interface over an ACP WebSocket.
 type WebSocketClientTransport struct {
 	baseURL       string
+	endpointPath  string
 	hClient       *hclient.Client
 	hUpgrader     *websocket.ClientUpgrader
 	cookieJar     http.CookieJar
@@ -81,19 +83,36 @@ func WithCustomHeaders(headers map[string]string) ClientTransportOption {
 	}
 }
 
+// WithEndpointPath sets the WebSocket endpoint path used by the client
+// transport. The final request URL is always baseURL + endpoint path.
+// The default is "/acp".
+func WithEndpointPath(path string) ClientTransportOption {
+	return func(t *WebSocketClientTransport) {
+		if path != "" {
+			t.endpointPath = normalizeEndpointPath(path)
+		}
+	}
+}
+
 // NewWebSocketClientTransport creates a WebSocket client transport.
-// The input URL may use either http(s):// or ws(s)://.
+// baseURL is the server origin (e.g. "ws://localhost:8080").
+// The input URL may use either http(s):// or ws(s)://. Any path on baseURL
+// is ignored; the final URL is built by combining baseURL with the configured
+// endpoint path (default: /acp). Use WithEndpointPath only when the server
+// is mounted on a non-default path.
 func NewWebSocketClientTransport(baseURL string, opts ...ClientTransportOption) (*WebSocketClientTransport, error) {
 	transport := &WebSocketClientTransport{
-		baseURL:     normalizeWebSocketURL(baseURL),
-		inbox:       make(chan json.RawMessage, acptransport.DefaultInboxSize),
-		done:        make(chan struct{}),
-		writePermit: make(chan struct{}, 1),
+		baseURL:      normalizeWebSocketURL(baseURL),
+		endpointPath: acphttp.DefaultACPEndpointPath,
+		inbox:        make(chan json.RawMessage, acptransport.DefaultInboxSize),
+		done:         make(chan struct{}),
+		writePermit:  make(chan struct{}, 1),
 	}
 	transport.writePermit <- struct{}{}
 	for _, opt := range opts {
 		opt(transport)
 	}
+	transport.baseURL = normalizeWSBaseURL(transport.baseURL, transport.endpointPath)
 
 	client, err := hclient.NewClient(hclient.WithDialer(standard.NewDialer()))
 	if err != nil {
@@ -446,6 +465,32 @@ func normalizeWebSocketURL(rawURL string) string {
 	}
 
 	return parsed.String()
+}
+
+func normalizeWSBaseURL(baseURL, endpointPath string) string {
+	trimmed := strings.TrimSpace(baseURL)
+	if trimmed == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return strings.TrimRight(trimmed, "/")
+	}
+
+	parsed.Path = normalizeEndpointPath(endpointPath)
+	return parsed.String()
+}
+
+func normalizeEndpointPath(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" || trimmed == "/" {
+		return "/"
+	}
+	if !strings.HasPrefix(trimmed, "/") {
+		trimmed = "/" + trimmed
+	}
+	return strings.TrimRight(trimmed, "/")
 }
 
 func normalizeHTTPRequestURL(rawURL string) string {
