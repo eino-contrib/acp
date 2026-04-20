@@ -284,6 +284,10 @@ func HandleProtocolGet(ctx HandlerContext, server ProtocolServer) {
 	}
 	ctx.SetStatusCode(http.StatusOK)
 	ctx.Flush()
+	if err := ctx.WriteSSEKeepAlive(); err != nil {
+		return
+	}
+	ctx.Flush()
 	defer ctx.CloseSSE()
 
 	// Build a thread-safe write function that writes directly to the SSE stream.
