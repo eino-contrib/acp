@@ -184,10 +184,10 @@ func (p *ACPProxy) serveConn(parentCtx context.Context, cid string, meta map[str
 	if err != nil {
 		acplog.CtxError(parentCtx, "proxy[%s]: new streamer failed: %v", cid, err)
 		// Surface the upstream failure through a WS close frame so the Client
-		// SDK can include the reason in its diagnostic. Per CLAUDE.md the
-		// error must not be swallowed. A short write deadline bounds the
-		// failure path: a stalled peer TCP buffer must not pin the handler
-		// goroutine (and its concurrency slot) indefinitely.
+		// SDK can include the reason in its diagnostic instead of silently
+		// swallowing the error. A short write deadline bounds the failure
+		// path: a stalled peer TCP buffer must not pin the handler goroutine
+		// (and its concurrency slot) indefinitely.
 		reason := wsutil.SafeCloseReason(fmt.Sprintf("upstream: %v", err))
 		if p.opts.wsWriteTimeout > 0 {
 			_ = wsConn.SetWriteDeadline(time.Now().Add(p.opts.wsWriteTimeout))

@@ -20,7 +20,7 @@ import (
 
 // runAgentServer starts an example AgentServer on listen, exposing a
 // WebSocket endpoint at /acp-upstream that the Proxy dials. It demonstrates
-// the AgentServer-side wiring from P1 §六 / P2 §3.1:
+// the AgentServer-side wiring described in the proxy design notes:
 //
 //     wsStreamer  →  stream.NewPipe  →  stdio.NewTransport
 //                 →  acpconn.NewAgentConnectionFromTransport(agent, t)

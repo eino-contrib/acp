@@ -40,9 +40,9 @@ const prefix = "[ACP-SDK] "
 //
 // Debug output is intentionally FULL-FIDELITY on the default logger: every
 // JSON-RPC frame that passes through Access() is emitted at Debug level. This
-// is the documented project contract ("Debug 日志我就要打印全量的"). Callers
-// who need quieter diagnostics must install their own Logger via Set and have
-// it implement DebugEnabler returning false.
+// is the documented project contract: callers who need quieter diagnostics
+// must install their own Logger via Set and have it implement DebugEnabler
+// returning false.
 type defaultLogger struct{}
 
 func (defaultLogger) Debug(format string, v ...interface{}) {
