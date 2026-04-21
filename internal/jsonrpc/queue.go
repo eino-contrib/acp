@@ -77,7 +77,7 @@ func (q *unboundedQueue) Pop(ctx context.Context) (*Message, bool) {
 			depth := q.items.Len()
 			q.mu.Unlock()
 			msg := front.Value.(*Message)
-			acplog.SampledInfo(100, "queue %s: pop method=%s depth=%d", q.name, msg.Method, depth)
+			acplog.SampledDebug(100, "queue %s: pop method=%s depth=%d", q.name, msg.Method, depth)
 			return msg, true
 		}
 		if q.closed {

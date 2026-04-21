@@ -284,7 +284,15 @@ func HandleProtocolGet(ctx HandlerContext, server ProtocolServer) {
 	}
 	ctx.SetStatusCode(http.StatusOK)
 	ctx.Flush()
+	// Register CloseSSE *before* the first keepalive: ensureWriter() inside
+	// WriteSSEKeepAlive creates the SSE writer eagerly, so a write failure
+	// here would otherwise leak the writer by returning before defer fires.
 	defer ctx.CloseSSE()
+	if err := ctx.WriteSSEKeepAlive(); err != nil {
+		acplog.CtxDebug(ctx.Context(), "sse GET %s/%s: initial keepalive failed: %v", connectionID, sessionID, err)
+		return
+	}
+	ctx.Flush()
 
 	// Build a thread-safe write function that writes directly to the SSE stream.
 	var mu sync.Mutex

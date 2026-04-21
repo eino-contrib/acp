@@ -37,16 +37,13 @@ func Access(ctx context.Context, channel, direction string, data []byte) {
 }
 
 // debugEnabled reports whether the current global logger will actually emit
-// Debug entries. The built-in default logger has no-op Debug paths and
-// returns false; custom loggers may opt in by implementing DebugEnabler.
-// Loggers that do not implement the interface are assumed to NOT emit Debug
-// (safe default — avoids copying full payloads when the logger's intent is
-// unknown; implement DebugEnabler to opt in).
+// Debug entries. The built-in default logger implements DebugEnabler and
+// returns true (full-fidelity debug is the project default). Custom loggers
+// that do not implement DebugEnabler are assumed to NOT emit Debug — this is
+// the conservative choice because copying the full JSON-RPC frame (up to
+// 10MB) per call is a measurable cost when Debug is actually silent.
 func debugEnabled() bool {
 	l := Get()
-	if _, isDefault := l.(defaultLogger); isDefault {
-		return false
-	}
 	if probe, ok := l.(DebugEnabler); ok {
 		return probe.DebugEnabled()
 	}

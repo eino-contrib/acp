@@ -41,3 +41,4 @@ examples/demo/*
 /bin/*
 
 /knowledge
+/.pr-review/

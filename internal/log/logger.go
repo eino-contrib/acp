@@ -38,11 +38,11 @@ const prefix = "[ACP-SDK] "
 // because the standard library logger has no notion of severity; structured
 // loggers installed via Set typically attach their own level tags.
 //
-// Debug/CtxDebug are intentionally no-ops. The SDK emits very verbose
-// diagnostics at Debug (every JSON-RPC frame passes through Access() at this
-// level), and defaulting that to stderr would turn a protocol-level mistake on
-// the peer's side into log DoS on the host. Callers who want full-fidelity
-// debug output must install their own Logger via Set.
+// Debug output is intentionally FULL-FIDELITY on the default logger: every
+// JSON-RPC frame that passes through Access() is emitted at Debug level. This
+// is the documented project contract: callers who need quieter diagnostics
+// must install their own Logger via Set and have it implement DebugEnabler
+// returning false.
 type defaultLogger struct{}
 
 func (defaultLogger) Debug(format string, v ...interface{}) {
@@ -70,6 +70,12 @@ func (defaultLogger) CtxWarn(_ context.Context, format string, v ...interface{})
 func (defaultLogger) CtxError(_ context.Context, format string, v ...interface{}) {
 	log.Printf("[ERROR] "+format, v...)
 }
+
+// DebugEnabled advertises that the default logger emits Debug output, so
+// Access() and other gated call sites don't short-circuit on it. Keeps the
+// "full-fidelity debug by default" contract consistent across every Debug
+// call site in the SDK.
+func (defaultLogger) DebugEnabled() bool { return true }
 
 // globalLogger holds the process-wide Logger. Callers swap it via Set; every
 // log call inside the SDK reads it through Get. The stored value is always a
@@ -158,11 +164,5 @@ func CtxError(ctx context.Context, format string, v ...interface{}) {
 func SampledDebug(rate int, format string, v ...interface{}) {
 	if rate > 0 && rand.Intn(rate) == 0 {
 		Debug(format, v...)
-	}
-}
-
-func SampledInfo(rate int, format string, v ...interface{}) {
-	if rate > 0 && rand.Intn(rate) == 0 {
-		Info(format, v...)
 	}
 }

@@ -71,7 +71,7 @@ func (c *Connection) getProtocolVersion() string {
 // DefaultPendingQueueSize is the maximum number of messages buffered when no
 // GET SSE stream is bound to a session. This covers the window between
 // session creation and the client establishing its GET SSE listener.
-const DefaultPendingQueueSize = 256
+const DefaultPendingQueueSize = 2048
 
 // defaultOutboxSize is the buffered channel size for the per-session outbox
 // that decouples Send() callers from the SSE network write. Aligned with
@@ -131,8 +131,8 @@ type Session struct {
 	// writes into its buffer (no reader, message is dropped) or times out
 	// on defaultOutboxSendTimeout — acceptable because the stream is gone.
 	outbox           chan json.RawMessage
-	writerStop       chan struct{} // closed to signal writer goroutine exit
-	writerDone       chan struct{} // closed when writer goroutine exits
+	writerStop       chan struct{}     // closed to signal writer goroutine exit
+	writerDone       chan struct{}     // closed when writer goroutine exits
 	pending          []json.RawMessage // messages queued while no stream is bound
 	pendingQueueSize int               // max buffered messages; 0 means DefaultPendingQueueSize
 	done             chan struct{}

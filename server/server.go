@@ -12,8 +12,9 @@ import (
 
 	acp "github.com/eino-contrib/acp"
 	acpconn "github.com/eino-contrib/acp/conn"
+	"github.com/eino-contrib/acp/internal/endpoint"
 	acphttpserver "github.com/eino-contrib/acp/internal/httpserver"
-	acphttp "github.com/eino-contrib/acp/transport/http"
+	acptransport "github.com/eino-contrib/acp/transport"
 )
 
 const (
@@ -44,11 +45,13 @@ type ConnectionAwareAgent interface {
 // Option configures an ACPServer.
 type Option func(*ACPServer)
 
-// WithEndpoint overrides the HTTP endpoint. The default is /acp.
-func WithEndpoint(endpoint string) Option {
+// WithEndpoint overrides the HTTP endpoint. The default is /acp. The path is
+// normalized (leading '/' ensured, trailing '/' stripped) so callers cannot
+// pick up silent routing mismatches from "looks-right but 404" inputs.
+func WithEndpoint(endpointPath string) Option {
 	return func(s *ACPServer) {
-		if endpoint != "" {
-			s.endpoint = endpoint
+		if endpointPath != "" {
+			s.endpoint = endpoint.NormalizePath(endpointPath)
 		}
 	}
 }
@@ -78,7 +81,7 @@ func WithConnectionIdleTimeout(d time.Duration) Option {
 }
 
 // WithPendingQueueSize sets the per-session pending message buffer size used
-// when no GET SSE stream is bound yet. Default is 256.
+// when no GET SSE stream is bound yet. Default is 2048.
 func WithPendingQueueSize(size int) Option {
 	return func(s *ACPServer) {
 		if size > 0 {
@@ -168,7 +171,7 @@ func NewACPServer(factory AgentFactory, opts ...Option) (*ACPServer, error) {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	s := &ACPServer{
 		factory:               factory,
-		endpoint:              acphttp.DefaultACPEndpointPath,
+		endpoint:              acptransport.DefaultACPEndpointPath,
 		requestTimeout:        defaultRequestTimeout,
 		connectionIdleTimeout: defaultConnectionIdleTimeout,
 		done:                  make(chan struct{}),

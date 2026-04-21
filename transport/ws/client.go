@@ -20,6 +20,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/hertz-contrib/websocket"
 
+	"github.com/eino-contrib/acp/internal/endpoint"
 	acplog "github.com/eino-contrib/acp/internal/log"
 	acptransport "github.com/eino-contrib/acp/transport"
 )
@@ -27,6 +28,7 @@ import (
 // WebSocketClientTransport implements the Transport interface over an ACP WebSocket.
 type WebSocketClientTransport struct {
 	baseURL       string
+	endpointPath  string
 	hClient       *hclient.Client
 	hUpgrader     *websocket.ClientUpgrader
 	cookieJar     http.CookieJar
@@ -81,19 +83,37 @@ func WithCustomHeaders(headers map[string]string) ClientTransportOption {
 	}
 }
 
+// WithEndpointPath sets the WebSocket endpoint path used by the client
+// transport. The final request URL is always baseURL + endpoint path.
+// The default is "/acp".
+func WithEndpointPath(path string) ClientTransportOption {
+	return func(t *WebSocketClientTransport) {
+		if path != "" {
+			t.endpointPath = endpoint.NormalizePath(path)
+		}
+	}
+}
+
 // NewWebSocketClientTransport creates a WebSocket client transport.
-// The input URL may use either http(s):// or ws(s)://.
+// baseURL is the server origin (e.g. "ws://localhost:8080").
+// The input URL may use either http(s):// or ws(s)://. Only the scheme and
+// authority (host[:port]) of baseURL are honored — any path, query, or
+// fragment on baseURL is ignored. The final URL is built by combining
+// baseURL's origin with the configured endpoint path (default: /acp). Use
+// WithEndpointPath only when the server is mounted on a non-default path.
 func NewWebSocketClientTransport(baseURL string, opts ...ClientTransportOption) (*WebSocketClientTransport, error) {
 	transport := &WebSocketClientTransport{
-		baseURL:     normalizeWebSocketURL(baseURL),
-		inbox:       make(chan json.RawMessage, acptransport.DefaultInboxSize),
-		done:        make(chan struct{}),
-		writePermit: make(chan struct{}, 1),
+		baseURL:      normalizeWebSocketURL(baseURL),
+		endpointPath: acptransport.DefaultACPEndpointPath,
+		inbox:        make(chan json.RawMessage, acptransport.DefaultInboxSize),
+		done:         make(chan struct{}),
+		writePermit:  make(chan struct{}, 1),
 	}
 	transport.writePermit <- struct{}{}
 	for _, opt := range opts {
 		opt(transport)
 	}
+	transport.baseURL = normalizeWSBaseURL(transport.baseURL, transport.endpointPath)
 
 	client, err := hclient.NewClient(hclient.WithDialer(standard.NewDialer()))
 	if err != nil {
@@ -431,6 +451,15 @@ func normalizeWebSocketURL(rawURL string) string {
 		return rawURL
 	}
 
+	// Handle schemeless inputs like "localhost:8080" or "example.com:443/acp".
+	// url.Parse would otherwise treat the "localhost:" prefix as the scheme,
+	// leaving Host empty and producing a non-dialable URL. Require at least
+	// one digit in the port and a host component before the colon so we do
+	// not hijack inputs that genuinely start with a scheme.
+	if !strings.Contains(rawURL, "://") && hasHostPortPrefix(rawURL) {
+		rawURL = "ws://" + rawURL
+	}
+
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return rawURL
@@ -445,6 +474,59 @@ func normalizeWebSocketURL(rawURL string) string {
 		parsed.Scheme = "ws"
 	}
 
+	return parsed.String()
+}
+
+// hasHostPortPrefix reports whether s starts with "<host>:<port>" where host
+// is non-empty and port is all digits. Used to detect the schemeless address
+// form accepted by net.Dial so we can prepend "ws://" before url.Parse.
+func hasHostPortPrefix(s string) bool {
+	colon := strings.IndexByte(s, ':')
+	if colon <= 0 {
+		return false
+	}
+	host := s[:colon]
+	if strings.ContainsAny(host, "/?#") {
+		return false
+	}
+	rest := s[colon+1:]
+	end := len(rest)
+	for i := 0; i < len(rest); i++ {
+		if c := rest[i]; c == '/' || c == '?' || c == '#' {
+			end = i
+			break
+		}
+	}
+	port := rest[:end]
+	if port == "" {
+		return false
+	}
+	for i := 0; i < len(port); i++ {
+		if port[i] < '0' || port[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeWSBaseURL(baseURL, endpointPath string) string {
+	trimmed := strings.TrimSpace(baseURL)
+	if trimmed == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return strings.TrimRight(trimmed, "/")
+	}
+
+	// baseURL is defined as the server origin (scheme + authority). Stripping
+	// query and fragment here keeps behaviour consistent with the documented
+	// "path/query/fragment on baseURL are ignored" contract; otherwise a
+	// stray `?x=y` on baseURL would silently change gateway routing / auth.
+	parsed.Path = endpoint.NormalizePath(endpointPath)
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
 	return parsed.String()
 }
 

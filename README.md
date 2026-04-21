@@ -403,7 +403,7 @@ Server-side options (via `server.NewACPServer(..., opts...)`):
 | `server.WithRequestTimeout(d)` | `5 min` | Deadline for a single POST waiting for its response; `0` disables |
 | `server.WithConnectionIdleTimeout(d)` | `5 min` | HTTP connection idle eviction; `0` disables |
 | `server.WithMaxHTTPMessageSize(n)` | `10 MB` | POST body limit; oversize returns HTTP 413 |
-| `server.WithPendingQueueSize(n)` | `256` | Messages buffered between session creation and the first GET SSE listener |
+| `server.WithPendingQueueSize(n)` | `2048` | Messages buffered between session creation and the first GET SSE listener |
 
 Server-side internals (defined by the HTTP handler, not user-tunable):
 
@@ -479,7 +479,7 @@ Client-side internals:
 | Reconnect | none | SSE client auto-reconnect (`1 s` → `30 s`) | none built in |
 | Parse-error close threshold | unbounded | unbounded | `10` |
 | Worker pool per connection | `8` | `8` | `8` |
-| Inbox / Outbox buffers | `1024` / `1024` | `1024` + `256` pending | `1024` / `1024` |
+| Inbox / Outbox buffers | `1024` / `1024` | `1024` + `2048` pending | `1024` / `1024` |
 
 ## Extension Methods
 
