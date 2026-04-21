@@ -71,7 +71,7 @@ func (c *Connection) getProtocolVersion() string {
 // DefaultPendingQueueSize is the maximum number of messages buffered when no
 // GET SSE stream is bound to a session. This covers the window between
 // session creation and the client establishing its GET SSE listener.
-const DefaultPendingQueueSize = 2048
+const DefaultPendingQueueSize = 1024
 
 // defaultOutboxSize is the buffered channel size for the per-session outbox
 // that decouples Send() callers from the SSE network write. Aligned with

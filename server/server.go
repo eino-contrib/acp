@@ -81,7 +81,7 @@ func WithConnectionIdleTimeout(d time.Duration) Option {
 }
 
 // WithPendingQueueSize sets the per-session pending message buffer size used
-// when no GET SSE stream is bound yet. Default is 2048.
+// when no GET SSE stream is bound yet. Default is 1024.
 func WithPendingQueueSize(size int) Option {
 	return func(s *ACPServer) {
 		if size > 0 {
