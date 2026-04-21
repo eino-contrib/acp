@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 
 	acplog "github.com/eino-contrib/acp/internal/log"
 	"github.com/eino-contrib/acp/internal/safe"
+	"github.com/eino-contrib/acp/internal/wsutil"
 	"github.com/eino-contrib/acp/stream"
 	acptransport "github.com/eino-contrib/acp/transport"
 )
@@ -99,7 +101,7 @@ func (p *ACPProxy) Close() error {
 		p.conns = make(map[string]*proxyConn)
 		p.connsMu.Unlock()
 		for _, c := range conns {
-			c.close("proxy shutdown")
+			c.close(websocket.CloseGoingAway, "proxy shutdown")
 		}
 	})
 	return nil
@@ -164,9 +166,12 @@ func (p *ACPProxy) handler() app.HandlerFunc {
 func (p *ACPProxy) serveConn(parentCtx context.Context, cid string, meta map[string]string, wsConn *websocket.Conn) {
 	// Detach from the hertz request ctx: once the handler returns, hertz may
 	// cancel that ctx, which would terminate an otherwise-healthy long-lived
-	// WS session. Preserve values but drop cancellation.
-	connCtx, connCancel := context.WithCancel(context.WithoutCancel(p.rootCtx))
+	// WS session. Base on parentCtx so request-scoped values (trace id,
+	// tenant, auth, ...) survive into the long-lived connection, then wire
+	// p.rootCtx.Done() so proxy-wide shutdown still tears the conn down.
+	connCtx, connCancel := context.WithCancel(context.WithoutCancel(parentCtx))
 	defer connCancel()
+	safe.CancelOnDone(connCancel, connCtx.Done(), p.rootCtx.Done())
 
 	dialCtx := connCtx
 	if p.opts.handshakeTimeout > 0 {
@@ -180,12 +185,12 @@ func (p *ACPProxy) serveConn(parentCtx context.Context, cid string, meta map[str
 		acplog.CtxError(parentCtx, "proxy[%s]: new streamer failed: %v", cid, err)
 		// Surface the upstream failure through a WS close frame so the Client
 		// SDK can include the reason in its diagnostic. Per CLAUDE.md the
-		// error must not be swallowed.
-		reason := fmt.Sprintf("upstream: %v", err)
-		if len(reason) > 120 {
-			// WS close reasons are limited to 123 bytes. Truncate instead of
-			// losing the frame entirely.
-			reason = reason[:120] + "..."
+		// error must not be swallowed. A short write deadline bounds the
+		// failure path: a stalled peer TCP buffer must not pin the handler
+		// goroutine (and its concurrency slot) indefinitely.
+		reason := wsutil.SafeCloseReason(fmt.Sprintf("upstream: %v", err))
+		if p.opts.wsWriteTimeout > 0 {
+			_ = wsConn.SetWriteDeadline(time.Now().Add(p.opts.wsWriteTimeout))
 		}
 		_ = wsConn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, reason))
@@ -198,8 +203,19 @@ func (p *ACPProxy) serveConn(parentCtx context.Context, cid string, meta map[str
 		ws:             wsConn,
 		streamer:       s,
 		wsWriteTimeout: p.opts.wsWriteTimeout,
+		pingInterval:   p.opts.wsPingInterval,
+		pongTimeout:    p.opts.wsPongTimeout,
+		maxMessageSize: p.opts.maxMessageSize,
 	}
 	pc.wsWriteMu = &sync.Mutex{}
+	// SetReadLimit makes the WS library abort ReadMessage with a 1009
+	// (MessageTooBig) close error the moment a frame exceeds the cap,
+	// preventing the proxy from allocating buffers for hostile / broken
+	// peers. Skipped when the cap is disabled.
+	if p.opts.maxMessageSize > 0 {
+		wsConn.SetReadLimit(int64(p.opts.maxMessageSize))
+	}
+	pc.installHeartbeat()
 
 	p.trackConn(pc)
 	defer p.untrackConn(cid)
@@ -212,7 +228,16 @@ func (p *ACPProxy) serveConn(parentCtx context.Context, cid string, meta map[str
 	}()
 
 	// Propagate root shutdown by closing the connection when rootCtx is done.
-	safe.CancelOnDone(func() { pc.close("proxy shutdown") }, p.rootCtx.Done())
+	// Also bind to connCtx.Done() so the watcher goroutine exits once the
+	// connection ends naturally — otherwise it would survive until proxy
+	// shutdown, accumulating one leaked goroutine (and one live *proxyConn
+	// reference) per historical connection. pc.close is idempotent
+	// (closeOnce), so being woken on the already-closed path is a safe no-op.
+	safe.CancelOnDone(
+		func() { pc.close(websocket.CloseGoingAway, "proxy shutdown") },
+		connCtx.Done(),
+		p.rootCtx.Done(),
+	)
 
 	pc.run(connCtx)
 }
@@ -268,5 +293,9 @@ func metaKeyList(meta map[string]string) []string {
 	for k := range meta {
 		keys = append(keys, k)
 	}
+	// Deterministic order keeps diagnostic logs stable across restarts so
+	// operators can diff / grep them without noise from Go's randomised map
+	// iteration.
+	sort.Strings(keys)
 	return keys
 }

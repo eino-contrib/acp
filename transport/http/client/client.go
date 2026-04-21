@@ -24,7 +24,6 @@ import (
 	"github.com/eino-contrib/acp/internal/peerstate"
 	"github.com/eino-contrib/acp/internal/safe"
 	acptransport "github.com/eino-contrib/acp/transport"
-	acphttp "github.com/eino-contrib/acp/transport/http"
 )
 
 // ACP JSON-RPC method names that trigger state transitions.
@@ -239,7 +238,7 @@ var _ acptransport.Transport = (*ClientTransport)(nil)
 func NewClientTransport(baseURL string, opts ...ClientTransportOption) *ClientTransport {
 	t := &ClientTransport{
 		baseURL:      strings.TrimSpace(baseURL),
-		endpointPath: acphttp.DefaultACPEndpointPath,
+		endpointPath: acptransport.DefaultACPEndpointPath,
 		httpClient:   newDefaultHTTPClient(),
 		inboxSize:    acptransport.DefaultInboxSize,
 		state:        peerstate.New(),

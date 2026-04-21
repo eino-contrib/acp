@@ -1,4 +1,4 @@
-.PHONY: gen gen-refresh test test-race vet ci build run-agent run-client run-http run-ws run-proxy
+.PHONY: gen gen-refresh test test-race vet ci build run-agent run-client run-stdio run-http run-ws run-proxy
 
 GO ?= go
 AGENT_ADDR ?= :18080
@@ -48,6 +48,10 @@ run-agent: build
 
 run-client: build
 	./bin/client -transport=ws ws://localhost$(AGENT_ADDR)
+
+run-stdio: build
+	@echo "Starting client (stdio/spawn) ..."
+	@./bin/client -transport=spawn ./bin/agent
 
 run-http: build
 	@-lsof -t -i $(AGENT_ADDR) | xargs -r kill -9 2>/dev/null

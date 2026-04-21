@@ -7,8 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/hertz-contrib/websocket"
 
+	"github.com/eino-contrib/acp/internal/wsutil"
 	"github.com/eino-contrib/acp/stream"
 )
 
@@ -20,6 +22,14 @@ import (
 // exists only so the example can run end-to-end without extra dependencies.
 type wsStreamer struct {
 	conn *websocket.Conn
+
+	// hReq/hResp are the Hertz request/response objects retained by the
+	// websocket connection's underlying reader. They are released back to the
+	// Hertz pool in Close, AFTER the connection is torn down, so that the
+	// reader cannot still be touching their buffers. Only set on the client
+	// side of an Upgrade; the server side leaves them nil.
+	hReq  *protocol.Request
+	hResp *protocol.Response
 
 	writeMu      sync.Mutex
 	writeTimeout time.Duration
@@ -37,6 +47,16 @@ func newWSStreamer(conn *websocket.Conn, writeTimeout time.Duration) *wsStreamer
 		writeTimeout: writeTimeout,
 		closed:       make(chan struct{}),
 	}
+}
+
+// newClientWSStreamer wraps a just-upgraded client-side websocket conn and
+// takes ownership of the Hertz request/response objects, which must stay
+// alive for as long as the connection is reading.
+func newClientWSStreamer(conn *websocket.Conn, req *protocol.Request, resp *protocol.Response, writeTimeout time.Duration) *wsStreamer {
+	s := newWSStreamer(conn, writeTimeout)
+	s.hReq = req
+	s.hResp = resp
+	return s
 }
 
 func (s *wsStreamer) WritePayload(ctx context.Context, payload []byte) error {
@@ -93,16 +113,23 @@ func (s *wsStreamer) Close(reason string) error {
 	s.closeOnce.Do(func() {
 		// Best-effort close frame so the peer can log the reason.
 		s.writeMu.Lock()
-		truncated := reason
-		if len(truncated) > 120 {
-			truncated = truncated[:120] + "..."
-		}
 		_ = s.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 		_ = s.conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, truncated))
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, wsutil.SafeCloseReason(reason)))
 		s.writeMu.Unlock()
 		s.closeErr = s.conn.Close()
 		close(s.closed)
+
+		// Release pooled Hertz objects only after the connection is closed
+		// so the reader can no longer touch their buffers.
+		if s.hReq != nil {
+			protocol.ReleaseRequest(s.hReq)
+			s.hReq = nil
+		}
+		if s.hResp != nil {
+			protocol.ReleaseResponse(s.hResp)
+			s.hResp = nil
+		}
 	})
 	return s.closeErr
 }

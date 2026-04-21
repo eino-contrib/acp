@@ -25,6 +25,12 @@ const (
 // DefaultMaxMessageSize is the maximum size of a single JSON-RPC message (10MB).
 const DefaultMaxMessageSize = 10 * 1024 * 1024
 
+// DefaultACPEndpointPath is the default ACP endpoint path used by every ACP
+// transport (Streamable HTTP, WebSocket, and the proxy). It is protocol-level
+// shared state; keeping it here (instead of under transport/http) lets the WS
+// and proxy layers reference it without reaching into the HTTP transport.
+const DefaultACPEndpointPath = "/acp"
+
 // MethodInitialize is the JSON-RPC method name for the ACP initialize request.
 // Defined here so transport packages can reference it without importing the
 // root acp package (which carries protocol-level type definitions).

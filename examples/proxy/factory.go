@@ -65,10 +65,11 @@ func (f *wsStreamerFactory) NewStreamer(ctx context.Context, meta map[string]str
 		return nil, fmt.Errorf("upstream ws upgrade: %w", err)
 	}
 
-	// req/resp are retained by the websocket connection's underlying reader;
-	// the streamer takes ownership and does not release them explicitly —
-	// they are short-lived compared to the streaming conn.
-	return newWSStreamer(conn, f.writeTimeout), nil
+	// req/resp are retained by the websocket connection's underlying reader
+	// for the whole lifetime of the stream; the streamer takes ownership and
+	// releases them back to the Hertz pool in Close, AFTER the underlying
+	// conn has been torn down.
+	return newClientWSStreamer(conn, req, resp, f.writeTimeout), nil
 }
 
 // wsURLToHTTP converts ws:// / wss:// schemes into http:// / https:// for

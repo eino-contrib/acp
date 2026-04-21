@@ -3,9 +3,18 @@ package stream
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"sync"
+
+	acptransport "github.com/eino-contrib/acp/transport"
 )
+
+// maxLineBytes caps a single ndjson line in both directions. A peer that never
+// emits '\n', or a Streamer returning a pathologically large payload, would
+// otherwise push (*pipe).wbuf / rbuf into unbounded growth and OOM the process.
+// Aligned with DefaultMaxMessageSize so the bound matches the rest of the SDK.
+const maxLineBytes = acptransport.DefaultMaxMessageSize
 
 // NewPipe adapts a Streamer into an (io.ReadCloser, io.WriteCloser) pair that
 // can feed the ACP stdio transport (stdio.NewTransport) without any changes
@@ -89,6 +98,13 @@ func (p *pipe) read(buf []byte) (int, error) {
 			// Rare: peer returned bytes alongside EOF. Deliver them first,
 			// surface the error on the next call.
 		}
+		if len(payload) > maxLineBytes {
+			// Refuse to allocate an unbounded buffer for a hostile / broken
+			// peer; make the sticky error explicit so downstream scanners
+			// stop cleanly instead of silently truncating.
+			p.readErr = fmt.Errorf("acp: inbound payload %d bytes exceeds max line size %d", len(payload), maxLineBytes)
+			return 0, p.readErr
+		}
 		// Defensive copy so we never mutate the slice returned by the
 		// Streamer implementation when appending '\n'.
 		p.rbuf = make([]byte, 0, len(payload)+1)
@@ -114,13 +130,33 @@ func (p *pipe) write(buf []byte) (int, error) {
 		idx := bytes.IndexByte(buf, '\n')
 		if idx < 0 {
 			// Partial line: append to the accumulator and wait for the
-			// remainder on a later Write.
+			// remainder on a later Write. Guard against a peer that never
+			// emits '\n': without a ceiling, wbuf would grow without bound.
+			if p.wbuf.Len()+len(buf) > maxLineBytes {
+				err := fmt.Errorf("acp: pending ndjson line exceeds max line size %d", maxLineBytes)
+				p.wbuf.Reset()
+				return written, err
+			}
 			p.wbuf.Write(buf)
 			written += len(buf)
 			return written, nil
 		}
 
-		// Complete line: accumulator + buf[:idx] -> one payload.
+		// Complete line: accumulator + buf[:idx] -> one payload. Skip empty
+		// lines so stray "\n"s in the byte stream don't fabricate an empty
+		// JSON-RPC message — WritePayload with a zero-length payload is not
+		// a valid ACP frame and would fail downstream validation (or worse,
+		// propagate silently on a lax peer).
+		if p.wbuf.Len() == 0 && idx == 0 {
+			written++
+			buf = buf[1:]
+			continue
+		}
+		if p.wbuf.Len()+idx > maxLineBytes {
+			err := fmt.Errorf("acp: ndjson line exceeds max line size %d", maxLineBytes)
+			p.wbuf.Reset()
+			return written, err
+		}
 		p.wbuf.Write(buf[:idx])
 		payload := make([]byte, p.wbuf.Len())
 		copy(payload, p.wbuf.Bytes())

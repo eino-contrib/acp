@@ -25,7 +25,8 @@ import "context"
 //     MUST NOT swallow errors, per the SDK's "no silent failures" guarantee.
 //   - Context: implementations MUST NOT add their own implicit timeouts. The
 //     ctx passed in governs only the current call; long-lived connection
-//     lifetime is managed by the ctx passed into StreamerFactory.NewStreamer.
+//     lifetime is managed through Close — the Proxy invokes Streamer.Close
+//     when the ACP connection ends.
 type Streamer interface {
 	// WritePayload sends one complete ACP JSON-RPC message to the peer.
 	// payload is owned by the caller after the call returns; implementations
@@ -48,8 +49,12 @@ type Streamer interface {
 // StreamerFactory is the dialer the Proxy calls once per incoming ACP
 // WebSocket connection.
 //
-//   - ctx is bound to the ACP connection lifetime; when the Proxy closes the
-//     connection, it cancels ctx and calls Streamer.Close.
+//   - ctx governs ONLY the dial / initialization step. Implementations MUST
+//     NOT retain it for connection-lifetime use (e.g. as a long-lived cancel
+//     signal on the returned Streamer): the Proxy may wrap it in a handshake
+//     timeout, so the ctx can fire well before the ACP connection ends.
+//     Teardown is driven exclusively through Streamer.Close, which the Proxy
+//     invokes when the ACP connection ends.
 //   - meta carries the north-bound headers that the Proxy's HeaderForwarder
 //     decided to propagate to the AgentServer (authn token, tenant id, trace
 //     id, ...). Implementations attach these to the south-bound RPC request
