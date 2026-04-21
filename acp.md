@@ -20,6 +20,7 @@ go get github.com/eino-contrib/acp@latest
 ```
 
 环境要求：
+
 - Go **1.24+**
 - 模块路径：`github.com/eino-contrib/acp`
 
@@ -29,8 +30,8 @@ go get github.com/eino-contrib/acp@latest
 
 | 角色 | 对应类型 | 职责 |
 | --- | --- | --- |
-| **Agent** | `acp.Agent` 接口，通常内嵌 `acp.BaseAgent` | 接收客户端 Prompt、管理 Session、向客户端反向调用（读文件、请求权限、Terminal 等） |
-| **Client** | `acp.Client` 接口，通常内嵌 `acp.BaseClient` | 发起 Prompt、接收 `session/update` 等流式通知 |
+| **Agent** | `acp.Agent` 接口 | 接收客户端 Prompt、管理 Session、向客户端反向调用（读文件、请求权限、Terminal 等） |
+| **Client** | `acp.Client` 接口 | 发起 Prompt、接收 `session/update` 等流式通知 |
 | **Proxy** | `proxy.ACPProxy` + 用户实现的 `stream.StreamerFactory` | 承接北向 Client WebSocket 流量，按字节透明转发到下游 AgentServer（不解析 ACP 协议）；只做 WS 北向入口，负责鉴权 header 转发、心跳、并发/超时控制 |
 
 `BaseAgent` / `BaseClient` 对所有「未实现方法」默认返回 `method not found`（-32601）或 `notification handler not implemented`——不是静默成功，而是 **主动报错**。业务方按需覆盖需要支持的方法。
@@ -73,153 +74,19 @@ Agent / Client 是 **协议端点**（解析 JSON-RPC、处理方法调用），
 <a id="411-agentserver"></a>
 #### 4.1.1 Agent（Server）
 
-```go
-package main
+完整 Demo 直接看仓库示例：
 
-import (
-    "context"
-    "fmt"
-
-    acp "github.com/eino-contrib/acp"
-    acpconn "github.com/eino-contrib/acp/conn"
-    acpserver "github.com/eino-contrib/acp/server"
-    "github.com/google/uuid"
-)
-
-type Agent struct {
-    acp.BaseAgent
-    conn *acpconn.AgentConnection
-}
-
-func (a *Agent) SetClientConnection(c *acpconn.AgentConnection) { a.conn = c }
-
-func (a *Agent) Initialize(_ context.Context, _ acp.InitializeRequest) (acp.InitializeResponse, error) {
-    return acp.InitializeResponse{
-        ProtocolVersion: acp.ProtocolVersion(acp.CurrentProtocolVersion),
-        AgentInfo: &acp.Implementation{Name: "demo-agent", Version: "0.1.0"},
-    }, nil
-}
-
-func (a *Agent) NewSession(_ context.Context, _ acp.NewSessionRequest) (acp.NewSessionResponse, error) {
-    return acp.NewSessionResponse{SessionID: acp.SessionID(uuid.NewString())}, nil
-}
-
-func (a *Agent) Prompt(ctx context.Context, r acp.PromptRequest) (acp.PromptResponse, error) {
-    // 反向推送一段 Agent 消息给 Client
-    _ = a.conn.SessionUpdate(ctx, acp.SessionNotification{
-        SessionID: r.SessionID,
-        Update: acp.NewSessionUpdateAgentMessageChunk(acp.ContentChunk{
-            Content: acp.NewContentBlockText(acp.TextContent{
-                Text: fmt.Sprintf("echo: %d blocks", len(r.Prompt)),
-            }),
-        }),
-    })
-    return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
-}
-
-// 编译期校验
-var (
-    _ acp.Agent                       = (*Agent)(nil)
-    _ acpserver.ConnectionAwareAgent = (*Agent)(nil)
-)
-```
-
-把它挂到 Hertz：
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-
-    hertzserver "github.com/cloudwego/hertz/pkg/app/server"
-
-    acp "github.com/eino-contrib/acp"
-    acpserver "github.com/eino-contrib/acp/server"
-)
-
-func main() {
-    srv := hertzserver.New(hertzserver.WithHostPorts(":8080"))
-    srv.NoHijackConnPool = true // WebSocket 必需
-
-    remote, err := acpserver.NewACPServer(func(_ context.Context) acp.Agent {
-        return &Agent{} // 每条远端连接一个 Agent 实例
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-    remote.Mount(srv) // 默认路由: /acp，HTTP 与 WebSocket 共用
-    srv.Spin()
-}
-```
+- Agent 实现：[`examples/agent/agent.go`](./examples/agent/agent.go)
+- Hertz 挂载与入口：[`examples/agent/main.go`](./examples/agent/main.go)
 
 > ⚠️ **Hertz WebSocket 必须设置 `srv.NoHijackConnPool = true`**，否则 upgrade 后 Hertz 会回收连接导致 WS 立即断开。
 
 #### 4.1.2 Client
 
-```go
-package main
+完整 Demo 直接看仓库示例：
 
-import (
-    "context"
-    "fmt"
-    "log"
-
-    acp "github.com/eino-contrib/acp"
-    acpconn "github.com/eino-contrib/acp/conn"
-    acpws "github.com/eino-contrib/acp/transport/ws"
-)
-
-type Client struct{ acp.BaseClient }
-
-// 关键回调：接收 Agent 推送的 session/update。
-// SDK 内部对 session/update 做了**有序**投递——单条连接上的多个 update 会按发送顺序依次回调。
-func (c *Client) SessionUpdate(_ context.Context, n acp.SessionNotification) error {
-    if msg, ok := n.Update.AsAgentMessageChunk(); ok {
-        if t, ok := msg.Content.AsText(); ok {
-            fmt.Printf("[agent] %s\n", t.Text)
-        }
-    }
-    return nil
-}
-
-func main() {
-    ctx := context.Background()
-
-    transport, err := acpws.NewWebSocketClientTransport("ws://127.0.0.1:8080")
-    if err != nil {
-        log.Fatal(err)
-    }
-    if err := transport.Connect(ctx); err != nil { // WS 必须显式 Connect
-        log.Fatal(err)
-    }
-
-    conn := acpconn.NewClientConnection(&Client{}, transport)
-    if err := conn.Start(ctx); err != nil {
-        log.Fatal(err)
-    }
-    defer conn.Close()
-
-    if _, err := conn.Initialize(ctx, acp.InitializeRequest{
-        ClientInfo: &acp.Implementation{Name: "demo-client", Version: "0.1.0"},
-    }); err != nil {
-        log.Fatal(err)
-    }
-
-    session, err := conn.NewSession(ctx, acp.NewSessionRequest{Cwd: ".", MCPServers: []acp.MCPServer{}})
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    if _, err := conn.Prompt(ctx, acp.PromptRequest{
-        SessionID: session.SessionID,
-        Prompt:    []acp.ContentBlock{acp.NewContentBlockText(acp.TextContent{Text: "hello"})},
-    }); err != nil {
-        log.Fatal(err)
-    }
-}
-```
+- Client 实现：[`examples/client/client.go`](./examples/client/client.go)
+- WebSocket 连接入口：[`examples/client/main.go`](./examples/client/main.go)（`-transport=ws`）
 
 ### 4.2 Streamable HTTP 模式
 
@@ -255,66 +122,10 @@ func main() {
 
 #### 4.2.2 Client
 
-```go
-package main
+完整 Demo 直接看仓库示例：
 
-import (
-    "context"
-    "fmt"
-    "log"
-
-    acp "github.com/eino-contrib/acp"
-    acpconn "github.com/eino-contrib/acp/conn"
-    acphttp "github.com/eino-contrib/acp/transport/http/client"
-)
-
-type Client struct{ acp.BaseClient }
-
-func (c *Client) SessionUpdate(_ context.Context, n acp.SessionNotification) error {
-    if msg, ok := n.Update.AsAgentMessageChunk(); ok {
-        if t, ok := msg.Content.AsText(); ok {
-            fmt.Printf("[agent] %s\n", t.Text)
-        }
-    }
-    return nil
-}
-
-func main() {
-    ctx := context.Background()
-
-    // baseURL 是服务端 origin；路径默认 /acp，也可以用 WithClientEndpointPath 自定义。
-    transport := acphttp.NewClientTransport("http://127.0.0.1:8080",
-        acphttp.WithClientEndpointPath("/acp"),
-        // acphttp.WithSSEReconnect(), // 可选：SSE 断线重连
-    )
-
-    conn := acpconn.NewClientConnection(&Client{}, transport)
-    if err := conn.Start(ctx); err != nil {
-        log.Fatal(err)
-    }
-    defer conn.Close()
-
-    if _, err := conn.Initialize(ctx, acp.InitializeRequest{
-        ClientInfo: &acp.Implementation{Name: "demo-client", Version: "0.1.0"},
-    }); err != nil {
-        log.Fatal(err)
-    }
-
-    // Streamable HTTP 下：NewSession 成功后会自动启动 GET SSE listener，
-    // 用于接收 Agent->Client 的反向通知（例如 session/update）。
-    session, err := conn.NewSession(ctx, acp.NewSessionRequest{Cwd: ".", MCPServers: []acp.MCPServer{}})
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    if _, err := conn.Prompt(ctx, acp.PromptRequest{
-        SessionID: session.SessionID,
-        Prompt:    []acp.ContentBlock{acp.NewContentBlockText(acp.TextContent{Text: "hello"})},
-    }); err != nil {
-        log.Fatal(err)
-    }
-}
-```
+- Client 实现：[`examples/client/client.go`](./examples/client/client.go)
+- HTTP + SSE 连接入口：[`examples/client/main.go`](./examples/client/main.go)（`-transport=http`）
 
 ### 4.3 stdio 子进程模式
 
@@ -342,32 +153,19 @@ func main() {
 
 Client 方 spawn 子进程并用它的 stdin/stdout 做通信（可复用上面 WebSocket 模式里的 `Client` 实现）：
 
-```go
-cmd := exec.CommandContext(ctx, "/path/to/agent-binary")
-stdin, _ := cmd.StdinPipe()
-stdout, _ := cmd.StdoutPipe()
-_ = cmd.Start()
+完整 Demo 直接看仓库示例：
 
-// 注意：Client 侧的 reader = 子进程 stdout，writer = 子进程 stdin
-transport := stdio.NewTransport(stdout, stdin)
-conn := acpconn.NewClientConnection(&Client{}, transport)
-_ = conn.Start(ctx)
-defer conn.Close()
-```
+- Client 实现：[`examples/client/client.go`](./examples/client/client.go)
+- spawn 子进程入口：[`examples/client/main.go`](./examples/client/main.go)（`-transport=spawn`）
 
 #### 4.3.2 Agent（子进程内）
 
 Agent 侧（在子进程内，`agent` 为你的 Agent 实例，例如 `&Agent{}`）：
 
-```go
-transport := stdio.NewTransport(os.Stdin, os.Stdout)
-conn := acpconn.NewAgentConnectionFromTransport(agent, transport)
-if aware, ok := agent.(acpserver.ConnectionAwareAgent); ok {
-    aware.SetClientConnection(conn)
-}
-_ = conn.Start(ctx)
-<-conn.Done()
-```
+完整 Demo 直接看仓库示例：
+
+- Agent 实现：[`examples/agent/agent.go`](./examples/agent/agent.go)
+- stdio 入口：[`examples/agent/main.go`](./examples/agent/main.go)（`-transport=stdio`）
 
 ### 4.4 Proxy 模式
 
@@ -390,21 +188,14 @@ _ = conn.Start(ctx)
                                   一条 Client WS ↔ 一个 Streamer ↔ 一条下游会话
 ```
 
-最小 Go 代码骨架（`newWSStreamerFactory` 来自 `examples/proxy`；生产环境请替换为你自己的 `stream.StreamerFactory`，比如 gRPC/Kitex/TTHeader 等）：
+完整 Demo 直接看仓库示例：
 
-```go
-factory, _ := newWSStreamerFactory("ws://127.0.0.1:9090/acp-upstream")
-
-p, _ := proxy.NewACPProxy(factory,
-    proxy.WithHeaderForwarder(proxy.ForwardHeaders("Authorization", "X-Tenant-Id")),
-)
-
-srv := hertzserver.New(hertzserver.WithHostPorts(":8080"))
-srv.NoHijackConnPool = true
-p.Mount(srv)
-
-srv.Spin() // /acp
-```
+- Proxy 入口：[`examples/proxy/main.go`](./examples/proxy/main.go)
+- Proxy 运行逻辑：[`examples/proxy/proxy_runner.go`](./examples/proxy/proxy_runner.go)
+- 上游 AgentServer：[`examples/proxy/agent_server.go`](./examples/proxy/agent_server.go)
+- 示例 `StreamerFactory`：[`examples/proxy/factory.go`](./examples/proxy/factory.go)
+- 示例 `Streamer`：[`examples/proxy/ws_streamer.go`](./examples/proxy/ws_streamer.go)
+- 示例 Agent：[`examples/proxy/echo_agent.go`](./examples/proxy/echo_agent.go)
 
 > ⚠️ 约束：
 > - Proxy **只支持 WebSocket** 作为北向入口（不支持 Streamable HTTP）。
@@ -433,9 +224,10 @@ go run ./examples/proxy -role=proxy -listen=:8080 -upstream=ws://127.0.0.1:9090/
 
 Client 侧仍然按 WebSocket 模式连接，只是把目标地址改成 Proxy（默认 endpoint path 仍为 `/acp`）：
 
-```go
-transport, err := acpws.NewWebSocketClientTransport("ws://127.0.0.1:8080")
-```
+完整 Demo 可直接复用：
+
+- Client 实现：[`examples/client/client.go`](./examples/client/client.go)
+- WebSocket 入口：[`examples/client/main.go`](./examples/client/main.go)（`-transport=ws`，目标地址改为 Proxy）
 
 也可以一条命令本地跑全链路（同时起 upstream + proxy）：
 
