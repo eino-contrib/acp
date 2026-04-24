@@ -27,7 +27,7 @@ const (
 	// using the connection-level context, which has no deadline — and
 	// eventually exhaust the worker pool. Mirrors the safety net in the
 	// ws-server transport.
-	defaultWriteTimeout = 10 * time.Second
+	defaultWriteTimeout = 30 * time.Second
 )
 
 // Option configures a stdio Transport.
