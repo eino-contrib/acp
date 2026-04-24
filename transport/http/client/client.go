@@ -69,7 +69,7 @@ func WithHTTPClient(client *http.Client) ClientTransportOption {
 }
 
 // WithInboxSize sets the buffered channel capacity for incoming messages.
-// Default is 100.
+// Default is 1024.
 func WithInboxSize(size int) ClientTransportOption {
 	return func(t *ClientTransport) {
 		if size > 0 {
