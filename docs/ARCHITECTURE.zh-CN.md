@@ -1,18 +1,18 @@
-# ACP Go SDK Architecture Overview
+# ACP Go SDK 架构总览
 
-This document is for readers who are new to the project. Its goal is to help you build a quick mental model of the **layered design**, **core abstractions**, and **runtime message flow** without diving into protocol minutiae.
-
----
-
-## 1. What This Project Is
-
-`github.com/eino-contrib/acp` is the Go SDK for [Agent Client Protocol (ACP)](https://agentclientprotocol.com/). ACP is a **bidirectional RPC protocol** built on top of **JSON-RPC 2.0**, used to exchange prompts, session updates, file access calls, permission requests, and similar messages between the Client (host / IDE) and the Agent (AI service).
-
-The core value of the SDK is that it packages the cross-cutting concerns for you: protocol framing, connection lifecycle, transports, multiplexing, and proxying. Users mainly need to implement the business-facing interfaces `acp.Agent` and `acp.Client`.
+本文档面向第一次接触本项目的读者，目标是在短时间内建立对 **代码分层**、**核心抽象** 和 **运行时链路** 的整体认知，不深入协议细节。
 
 ---
 
-## 2. System Architecture
+## 1. 项目定位
+
+`github.com/eino-contrib/acp` 是 [Agent Client Protocol (ACP)](https://agentclientprotocol.com/) 的 Go SDK。ACP 是一个基于 **JSON-RPC 2.0** 的 **双向 RPC 协议**，在 Client（宿主 / IDE）与 Agent（AI 服务）之间传递 prompt、session 更新、文件访问、权限请求等消息。
+
+SDK 的核心价值：把协议、连接、传输、多路复用、代理这些横切关注点封装好，让使用者只需要实现业务接口 `acp.Agent` / `acp.Client`。
+
+---
+
+## 2. 整体架构图
 
 ```
    ┌────────────────────────┐                                   ┌────────────────────────┐
@@ -72,34 +72,34 @@ The core value of the SDK is that it packages the cross-cutting concerns for you
    └─────────────────────────────────────────────────────────────────────────────
 ```
 
-> The left side is the Client (IDE / host application), and the right side is the Agent (AI service). From top to bottom, the stack is: L3 ACP endpoint -> L2 JSON-RPC engine -> L1 byte transport. You can choose any of the three transports `(A)(B)(C)`, or pass traffic through `(D) Proxy`.
+> 左栏是 Client 侧（IDE / 宿主程序），右栏是 Agent 侧（AI Agent 服务）；中间层次从上到下：L3 ACP 协议端点 → L2 JSON-RPC 引擎 → L1 字节管道；三种传输 (A)(B)(C) 可任选其一，或者通过 (D) Proxy 透传。
 
-**One-sentence summary from top to bottom**: the user implements `acp.Agent` / `acp.Client` -> `conn.*Connection` handles ACP-level dispatch and reverse RPC -> `internal/jsonrpc` handles encoding, decoding, and request-response correlation -> a concrete `transport.Transport` implementation (`stdio`, WS, or HTTP+SSE) moves the bytes. In server deployments, `server.ACPServer` aggregates many remote connections. In gateway deployments, `proxy.ACPProxy` forwards bytes transparently.
+**从上到下一句话概括**：用户实现 `acp.Agent` / `acp.Client` → 由 `conn.*Connection` 做 ACP 层的方法派发与反向 RPC → 下沉到 `internal/jsonrpc` 做编解码与请求-响应匹配 → 最终通过 `transport.Transport` 的某个实现（stdio / WS / HTTP+SSE）把字节送出去。服务端场景用 `server.ACPServer` 聚合多连接，网关场景用 `proxy.ACPProxy` 透传字节。
 
 ---
 
-## 3. Core Abstractions at a Glance
+## 3. 核心抽象一句话速记
 
-| Abstraction | Package | Responsibility |
+| 抽象 | 所在包 | 职责 |
 |---|---|---|
-| `acp.Agent` / `acp.Client` | root package | Business interfaces implemented by users |
-| `BaseAgent` / `BaseClient` | root package | Default implementation: Request methods return `method not found: <method>`, and Notification methods return `notification handler not implemented: <method>`, so missing hooks fail loudly instead of disappearing silently |
-| `conn.AgentConnection` | `conn/` | The Agent-side protocol endpoint: dispatches inbound messages and offers reverse RPC |
-| `conn.ClientConnection` | `conn/` | The Client-side protocol endpoint: dispatches inbound messages and initiates prompt calls |
-| `transport.Transport` | `transport/` | The byte pipe abstraction with `ReadMessage`, `WriteMessage`, and `Close` |
-| `server.ACPServer` | `server/` | Multi-connection remote server: serves both HTTP (POST+SSE) and WebSocket on one `/acp` route |
-| `proxy.ACPProxy` | `proxy/` | Transparent proxy: moves bytes only and does not parse ACP |
-| `stream.Streamer` / `StreamerFactory` | `stream/` | Southbound transport abstraction from Proxy to the downstream AgentServer; users can implement it with gRPC, Kitex, WebSocket, etc. |
+| `acp.Agent` / `acp.Client` | 根包 | 业务接口：由使用者实现 |
+| `BaseAgent` / `BaseClient` | 根包 | 默认实现：Request 方法返回 `method not found: <method>`，Notification 方法返回 `notification handler not implemented: <method>`（让缺失的协议钩子不静默消失） |
+| `conn.AgentConnection` | `conn/` | Agent 侧的协议端点，派发 inbound、提供反向 RPC |
+| `conn.ClientConnection` | `conn/` | Client 侧的协议端点，派发 inbound、发起 prompt 等 |
+| `transport.Transport` | `transport/` | 抽象 `ReadMessage/WriteMessage/Close` 的字节管道 |
+| `server.ACPServer` | `server/` | 多连接远端服务：同一 `/acp` 路由同时承载 HTTP(POST+SSE) 和 WS |
+| `proxy.ACPProxy` | `proxy/` | 透传代理：只搬字节，不解析协议 |
+| `stream.Streamer` / `StreamerFactory` | `stream/` | Proxy 到下游 AgentServer 的南向传输抽象（用户可用 gRPC/Kitex/WS 自己实现） |
 
 ---
 
-## 4. End-to-End Flows
+## 4. 三种端到端链路
 
-### 4.1 Direct Connection Modes
+### 4.1 直连模式
 
-All three direct transports share the same upper layers (business interface + `*Connection` + `jsonrpc.Conn`) and differ only at the L1 transport layer.
+三种直连传输共享上层（业务接口 + `*Connection` + `jsonrpc.Conn`），只在 L1 传输层不同。下面分别画出各自的链路。
 
-#### 4.1.1 WebSocket (full-duplex long-lived connection)
+#### 4.1.1 WebSocket（全双工长连接）
 
 ```
 ┌──────────────────────────────────┐                                   ┌──────────────────────────────────┐
@@ -116,10 +116,10 @@ All three direct transports share the same upper layers (business interface + `*
 │  (transport/ws, hertz-contrib)   │           ws://host/acp           │  (internal/wsserver, server side)│
 └──────────────────────────────────┘                                   └──────────────────────────────────┘
 
-Characteristic: one TCP connection carries all bidirectional traffic, including requests, responses, reverse RPC, and notifications. No sticky routing is needed.
+特点：一条 TCP 连接承载双向全部流量（请求 + 响应 + 反向 RPC + 通知），无需粘滞路由。
 ```
 
-#### 4.1.2 Streamable HTTP (POST + GET (SSE) + DELETE)
+#### 4.1.2 Streamable HTTP（POST + GET (SSE) + DELETE）
 
 ```
 ┌────────────────────────────────┐                                   ┌────────────────────────────────┐
@@ -146,10 +146,14 @@ Characteristic: one TCP connection carries all bidirectional traffic, including 
 │                                │ ◄── 202 Accepted  ─────────────── │                                │
 └────────────────────────────────┘                                   └────────────────────────────────┘
 
-Characteristic: one logical connection is split across multiple HTTP requests. The server glues them into a single `AgentConnection` by `Acp-Connection-Id` using `connTable`, which internally owns its own `jsonrpc.Connection` plus the pending map. Server POST responses are always SSE (for Request) or `202 Accepted` (for Notification), never `application/json`. Load balancers must provide sticky routing so that the POST/GET/DELETE requests for the same connection ID all reach the same backend instance.
+特点：一条 逻辑连接 拆成多次 HTTP 请求，服务端用 connTable 按 Acp-Connection-Id 粘合
+      成一条 AgentConnection（内部持有自己的 jsonrpc.Connection + pending map）。
+      服务端 POST 响应统一走 SSE（Request）或 202 Accepted（Notification），
+      不会返回 application/json。
+      负载均衡必须做 粘滞路由，让同一 connID 的 POST/GET/DELETE 到同一后端实例。
 ```
 
-#### 4.1.3 stdio (parent and child process)
+#### 4.1.3 stdio（父子进程）
 
 ```
 ┌───────────────────────────┐                            ┌───────────────────────────┐
@@ -166,10 +170,10 @@ Characteristic: one logical connection is split across multiple HTTP requests. T
 │    reader = child.Stdout  │ ◄══ NDJSON response/rpc ══ │    writer = os.Stdout     │
 └───────────────────────────┘                            └───────────────────────────┘
 
-Characteristic: the parent process spawns the child via `exec.Cmd`, and stdin/stdout each carry one direction. This is the typical mode for a local IDE launching an agent.
+特点：父进程通过 exec.Cmd 拉起子进程，stdin/stdout 各承担一个方向；典型用于 IDE 本地拉起 Agent。
 ```
 
-### 4.2 Server-Side Multi-Connection Flow (`server.ACPServer`)
+### 4.2 服务端多连接链路（`server.ACPServer`）
 
 ```
               ┌──────────────── ACPServer (Hertz) ────────────────┐
@@ -193,11 +197,11 @@ Characteristic: the parent process spawns the child via `exec.Cmd`, and stdin/st
               └───────────────────────────────────────────────────┘
 ```
 
-- `connTable` stores **HTTP remote connections only**. The comment on the `connTable` type in `server/conn_table.go` explicitly says `WebSocket connections are intentionally not tracked here`. Streamable HTTP needs `Acp-Connection-Id` to glue multiple POST/GET/DELETE requests into one logical connection and also needs the idle reaper to clean up orphaned sessions.
-- **WebSocket connections** are managed separately by `wsConns`. WS is already long-lived and bound to the underlying TCP connection, so it does not need an idle-reaped table. The map mainly exists so `ACPServer.Close` can close them all together.
-- `AgentFactory` creates one Agent instance per remote connection. If the Agent implements `ConnectionAwareAgent.SetClientConnection(*AgentConnection)`, the server injects the handle automatically so the Agent can call back into the Client, for example via `fs/read_text_file`, `session/update`, or `session/request_permission`.
+- `connTable` **只存 HTTP 远端连接**（`server/conn_table.go` 的 `connTable` 类型注释里写明 `WebSocket connections are intentionally not tracked here`），因为 Streamable HTTP 需要按 `Acp-Connection-Id` 把多次 POST/GET/DELETE 粘合成同一条逻辑连接，且需要 idle reaper 回收客户端消失后遗留的会话。
+- **WS 连接**由独立的 `wsConns` 管理：WS 本身就是长连接，生命周期跟随 TCP，不需要 idle 回收表；它只是为了在 `ACPServer.Close` 时能集中关闭。
+- `AgentFactory` 为每条远端连接创建一个 Agent 实例；若 Agent 实现 `ConnectionAwareAgent.SetClientConnection(*AgentConnection)`，服务端自动注入连接句柄，Agent 就能反向调用 Client（如 `fs/read_text_file`、`session/update`、`session/request_permission`）。
 
-### 4.3 Proxy Pass-Through Flow (`proxy.ACPProxy`)
+### 4.3 Proxy 透传链路（`proxy.ACPProxy`）
 
 ```
 ┌────────┐   WS bytes   ┌─────────────────┐   Streamer   ┌────────────────────┐
@@ -207,20 +211,20 @@ Characteristic: the parent process spawns the child via `exec.Cmd`, and stdin/st
 │        │              │  HeaderForwarder│  WS/...      │                    │
 └────────┘              └─────────────────┘              └────────────────────┘
 
-          Proxy is only a byte pipe and does not parse ACP; one northbound WS ↔ one Streamer ↔ one downstream session
+          Proxy 只是字节管道，不解析 ACP；一条北向 WS ↔ 一个 Streamer ↔ 一个下游会话
 ```
 
-- Only northbound WebSocket is supported.
-- `up-pump` and `down-pump` are the two goroutines started per WS connection in `proxy/conn.go` (`upPump` and `downPump`). The former copies bytes read from the northbound WS into the downstream `Streamer`, and the latter writes downstream bytes back to the northbound WS. Neither side parses JSON-RPC.
-- `HeaderForwarder` in `proxy/options.go`, installed via `proxy.WithHeaderForwarder`, projects inbound HTTP headers into a `map[string]string` and passes it downstream as `meta`, so downstream services can receive auth, tracing, or tenant headers.
-- The downstream side is usually a user-built RPC service. In a typical implementation, the received bytes are fed into `stdio.Transport`, and `conn.NewAgentConnectionFromTransport` then drives the `acp.Agent`.
-- `Proxy` and `ACPServer` both default to `/acp`. If both use the default path, **only one of them can be mounted in the same Hertz process**. Use `proxy.WithEndpoint` and `server.WithEndpoint` to assign different paths when they need to coexist.
+- 仅支持北向 WebSocket。
+- `up-pump` / `down-pump` 是 `proxy/conn.go` 里对每条 WS 连接启动的两个 goroutine（对应函数 `upPump` / `downPump`）：前者把北向 WS 读到的字节搬到下游 Streamer，后者把 Streamer 下行的字节写回北向 WS。两者都只搬字节，不做 JSON-RPC 解析。
+- `HeaderForwarder`（`proxy/options.go`，通过 `proxy.WithHeaderForwarder` 安装）把北向 HTTP 请求头投影成一个 `map[string]string`，作为 `meta` 透传给下游 Streamer，让下游可以拿到鉴权/追踪之类的头信息。
+- 下游通常是使用者自建的 RPC 服务；典型实现里下游把收到的字节喂给 `stdio.Transport`，再由 `conn.NewAgentConnectionFromTransport` 驱动 `acp.Agent`。
+- Proxy 与 `ACPServer` 默认都挂在 `/acp`：若都使用默认路径则**同一 Hertz 进程只能部署一个**，需通过 `proxy.WithEndpoint` / `server.WithEndpoint` 配成不同路径才能共存。
 
 ---
 
-## 5. Internal Lifecycle of a Request (WebSocket Example)
+## 5. 一次请求的内部流转（以 WebSocket 为例）
 
-Take `Prompt(ctx, req)` called from the Client side. The full lifecycle of one forward request plus its response looks like this, in time order:
+以 Client 调用 `Prompt(ctx, req)` 为例，一次「前向请求 + 等待响应」的完整链路如下（编号代表时间顺序）：
 
 ```
  ┌──────────────────────── Client process ─────────────────────┐        ┌──────────────────────── Agent process ──────────────────────┐
@@ -248,71 +252,71 @@ Take `Prompt(ctx, req)` called from the Client side. The full lifecycle of one f
                                                  ws://host/acp
 ```
 
-Response direction (`⑦ -> ⑩`):
+响应方向（⑦ → ⑩）：
 
 ```
- ⑦ agent.Prompt returns PromptResponse
+ ⑦ agent.Prompt 返回 PromptResponse
      │
      ▼
-   The worker wraps it into a JSON-RPC Response (reusing the original id) and writes it back via transport.WriteMessage
+   worker 把它打包成 JSON-RPC Response（复用原 id），直接 transport.WriteMessage 写回
      │
      ▼
- ⑧ The Client-side readLoop receives the Response, looks up the waiting channel in the `pending` sync.Map by id, and writes the value there
+ ⑧ Client 侧 readLoop 读到 Response，按 id 在 sync.Map pending 里找到等待 channel 并写入
      │
      ▼
- ⑨ The suspended `cc.Prompt` call from step ① wakes up and decodes PromptResponse
+ ⑨ ① 处挂起的 cc.Prompt 被唤醒，解出 PromptResponse
      │
      ▼
- ⑩ `resp, err := cc.Prompt(...)` returns to the application
+ ⑩ resp, err := cc.Prompt(...) 返回给应用
 ```
 
-**Reverse RPC works the same way**. When the Agent calls a **Request** such as `AgentConnection.ReadTextFile` or `RequestPermission`, the exact same `①-⑩` flow happens in the opposite direction (Agent -> Client). A **Notification** such as `AgentConnection.SessionUpdate` only goes through `①-⑥`: the sender fires and forgets, the receiver still dispatches it through `readLoop` plus the worker pool or ordered drain, but no `⑦-⑩` response path exists. Both directions reuse **the same WebSocket connection**.
+**反向 RPC 同理**：Agent 侧调用 `AgentConnection.ReadTextFile / RequestPermission` 这类 **Request** 走一模一样的 ①—⑩ 流程，只是方向反过来（Agent → Client）；`AgentConnection.SessionUpdate` 这类 **Notification** 只走 ①—⑥（发送方发完即忘、无响应等待，但接收侧仍经 readLoop 分类和 worker pool / ordered drain 执行 handler；不会产生 ⑦—⑩ 的响应回传）。两者都复用**同一条 WS 连接**。
 
-**Key facts to keep in mind** (matching the `Synchronization overview` and `Dispatch model` comment blocks above the `Connection` type in `internal/jsonrpc/connection.go`):
+**几个关键事实（对照 `internal/jsonrpc/connection.go` 中 `Connection` 类型上方的 `Synchronization overview` 与 `Dispatch model` 注释块）：**
 
-1. **There is only one goroutine on the read side: `readLoop`.** It synchronously calls `transport.ReadMessage`, reads one message, and classifies it in place. There is **no symmetric `writeLoop` or shared outbox**. Writes happen directly in the caller's goroutine through `transport.WriteMessage`, and whether writes are internally queued is decided by the concrete transport implementation. In addition to `readLoop`, the connection also keeps a worker pool and an ordered-drain goroutine alive.
-2. **`readLoop` never blocks on user handlers**:
-   - `Response` messages are handled in O(1) on the spot by looking up `pending` and sending the value;
-   - `Request` and unordered `Notification` messages go into an **unbounded intake queue** consumed concurrently by a fixed-size **worker pool**;
-   - ordered `Notification` messages such as `session/update` go into a **separate single-consumer queue**, drained serially by one goroutine.
-3. **Request-response matching relies on `pending` (`sync.Map`)**. Sending a request registers `pending[id] = chan response`, and receiving the response wakes the original caller by id. Notifications have no id and therefore no response wait path.
-4. **L2 (`jsonrpc`) does not know ACP method semantics**. It only manages envelopes, ids, `pending` correlation, queues, and the worker pool. **L3 (`*Connection`)** is where ACP method constants such as `acp.MethodAgentPrompt` and their typed parameters are understood, decoded, and registered as handlers.
+1. **读方向只有一个 goroutine：`readLoop`**。它同步调用 `transport.ReadMessage` 拉一条消息，就地分类；**没有对称的 `writeLoop / outbox`** —— 写方向由调用方 goroutine 直接 `transport.WriteMessage`，是否在传输层再排队由具体 Transport 自己决定（例如 WS 实现内部可能有自己的发送 channel）。需要注意的是，除了 `readLoop`，连接还常驻一组 worker pool goroutine 和一个 ordered drain goroutine（见下一条）。
+2. **readLoop 绝不阻塞在 handler 上**：
+   - `Response` 就地 O(1) 处理（查 `pending` sync.Map 并送值），不经过任何队列；
+   - `Request` / 无序 `Notification` 入 **intake 无界队列**，由固定大小的 **worker pool** 并发消费；
+   - 有序 `Notification`（例如 `session/update`，必须保序）入 **另一条单消费者队列**，由单独的 drain goroutine 串行执行。
+3. **请求–响应配对靠 `pending` (`sync.Map`)**：发请求时以 JSON-RPC id 为 key 注册一个 `chan response`，收到响应时按 id 唤醒调用方。Notification 没有 id，发完即忘。
+4. **L2（jsonrpc）不认识 ACP 方法语义**，只管 envelope、id 分配、pending 匹配、队列与 worker pool；**L3（`*Connection`）** 才知道 `acp.MethodAgentPrompt` 这类方法常量与参数类型，负责编解码 + 注册 handler。
 
-> On the **client side**, Streamable HTTP still plugs into the same `jsonrpc.Connection + readLoop + worker pool` stack through `transport/http/client`, just like stdio and WS. On the **server side**, however, it is different: `internal/httpserver.ProtocolConnection` handles the POST/GET/DELETE protocol semantics itself and does **not use** `jsonrpc.Connection` (see the `Create AgentConnection with the sender (no jsonrpc.Connection)` comment in `server/connection.go`). `ACPServer` uses `httpAgentSender` to deliver reverse Request / Notification messages into the per-session SSE outbox. stdio remains symmetric on both ends and still uses `jsonrpc.Connection`, with stdin/stdout as the byte channel.
+> Streamable HTTP 的**客户端**与 stdio/WS 一样，通过 `transport/http/client` 接到同一套 `jsonrpc.Connection + readLoop + worker pool` 上；但**服务端**不同：`internal/httpserver.ProtocolConnection` 独立处理 POST/GET/DELETE 的协议语义，并**不使用** `jsonrpc.Connection`（见 `server/connection.go` "Create AgentConnection with the sender (no jsonrpc.Connection)" 注释）。ACPServer 通过 `httpAgentSender` 把反向 Request / Notification 投递到 per-session 的 SSE outbox。stdio 两端则仍是对称的 `jsonrpc.Connection`，只是字节通道是父子进程的 stdin/stdout。
 
-About code generation and transport extensibility:
-1. **Method dispatch is generated entirely from schema**. `cmd/generate` reads `schema.json` and produces:
-   - root directory: `types_gen.go`, `agent_gen.go`, `client_gen.go`, `base.go` (including default `BaseAgent` / `BaseClient` implementations)
-   - `conn/`: `agent_outbound_gen.go`, `client_outbound_gen.go`, `handlers_gen.go`
+关于代码生成与 Transport 扩展：
+1. **方法派发完全由代码生成**。`cmd/generate` 读 `schema.json` 产出：
+   - 根目录：`types_gen.go`、`agent_gen.go`、`client_gen.go`、`base.go`（含 `BaseAgent/BaseClient` 默认实现）
+   - `conn/`：`agent_outbound_gen.go`、`client_outbound_gen.go`、`handlers_gen.go`
    - `internal/methodmeta/metadata_gen.go`
 
-   What remains handwritten is the dispatch skeleton in `conn/dispatch.go`, the connection assembly in `conn/{agent,client}.go`, and the transport layer.
-2. **`Transport` only deals with bytes**. Adding a new transport only requires implementing `transport.Transport` with `ReadMessage`, `WriteMessage`, and `Close`.
+   手写维护的是 `conn/dispatch.go` 的派发骨架、`conn/{agent,client}.go` 的连接装配、以及传输层。
+2. **Transport 只管字节**：增加一种新传输只需要实现 `transport.Transport` 的 `ReadMessage/WriteMessage/Close`。
 
 ---
 
-## 6. Directory Cheat Sheet
+## 6. 目录速查
 
-| Path | Purpose |
+| 路径 | 作用 |
 |---|---|
-| `*.go` (root) | Protocol types, interfaces, `BaseAgent` / `BaseClient`, errors, extension helpers, method metadata lookup (`methods.go`), and global logger wiring (`logger.go`) |
-| `conn/` | Dispatch and reverse RPC for `AgentConnection` / `ClientConnection` |
-| `transport/` | `transport.go` defines the common foundation: the `Transport` interface, sentinel errors such as `ErrTransportClosed`, and shared constants like `HeaderConnectionID` and `DefaultACPEndpointPath`. Subpackages `stdio`, `ws`, and `http/client` are the concrete implementations. `stdio` is symmetric on both ends, while `ws` and `http/client` are client-side only and pair with the server-side implementations in `internal/{wsserver,httpserver}` |
-| `internal/jsonrpc` | The JSON-RPC 2.0 engine: envelope, queues, and connection runtime |
-| `internal/httpserver` | Server-side Streamable HTTP adapter for Hertz: POST / GET(SSE) / DELETE |
-| `internal/wsserver` | Server-side WebSocket adapter for Hertz |
-| `internal/connspi`, `peerstate`, `methodmeta`, `endpoint`, `safe`, `log`, `wsutil` | Internal SPI, peer protocol version and session metadata tracking, method metadata, endpoint normalization, panic recovery and goroutine helpers, logging, and WebSocket close-reason helpers |
-| `server/` | `ACPServer`, which serves many connections and shares `/acp` across HTTP and WS |
-| `proxy/` + `stream/` | Transparent proxying plus the southbound `Streamer` abstraction |
-| `cmd/generate/` | Schema-driven generation of types, interfaces, dispatch code, and method metadata |
-| `examples/{agent,client,proxy}` | Runnable examples for the three major roles |
+| `*.go` (根目录) | 协议类型、接口、BaseAgent/BaseClient、错误、扩展方法、方法元数据查询（`methods.go`）、全局 Logger 装配（`logger.go`） |
+| `conn/` | `AgentConnection` / `ClientConnection` 的派发与反向 RPC |
+| `transport/` | `transport.go` 定义公共基石：`Transport` 接口、sentinel errors（`ErrTransportClosed` 等）与共享常量（`HeaderConnectionID`、`DefaultACPEndpointPath` 等）。子包 `stdio` / `ws` / `http/client` 是具体实现——`stdio` 两端对称复用，`ws` / `http/client` 仅客户端使用（对应 `internal/{wsserver,httpserver}` 的服务端实现） |
+| `internal/jsonrpc` | JSON-RPC 2.0 引擎（envelope / queue / connection） |
+| `internal/httpserver` | 服务端 Streamable HTTP（POST/GET(SSE)/DELETE）适配 Hertz |
+| `internal/wsserver` | 服务端 WebSocket 适配 Hertz |
+| `internal/connspi`, `peerstate`, `methodmeta`, `endpoint`, `safe`, `log`, `wsutil` | 内部 SPI、peer 协议版本 / 会话元数据追踪、方法元数据、路径归一化、panic 恢复与 goroutine 工具、日志、WebSocket 关闭原因工具 |
+| `server/` | `ACPServer`（多连接、HTTP+WS 共用 `/acp`） |
+| `proxy/` + `stream/` | 透传代理 + 南向 Streamer 抽象 |
+| `cmd/generate/` | 由 `schema.json` 生成类型 / 接口 / 派发 / 元数据代码 |
+| `examples/{agent,client,proxy}` | 三类角色的可运行示例 |
 
 ---
 
-## 7. Suggested Reading Paths
+## 7. 给不同读者的入口建议
 
-- **Building an Agent service**: start with `examples/agent/*`, then `server/server.go`, then `conn/agent.go`.
-- **Building a Client / host application**: start with `examples/client/*`, then `conn/client.go`, then `transport/{ws,http/client,stdio}`.
-- **Building a gateway / proxy**: start with `examples/proxy/*`, then `proxy/proxy.go`, then `stream/streamer.go`.
-- **Adding protocol extension methods**: look at the root `extension.go` and `conn/dispatch.go`.
-- **Changing the protocol and regenerating code**: inspect `cmd/generate/` and `cmd/generate/schema/schema.json`.
+- **写一个 Agent 服务**：看 `examples/agent/*` + `server/server.go` + `conn/agent.go`。
+- **写一个 Client（宿主）**：看 `examples/client/*` + `conn/client.go` + `transport/{ws,http/client,stdio}`。
+- **写一个网关/代理**：看 `examples/proxy/*` + `proxy/proxy.go` + `stream/streamer.go`。
+- **给协议加扩展方法**：看根包 `extension.go` 与 `conn/dispatch.go`。
+- **改协议/重新生成代码**：看 `cmd/generate/` 与 `cmd/generate/schema/schema.json`。

@@ -1,5 +1,9 @@
 # ACP Go SDK 接入文档
 
+[English](./README.md) | 中文
+
+架构文档：[中文](./docs/ARCHITECTURE.zh-CN.md) | [English](./docs/ARCHITECTURE.md)
+
 ## 1. 背景
 
 `github.com/eino-contrib/acp` 是 [Agent Client Protocol](https://agentclientprotocol.com/) 的 Go 语言 SDK，提供：
