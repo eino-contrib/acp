@@ -1,6 +1,8 @@
 # ACP Go SDK Integration Guide
 
-[中文版本](./README.zh-CN.md)
+English | [中文](./README.zh-CN.md)
+
+Architecture Docs: [English](./docs/ARCHITECTURE.md) | [中文](./docs/ARCHITECTURE.zh-CN.md)
 
 ## 1. Background
 
