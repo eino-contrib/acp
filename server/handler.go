@@ -56,6 +56,14 @@ func (s *ACPServer) handleWebSocket(ctx context.Context, c *app.RequestContext) 
 		wc.Close()
 	})
 	if err != nil {
+		// Upgrade rejected before our callback ran (bad Origin, malformed
+		// handshake headers, protocol mismatch, ...): the callback never
+		// fires, so we must undo the pre-registration ourselves. Without
+		// this the entry in s.wsConns leaks until closeAllWSConns, and the
+		// only signal a failed handshake leaves behind is the Hertz access
+		// log — operators get no reason string.
+		acplog.CtxWarn(ctx, "websocket upgrade failed: conn=%s: %v", wc.id, err)
+		s.untrackWSConn(wc.id)
 		wc.Close()
 	}
 }
