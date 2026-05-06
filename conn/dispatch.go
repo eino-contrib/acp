@@ -42,11 +42,16 @@ func bindNotificationHandler[T any](label string, fn func(context.Context, T) er
 // decodeParams unmarshals and validates JSON-RPC params into a typed value.
 // The wrapErr function controls how errors are wrapped (e.g. as RPCError for
 // requests, or plain errors for notifications).
+//
+// The concrete reason from json.Unmarshal / Validate is preserved in the
+// returned error so operators can diagnose malformed payloads (e.g. unknown
+// discriminator values, type mismatches, missing required fields) without
+// needing to reproduce the failure.
 func decodeParams[T any](params json.RawMessage, wrapErr func(string) error) (T, error) {
 	var p T
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
-			return p, wrapErr("invalid params")
+			return p, wrapErr("invalid params: " + err.Error())
 		}
 	}
 	if v, ok := any(&p).(validatable); ok {
