@@ -6,14 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hertz-contrib/websocket"
 
+	"github.com/eino-contrib/acp/internal/connspi"
 	"github.com/eino-contrib/acp/internal/log"
 	"github.com/eino-contrib/acp/internal/safe"
+	"github.com/eino-contrib/acp/internal/wsutil"
 	"github.com/eino-contrib/acp/transport"
 )
 
@@ -37,6 +41,10 @@ type Transport struct {
 
 	serving    atomic.Bool
 	activeConn atomic.Pointer[activeServerConnection]
+
+	// Heartbeat configuration
+	readTimeout       time.Duration
+	initializeTimeout time.Duration
 }
 
 const defaultMaxReadMessageSize int64 = int64(transport.DefaultMaxMessageSize)
@@ -77,14 +85,47 @@ type writeDeadliner interface {
 	SetWriteDeadline(time.Time) error
 }
 
+// readDeadliner is satisfied by *websocket.Conn and is used for heartbeat
+// read deadline management.
+type readDeadliner interface {
+	SetReadDeadline(time.Time) error
+}
+
+// pingHandlerSetter is satisfied by *websocket.Conn and is used to install
+// a handler for incoming Ping frames.
+type pingHandlerSetter interface {
+	SetPingHandler(h func(appData string) error)
+}
+
+// controlWriter is satisfied by *websocket.Conn and allows writing control
+// frames (Pong, Close) with an independent deadline.
+type controlWriter interface {
+	WriteControl(messageType int, data []byte, deadline time.Time) error
+}
+
+const (
+	// controlWriteDeadline is used for all WriteControl calls (Pong, Close).
+	// Set to 5s to tolerate contention with concurrent data frame writes that
+	// share the same internal write lock (data frames may hold it for up to 30s).
+	controlWriteDeadline = 5 * time.Second
+
+	// CloseCodeInitializeTimeout is a custom close code sent when the client
+	// fails to send "initialize" within the configured timeout.
+	CloseCodeInitializeTimeout = 4000
+)
+
 var _ transport.Transport = (*Transport)(nil)
 
 // New creates a new WebSocket server transport.
-func New() *Transport {
-	return &Transport{
+func New(opts ...Option) *Transport {
+	t := &Transport{
 		inbox: make(chan json.RawMessage, transport.DefaultInboxSize),
 		done:  make(chan struct{}),
 	}
+	for _, opt := range opts {
+		opt(t)
+	}
+	return t
 }
 
 // ServeConn serves a WebSocket connection that has already been upgraded.
@@ -103,6 +144,11 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 		return
 	}
 
+	connID := connspi.ConnectionIDFromContext(ctx)
+	if connID == "" {
+		connID = uuid.NewString()
+	}
+
 	serveCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -112,11 +158,58 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 		limiter.SetReadLimit(defaultMaxReadMessageSize)
 	}
 
+	// Install PingHandler if the connection supports it.
+	// Before initialize completes, PingHandler only echoes Pong (does NOT
+	// refresh read deadline). After initialize, it refreshes read deadline too.
+	var initialized atomic.Bool
+	// closeSent tracks whether a close frame was already written (e.g. timeout,
+	// policy violation, or pong write failure). closeWS checks this to avoid
+	// sending a redundant 1000 NormalClosure on top of a broken connection.
+	var closeSent atomic.Bool
+	if phs, ok := ws.(pingHandlerSetter); ok {
+		if cw, ok2 := ws.(controlWriter); ok2 {
+			phs.SetPingHandler(func(appData string) error {
+				// Always respond with Pong (RFC 6455 §5.5.3)
+				if err := cw.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(controlWriteDeadline)); err != nil {
+					log.CtxWarn(serveCtx, "role=server conn_id=%s reason=pong_write_failed err=%v", connID, err)
+					// Mark closeSent so closeWS does not send a 1000 NormalClosure
+					// frame on top of a broken connection.
+					closeSent.Store(true)
+					return err
+				}
+				// Only refresh read deadline after initialization completes.
+				if initialized.Load() && t.readTimeout > 0 {
+					if rd, ok3 := ws.(readDeadliner); ok3 {
+						_ = rd.SetReadDeadline(time.Now().Add(t.readTimeout))
+					}
+				}
+				return nil
+			})
+		}
+	}
+
+	// Set initialize deadline if configured.
+	if t.initializeTimeout > 0 {
+		if rd, ok := ws.(readDeadliner); ok {
+			_ = rd.SetReadDeadline(time.Now().Add(t.initializeTimeout))
+		}
+	}
+
 	// closeWS safely closes the WebSocket exactly once, preventing double-close
 	// across the multiple goroutines that may trigger shutdown.
+	// If a specific close frame was already sent (e.g. timeout or policy violation),
+	// set closeSent to true so closeWS only closes the underlying connection.
 	var closeOnce sync.Once
 	closeWS := func() {
 		closeOnce.Do(func() {
+			// Only send 1000 NormalClosure if no close frame was sent yet.
+			if !closeSent.Load() {
+				if cw, ok := ws.(controlWriter); ok {
+					_ = cw.WriteControl(websocket.CloseMessage,
+						websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+						time.Now().Add(controlWriteDeadline))
+				}
+			}
 			if err := ws.Close(); err != nil {
 				log.CtxDebug(serveCtx, "close websocket server connection: %v", err)
 			}
@@ -182,7 +275,29 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 		if err != nil {
 			if !errors.Is(err, io.EOF) &&
 				!websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				log.CtxDebug(serveCtx, "read websocket message: %v", err)
+				// Determine if the error is a timeout.
+				var ne net.Error
+				isTimeout := errors.As(err, &ne) && ne.Timeout()
+
+				if !validatedFirstMessage && isTimeout {
+					log.CtxWarn(serveCtx, "role=server conn_id=%s reason=initialize_timeout timeout=%v err=%v", connID, t.initializeTimeout, err)
+					closeSent.Store(true)
+					if cw, ok := ws.(controlWriter); ok {
+						_ = cw.WriteControl(websocket.CloseMessage,
+							websocket.FormatCloseMessage(CloseCodeInitializeTimeout, "initialize timeout"),
+							time.Now().Add(controlWriteDeadline))
+					}
+				} else if validatedFirstMessage && isTimeout {
+					log.CtxWarn(serveCtx, "role=server conn_id=%s reason=read_timeout timeout=%v err=%v", connID, t.readTimeout, err)
+					closeSent.Store(true)
+					if cw, ok := ws.(controlWriter); ok {
+						_ = cw.WriteControl(websocket.CloseMessage,
+							websocket.FormatCloseMessage(websocket.CloseGoingAway, "read timeout"),
+							time.Now().Add(controlWriteDeadline))
+					}
+				} else {
+					log.CtxDebug(serveCtx, "read websocket message: %v", err)
+				}
 			}
 			return
 		}
@@ -193,12 +308,33 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 		if !validatedFirstMessage {
 			if err := validateInitialWebSocketMessage(data); err != nil {
 				log.CtxWarn(serveCtx, "reject websocket connection: %v", err)
-				if writeErr := ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, err.Error())); writeErr != nil {
-					log.CtxDebug(serveCtx, "write websocket close frame: %v", writeErr)
+				closeSent.Store(true)
+				if cw, ok := ws.(controlWriter); ok {
+					_ = cw.WriteControl(websocket.CloseMessage,
+						websocket.FormatCloseMessage(websocket.ClosePolicyViolation, wsutil.SafeCloseReason(err.Error())),
+						time.Now().Add(controlWriteDeadline))
 				}
 				return
 			}
 			validatedFirstMessage = true
+			initialized.Store(true)
+
+			// Switch from initialize deadline to normal read deadline.
+			if rd, ok := ws.(readDeadliner); ok {
+				if t.readTimeout > 0 {
+					_ = rd.SetReadDeadline(time.Now().Add(t.readTimeout))
+				} else {
+					// Clear the initialize deadline
+					_ = rd.SetReadDeadline(time.Time{})
+				}
+			}
+		} else {
+			// Refresh read deadline on every data frame.
+			if t.readTimeout > 0 {
+				if rd, ok := ws.(readDeadliner); ok {
+					_ = rd.SetReadDeadline(time.Now().Add(t.readTimeout))
+				}
+			}
 		}
 
 		log.Access(serveCtx, "ws-server", log.AccessDirectionRecv, data)
@@ -215,11 +351,15 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 
 func validateInitialWebSocketMessage(data []byte) error {
 	var msg struct {
-		Method string           `json:"method,omitempty"`
-		ID     *json.RawMessage `json:"id,omitempty"`
+		JSONRPC string           `json:"jsonrpc"`
+		Method  string           `json:"method,omitempty"`
+		ID      *json.RawMessage `json:"id,omitempty"`
 	}
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return fmt.Errorf("first websocket message must be valid JSON-RPC initialize request: %w", err)
+	}
+	if msg.JSONRPC != "2.0" {
+		return fmt.Errorf("first websocket message must have jsonrpc=\"2.0\", got %q", msg.JSONRPC)
 	}
 	if msg.Method != transport.MethodInitialize || msg.ID == nil {
 		return fmt.Errorf("first websocket message must be initialize request, got method=%q", msg.Method)

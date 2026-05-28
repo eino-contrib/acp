@@ -7,6 +7,7 @@ import (
 	"github.com/hertz-contrib/websocket"
 
 	"github.com/eino-contrib/acp/internal/endpoint"
+	acplog "github.com/eino-contrib/acp/internal/log"
 	acptransport "github.com/eino-contrib/acp/transport"
 )
 
@@ -24,18 +25,25 @@ const (
 	// side so a stalled Client cannot freeze the down-pump goroutine.
 	DefaultWebSocketWriteTimeout = 30 * time.Second
 
-	// DefaultWebSocketPingInterval is how often the proxy sends a Ping frame
-	// to the north-bound client. A reasonable fraction of DefaultWebSocketPongTimeout
-	// so that one missed pong still leaves a window to recover before the
-	// read deadline fires. Setting this to 0 disables proxy-initiated pings.
+	// DefaultWebSocketPingInterval is deprecated and no longer used by the proxy.
+	// The proxy no longer sends Ping frames; heartbeat is now driven by the
+	// Client SDK. This constant is kept for reference only.
 	DefaultWebSocketPingInterval = 30 * time.Second
 
-	// DefaultWebSocketPongTimeout bounds how long the proxy will wait on a
-	// silent north-bound socket before tearing the connection down. The read
-	// deadline is refreshed every time a Pong arrives, so in a healthy
-	// session this never fires. 0 disables the deadline (not recommended:
-	// half-open sockets would then hold a concurrency slot indefinitely).
+	// DefaultWebSocketPongTimeout is deprecated; use DefaultWebSocketReadTimeout instead.
+	// The proxy now relies on a general read deadline rather than a Pong-specific timeout.
 	DefaultWebSocketPongTimeout = 75 * time.Second
+
+	// DefaultWebSocketReadTimeout bounds how long the proxy will wait on a
+	// silent north-bound socket before tearing the connection down. The read
+	// deadline is refreshed on every Ping and data frame. Default is 0
+	// (disabled) to avoid breaking old Clients that do not send Ping.
+	DefaultWebSocketReadTimeout = 0
+
+	// DefaultWebSocketFirstFrameTimeout bounds how long the proxy waits for
+	// the first data frame after downstream streamer creation. Prevents resource
+	// exhaustion from connections that only send Ping without business traffic.
+	DefaultWebSocketFirstFrameTimeout = 15 * time.Second
 
 	// DefaultMaxMessageSize caps a single north-bound WebSocket message
 	// payload (and a single south-bound Streamer payload relayed back).
@@ -87,26 +95,30 @@ func ForwardHeaders(names ...string) HeaderForwarder {
 type Option func(*options)
 
 type options struct {
-	endpoint         string
-	upgrader         websocket.HertzUpgrader
-	headerForwarder  HeaderForwarder
-	maxConcurrent    int
-	handshakeTimeout time.Duration
-	wsWriteTimeout   time.Duration
-	wsPingInterval   time.Duration
-	wsPongTimeout    time.Duration
-	maxMessageSize   int
+	endpoint          string
+	upgrader          websocket.HertzUpgrader
+	headerForwarder   HeaderForwarder
+	maxConcurrent     int
+	handshakeTimeout  time.Duration
+	wsWriteTimeout    time.Duration
+	wsReadTimeout     time.Duration
+	firstFrameTimeout time.Duration
+	maxMessageSize    int
+
+	// Deprecated fields kept for compile compatibility
+	wsPingInterval time.Duration
+	wsPongTimeout  time.Duration
 }
 
 func defaultOptions() options {
 	return options{
-		endpoint:         acptransport.DefaultACPEndpointPath,
-		maxConcurrent:    DefaultMaxConcurrentConnections,
-		handshakeTimeout: DefaultHandshakeTimeout,
-		wsWriteTimeout:   DefaultWebSocketWriteTimeout,
-		wsPingInterval:   DefaultWebSocketPingInterval,
-		wsPongTimeout:    DefaultWebSocketPongTimeout,
-		maxMessageSize:   DefaultMaxMessageSize,
+		endpoint:          acptransport.DefaultACPEndpointPath,
+		maxConcurrent:     DefaultMaxConcurrentConnections,
+		handshakeTimeout:  DefaultHandshakeTimeout,
+		wsWriteTimeout:    DefaultWebSocketWriteTimeout,
+		wsReadTimeout:     DefaultWebSocketReadTimeout,
+		firstFrameTimeout: DefaultWebSocketFirstFrameTimeout,
+		maxMessageSize:    DefaultMaxMessageSize,
 	}
 }
 
@@ -152,9 +164,13 @@ func WithHandshakeTimeout(d time.Duration) Option {
 	}
 }
 
-// WithWebSocketWriteTimeout caps a single north-bound WS write. Zero disables
-// the deadline (unbounded wait on a blocked socket — not recommended).
-// Default: 30s.
+// WithWebSocketWriteTimeout caps both north-bound WS writes (Streamer → Client)
+// and south-bound Streamer writes (Client → AgentServer). Specifically:
+//   - downPump: applied as SetWriteDeadline on the WebSocket connection;
+//   - upPump: applied as context timeout on Streamer.WritePayload.
+//
+// Zero disables both deadlines (unbounded wait on a blocked socket — not
+// recommended). Default: 30s.
 func WithWebSocketWriteTimeout(d time.Duration) Option {
 	return func(o *options) {
 		if d >= 0 {
@@ -163,27 +179,83 @@ func WithWebSocketWriteTimeout(d time.Duration) Option {
 	}
 }
 
-// WithWebSocketPingInterval overrides how often the proxy sends a Ping frame
-// on each north-bound connection. Zero disables pings entirely, which also
-// effectively disables pong-driven read-deadline refresh — only set that if
-// you supply your own liveness mechanism. Default: 30s.
+// WithWebSocketPingInterval is deprecated. The proxy no longer sends
+// Ping frames; heartbeat is now driven by the Client SDK. This option is
+// kept for compile compatibility but has no runtime effect.
+//
+// Deprecated: Remove usage. The proxy relies on client-initiated Ping.
 func WithWebSocketPingInterval(d time.Duration) Option {
 	return func(o *options) {
-		if d >= 0 {
-			o.wsPingInterval = d
+		if d < 0 {
+			acplog.Warn("[ws] role=proxy option=WithWebSocketPingInterval value=%v constraint=\"must be >= 0\" action=ignored", d)
+			return
 		}
+		if d > 0 && d < time.Second {
+			acplog.Warn("[ws] role=proxy option=WithWebSocketPingInterval value=%v constraint=\"production value should be >= 1s\"", d)
+		}
+		o.wsPingInterval = d
 	}
 }
 
-// WithWebSocketPongTimeout bounds how long the proxy waits for any north-bound
-// frame (data or pong) before tearing the connection down. Without this, a
-// half-open socket holds its concurrency slot indefinitely. Zero disables the
-// deadline. Default: 75s.
+// WithWebSocketPongTimeout is deprecated. Use WithWebSocketReadTimeout instead.
+// This option is kept for compile compatibility and maps the timeout value to
+// WithWebSocketReadTimeout, but it is NOT behaviorally equivalent for idle
+// clients that relied on proxy-initiated Ping. The proxy no longer sends Ping
+// frames; clients must send Ping or periodic data frames to refresh the deadline.
+//
+// Deprecated: Use WithWebSocketReadTimeout.
 func WithWebSocketPongTimeout(d time.Duration) Option {
 	return func(o *options) {
-		if d >= 0 {
-			o.wsPongTimeout = d
+		if d < 0 {
+			acplog.Warn("[ws] role=proxy option=WithWebSocketPongTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
+			return
 		}
+		if d > 0 && d < time.Second {
+			acplog.Warn("[ws] role=proxy option=WithWebSocketPongTimeout value=%v constraint=\"production value should be >= 1s\"", d)
+		}
+		o.wsPongTimeout = d
+		o.wsReadTimeout = d
+	}
+}
+
+// WithWebSocketReadTimeout bounds how long the proxy waits for any north-bound
+// frame (data or Ping) before tearing the connection down. This timeout only
+// takes effect after the first data frame has been received. Before that, the
+// connection is protected solely by WithWebSocketFirstFrameTimeout; if first-frame
+// timeout is disabled (zero), there is no deadline until the first data frame
+// arrives. Without this, a half-open socket holds its concurrency slot
+// indefinitely. Recommended: >= 2 × Client PingInterval (e.g. 75s for 30s
+// PingInterval). Enabling this when upstream clients do not send Ping or
+// periodic data frames will cause idle connections to be disconnected.
+// Zero disables the deadline. Default: 0 (disabled, to avoid breaking old
+// Clients).
+func WithWebSocketReadTimeout(d time.Duration) Option {
+	return func(o *options) {
+		if d < 0 {
+			acplog.Warn("[ws] role=proxy option=WithWebSocketReadTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
+			return
+		}
+		if d > 0 && d < time.Second {
+			acplog.Warn("[ws] role=proxy option=WithWebSocketReadTimeout value=%v constraint=\"production value should be >= 1s\"", d)
+		}
+		o.wsReadTimeout = d
+	}
+}
+
+// WithWebSocketFirstFrameTimeout bounds how long the proxy waits for the first
+// data frame after the downstream streamer is created and heartbeat is installed.
+// During streamer creation the connection is bounded by WithHandshakeTimeout.
+// Zero disables the timeout. Default: 15s.
+func WithWebSocketFirstFrameTimeout(d time.Duration) Option {
+	return func(o *options) {
+		if d < 0 {
+			acplog.Warn("[ws] role=proxy option=WithWebSocketFirstFrameTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
+			return
+		}
+		if d > 0 && d < time.Second {
+			acplog.Warn("[ws] role=proxy option=WithWebSocketFirstFrameTimeout value=%v constraint=\"production value should be >= 1s\"", d)
+		}
+		o.firstFrameTimeout = d
 	}
 }
 

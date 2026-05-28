@@ -4,8 +4,10 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -18,11 +20,28 @@ import (
 	"github.com/cloudwego/hertz/pkg/network/standard"
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/google/uuid"
 	"github.com/hertz-contrib/websocket"
 
 	"github.com/eino-contrib/acp/internal/endpoint"
 	acplog "github.com/eino-contrib/acp/internal/log"
 	acptransport "github.com/eino-contrib/acp/transport"
+)
+
+const (
+	// DefaultPingInterval is the default interval between client-initiated Ping frames.
+	DefaultPingInterval = 30 * time.Second
+
+	// DefaultPongTimeout is the default read deadline applied to the WebSocket
+	// connection. Approximately 2.5x DefaultPingInterval, tolerating 1-2 missed pongs.
+	DefaultPongTimeout = 75 * time.Second
+
+	// controlWriteDeadline is the deadline used for all WriteControl calls
+	// (Ping, Pong, Close frames). Must be long enough to survive contention
+	// with in-flight data frame writes (which share the same internal write
+	// lock and may hold it for up to the write timeout), yet short enough to
+	// detect truly broken connections promptly.
+	controlWriteDeadline = 5 * time.Second
 )
 
 // WebSocketClientTransport implements the Transport interface over an ACP WebSocket.
@@ -33,6 +52,10 @@ type WebSocketClientTransport struct {
 	hUpgrader     *websocket.ClientUpgrader
 	cookieJar     http.CookieJar
 	customHeaders map[string]string
+
+	// Heartbeat configuration
+	pingInterval time.Duration
+	pongTimeout  time.Duration
 
 	connectMu sync.Mutex
 
@@ -45,7 +68,10 @@ type WebSocketClientTransport struct {
 	inbox    chan json.RawMessage
 	done     chan struct{}
 	readDone chan struct{} // closed when readLoop exits
+	pingDone chan struct{} // closed when pingPump exits (nil if not started)
 	once     sync.Once
+
+	localConnID string // local connection ID for log correlation
 
 	termErr atomic.Pointer[error] // stores the first terminal error
 
@@ -56,6 +82,10 @@ type websocketConn interface {
 	ReadMessage() (int, []byte, error)
 	WriteMessage(int, []byte) error
 	SetWriteDeadline(time.Time) error
+	SetReadDeadline(time.Time) error
+	SetReadLimit(limit int64)
+	SetPongHandler(h func(appData string) error)
+	WriteControl(messageType int, data []byte, deadline time.Time) error
 	Close() error
 }
 
@@ -94,6 +124,41 @@ func WithEndpointPath(path string) ClientTransportOption {
 	}
 }
 
+// WithPingInterval sets the interval between client-initiated Ping frames.
+// Zero disables the ping pump entirely — this is an advanced/debug-only
+// setting; if the peer (Server or Proxy) has ReadTimeout > 0, idle connections
+// will be torn down. Negative values are ignored (warn logged). Default: 30s.
+func WithPingInterval(d time.Duration) ClientTransportOption {
+	return func(t *WebSocketClientTransport) {
+		if d < 0 {
+			acplog.Warn("[ws] role=client option=WithPingInterval value=%v constraint=\"must be >= 0\" action=ignored", d)
+			return
+		}
+		if d > 0 && d < time.Second {
+			acplog.Warn("[ws] role=client option=WithPingInterval value=%v constraint=\"production value should be >= 1s\"", d)
+		}
+		t.pingInterval = d
+	}
+}
+
+// WithPongTimeout sets the read deadline applied to the WebSocket connection.
+// If no Pong (or data frame) arrives within this window, the connection is
+// considered dead. Recommended: >= 2 × PingInterval (default 75s = 2.5 × 30s).
+// Zero disables the read deadline (not recommended).
+// Negative values are ignored (warn logged). Default: 75s.
+func WithPongTimeout(d time.Duration) ClientTransportOption {
+	return func(t *WebSocketClientTransport) {
+		if d < 0 {
+			acplog.Warn("[ws] role=client option=WithPongTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
+			return
+		}
+		if d > 0 && d < time.Second {
+			acplog.Warn("[ws] role=client option=WithPongTimeout value=%v constraint=\"production value should be >= 1s\"", d)
+		}
+		t.pongTimeout = d
+	}
+}
+
 // NewWebSocketClientTransport creates a WebSocket client transport.
 // baseURL is the server origin (e.g. "ws://localhost:8080").
 // The input URL may use either http(s):// or ws(s)://. Only the scheme and
@@ -105,6 +170,8 @@ func NewWebSocketClientTransport(baseURL string, opts ...ClientTransportOption) 
 	transport := &WebSocketClientTransport{
 		baseURL:      normalizeWebSocketURL(baseURL),
 		endpointPath: acptransport.DefaultACPEndpointPath,
+		pingInterval: DefaultPingInterval,
+		pongTimeout:  DefaultPongTimeout,
 		inbox:        make(chan json.RawMessage, acptransport.DefaultInboxSize),
 		done:         make(chan struct{}),
 		writePermit:  make(chan struct{}, 1),
@@ -114,6 +181,14 @@ func NewWebSocketClientTransport(baseURL string, opts ...ClientTransportOption) 
 		opt(transport)
 	}
 	transport.baseURL = normalizeWSBaseURL(transport.baseURL, transport.endpointPath)
+
+	// Configuration invariant warnings
+	if transport.pingInterval == 0 && transport.pongTimeout > 0 {
+		acplog.Warn("[ws] role=client option=WithPongTimeout value=%v constraint=\"PingInterval must be >0 when PongTimeout is set\"", transport.pongTimeout)
+	}
+	if transport.pingInterval > 0 && transport.pongTimeout > 0 && transport.pongTimeout < 2*transport.pingInterval {
+		acplog.Warn("[ws] role=client option=WithPongTimeout value=%v constraint=\"PongTimeout >= 2*PingInterval(%v)\"", transport.pongTimeout, transport.pingInterval)
+	}
 
 	client, err := hclient.NewClient(hclient.WithDialer(standard.NewDialer()))
 	if err != nil {
@@ -138,6 +213,13 @@ func (t *WebSocketClientTransport) Connect(ctx context.Context) error {
 
 	if t.closed.Load() {
 		return acptransport.ErrTransportClosed
+	}
+
+	// If the transport has a terminal error (e.g. pong timeout, ping write
+	// failure), it is no longer usable. Return the terminal error instead of
+	// silently succeeding when connected is already cleared by markDisconnected.
+	if err := t.getTerminalError(); err != nil {
+		return err
 	}
 
 	if t.connected {
@@ -176,7 +258,9 @@ func (t *WebSocketClientTransport) connectWithHertz(ctx context.Context) error {
 	t.hReq = req
 	t.hResp = resp
 	t.readDone = make(chan struct{})
+	t.localConnID = generateConnID()
 	t.connected = true
+	t.installHeartbeat(conn)
 	t.startReadLoop()
 	return nil
 }
@@ -199,8 +283,17 @@ func (t *WebSocketClientTransport) startReadLoop() {
 				t.setTerminalError(err)
 			}
 		}()
+		defer t.markDisconnected()
 		t.readLoop()
 	}()
+}
+
+// markDisconnected clears the connected flag so that subsequent Connect()
+// calls do not falsely return nil on a dead transport.
+func (t *WebSocketClientTransport) markDisconnected() {
+	t.connectMu.Lock()
+	t.connected = false
+	t.connectMu.Unlock()
 }
 
 func (t *WebSocketClientTransport) readLoop() {
@@ -216,11 +309,30 @@ func (t *WebSocketClientTransport) readLoop() {
 	for {
 		messageType, data, err := conn.ReadMessage()
 		if err != nil {
+			// If the connection was closed locally via Close(), do not record
+			// the resulting read error as a terminal error.
+			if t.closed.Load() {
+				conn.Close()
+				return
+			}
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
+				acplog.Warn("[ws] role=client local_conn_id=%s reason=pong_timeout timeout=%v err=%v", t.localConnID, t.pongTimeout, err)
+			}
 			t.setTerminalError(err)
+			// Close the underlying connection to release resources immediately,
+			// consistent with pingPump's behavior on write failure.
+			conn.Close()
 			return
 		}
 		if messageType != websocket.TextMessage {
 			continue // ignore binary frames per spec
+		}
+
+		// Refresh read deadline on every data frame so active connections
+		// are not killed by the pong timeout.
+		if t.pongTimeout > 0 {
+			_ = conn.SetReadDeadline(time.Now().Add(t.pongTimeout))
 		}
 
 		select {
@@ -302,32 +414,28 @@ func (t *WebSocketClientTransport) Close() error {
 	conn := t.wsConn
 	t.wsConn = nil
 	readDone := t.readDone
+	pingDone := t.pingDone
 	t.connected = false
 	t.connectMu.Unlock()
 
 	if conn != nil {
-		// Best-effort close frame per RFC 6455 §5.5.1. If another writer is
-		// already blocked on the socket, skip the close frame instead of
-		// letting Close hang behind the write lock indefinitely.
-		if t.tryAcquireWritePermit(100 * time.Millisecond) {
-			_ = conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
-			closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
-			if err := conn.WriteMessage(websocket.CloseMessage, closeMsg); err != nil {
-				acplog.Debug("write websocket close frame: %v", err)
-			}
-			_ = conn.SetWriteDeadline(time.Time{})
-			t.releaseWritePermit()
-		} else {
-			acplog.Debug("skip websocket close frame: writer busy")
+		// Best-effort close frame via WriteControl with a short deadline.
+		// WriteControl uses the library's internal write lock independently of
+		// the application-layer writePermit, so it won't hang behind a long
+		// data frame write.
+		closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
+		if err := conn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(controlWriteDeadline)); err != nil {
+			acplog.Debug("write websocket close frame: %v", err)
 		}
 		conn.Close()
 	}
 
-	// Wait for readLoop to exit before releasing Hertz request/response
-	// buffers, since readLoop may still reference the underlying connection
-	// memory owned by these objects.
+	// Wait for readLoop and pingPump to exit before releasing resources.
 	if readDone != nil {
 		<-readDone
+	}
+	if pingDone != nil {
+		<-pingDone
 	}
 
 	t.connectMu.Lock()
@@ -346,6 +454,62 @@ func (t *WebSocketClientTransport) Close() error {
 	return nil
 }
 
+// installHeartbeat sets up the read deadline, PongHandler, and starts the
+// pingPump goroutine if PingInterval > 0.
+func (t *WebSocketClientTransport) installHeartbeat(conn websocketConn) {
+	conn.SetReadLimit(int64(acptransport.DefaultMaxMessageSize))
+
+	if t.pongTimeout > 0 {
+		_ = conn.SetReadDeadline(time.Now().Add(t.pongTimeout))
+		conn.SetPongHandler(func(string) error {
+			return conn.SetReadDeadline(time.Now().Add(t.pongTimeout))
+		})
+	}
+
+	if t.pingInterval > 0 {
+		t.pingDone = make(chan struct{})
+		go t.pingPump(conn)
+	}
+}
+
+// pingPump periodically sends Ping frames via WriteControl. It exits when the
+// done channel is closed or on write failure. On write failure it sets a
+// terminal error and closes the underlying connection to unblock readLoop.
+func (t *WebSocketClientTransport) pingPump(conn websocketConn) {
+	defer close(t.pingDone)
+
+	ticker := time.NewTicker(t.pingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-t.done:
+			return
+		case <-ticker.C:
+			// Re-check done after ticker fires to avoid writing to a
+			// connection that is being closed locally.
+			if t.closed.Load() {
+				return
+			}
+			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(controlWriteDeadline)); err != nil {
+				// If closed locally between the check above and WriteControl,
+				// do not treat the write failure as a terminal error.
+				if t.closed.Load() {
+					return
+				}
+				acplog.Warn("[ws] role=client local_conn_id=%s reason=ping_write_failed err=%v", t.localConnID, err)
+				t.setTerminalError(fmt.Errorf("ping write: %w", err))
+				conn.Close()
+				return
+			}
+		}
+	}
+}
+
+func generateConnID() string {
+	return uuid.NewString()
+}
+
 func (t *WebSocketClientTransport) acquireWritePermit(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -357,27 +521,6 @@ func (t *WebSocketClientTransport) acquireWritePermit(ctx context.Context) error
 		return ctx.Err()
 	case <-t.writePermit:
 		return nil
-	}
-}
-
-func (t *WebSocketClientTransport) tryAcquireWritePermit(timeout time.Duration) bool {
-	if timeout <= 0 {
-		select {
-		case <-t.writePermit:
-			return true
-		default:
-			return false
-		}
-	}
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case <-t.writePermit:
-		return true
-	case <-timer.C:
-		return false
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	acpconn "github.com/eino-contrib/acp/conn"
 	"github.com/eino-contrib/acp/internal/endpoint"
 	acphttpserver "github.com/eino-contrib/acp/internal/httpserver"
+	acplog "github.com/eino-contrib/acp/internal/log"
 	acptransport "github.com/eino-contrib/acp/transport"
 )
 
@@ -128,6 +129,42 @@ func WithNotificationErrorHandler(fn func(method string, err error)) Option {
 	}
 }
 
+// WithWebSocketReadTimeout sets the read deadline for WebSocket connections
+// after initialization completes. If no frame (data or Ping) arrives within
+// this window, the connection is closed. Zero disables the deadline (default).
+// Recommended: >= 2 × Client PingInterval (e.g. 75s for 30s PingInterval).
+// Enabling this when upstream clients do not send Ping or periodic data frames
+// will cause idle connections to be disconnected.
+// Production environments should set this to 75s once all clients support Ping.
+func WithWebSocketReadTimeout(d time.Duration) Option {
+	return func(s *ACPServer) {
+		if d < 0 {
+			acplog.Warn("[ws] role=server option=WithWebSocketReadTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
+			return
+		}
+		if d > 0 && d < time.Second {
+			acplog.Warn("[ws] role=server option=WithWebSocketReadTimeout value=%v constraint=\"production value should be >= 1s\"", d)
+		}
+		s.wsReadTimeout = d
+	}
+}
+
+// WithWebSocketInitializeTimeout sets the deadline for clients to send the
+// initialize request after WebSocket upgrade. Zero disables the deadline.
+// Default: 15s.
+func WithWebSocketInitializeTimeout(d time.Duration) Option {
+	return func(s *ACPServer) {
+		if d < 0 {
+			acplog.Warn("[ws] role=server option=WithWebSocketInitializeTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
+			return
+		}
+		if d > 0 && d < time.Second {
+			acplog.Warn("[ws] role=server option=WithWebSocketInitializeTimeout value=%v constraint=\"production value should be >= 1s\"", d)
+		}
+		s.wsInitializeTimeout = d
+	}
+}
+
 // ACPServer exposes ACP over Streamable HTTP and WebSocket.
 //
 // Each remote connection gets its own Agent instance and AgentConnection,
@@ -143,6 +180,8 @@ type ACPServer struct {
 	maxHTTPMessageSize       int
 	maxInflightDispatch      int
 	notificationErrorHandler func(method string, err error)
+	wsReadTimeout            time.Duration
+	wsInitializeTimeout      time.Duration
 
 	conns      *connTable
 	done       chan struct{}
@@ -174,6 +213,7 @@ func NewACPServer(factory AgentFactory, opts ...Option) (*ACPServer, error) {
 		endpoint:              acptransport.DefaultACPEndpointPath,
 		requestTimeout:        defaultRequestTimeout,
 		connectionIdleTimeout: defaultConnectionIdleTimeout,
+		wsInitializeTimeout:   15 * time.Second,
 		done:                  make(chan struct{}),
 		rootCtx:               rootCtx,
 		rootCancel:            rootCancel,
