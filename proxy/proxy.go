@@ -190,7 +190,7 @@ func (p *ACPProxy) serveConn(parentCtx context.Context, cid string, meta map[str
 		reason := wsutil.SafeCloseReason(fmt.Sprintf("upstream: %v", err))
 		_ = wsConn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, reason),
-			time.Now().Add(controlWriteDeadline))
+			time.Now().Add(wsutil.ControlWriteDeadline))
 		_ = wsConn.Close()
 		return
 	}

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/hertz-contrib/websocket"
+
+	"github.com/eino-contrib/acp/internal/wsutil"
 )
 
 // mockServerConn implements messageConn + all optional interfaces used by ServeConn.
@@ -487,9 +489,9 @@ func TestPingHandlerWriteControlUsesControlWriteDeadline(t *testing.T) {
 		t.Fatalf("expected PongMessage, got %d", pongWrite.MessageType)
 	}
 
-	// The deadline should be approximately time.Now() + controlWriteDeadline (5s)
-	expectedMin := before.Add(controlWriteDeadline)
-	expectedMax := after.Add(controlWriteDeadline).Add(10 * time.Millisecond)
+	// The deadline should be approximately time.Now() + wsutil.ControlWriteDeadline (5s)
+	expectedMin := before.Add(wsutil.ControlWriteDeadline)
+	expectedMax := after.Add(wsutil.ControlWriteDeadline).Add(10 * time.Millisecond)
 	if pongWrite.Deadline.Before(expectedMin) || pongWrite.Deadline.After(expectedMax) {
 		t.Fatalf("WriteControl deadline %v not in expected range [%v, %v]",
 			pongWrite.Deadline, expectedMin, expectedMax)

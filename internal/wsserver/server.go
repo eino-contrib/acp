@@ -104,11 +104,6 @@ type controlWriter interface {
 }
 
 const (
-	// controlWriteDeadline is used for all WriteControl calls (Pong, Close).
-	// Set to 5s to tolerate contention with concurrent data frame writes that
-	// share the same internal write lock (data frames may hold it for up to 30s).
-	controlWriteDeadline = 5 * time.Second
-
 	// CloseCodeInitializeTimeout is a custom close code sent when the client
 	// fails to send "initialize" within the configured timeout.
 	CloseCodeInitializeTimeout = 4000
@@ -170,7 +165,7 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 		if cw, ok2 := ws.(controlWriter); ok2 {
 			phs.SetPingHandler(func(appData string) error {
 				// Always respond with Pong (RFC 6455 §5.5.3)
-				if err := cw.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(controlWriteDeadline)); err != nil {
+				if err := cw.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(wsutil.ControlWriteDeadline)); err != nil {
 					log.CtxWarn(serveCtx, "role=server conn_id=%s reason=pong_write_failed err=%v", connID, err)
 					// Mark closeSent so closeWS does not send a 1000 NormalClosure
 					// frame on top of a broken connection.
@@ -207,7 +202,7 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 				if cw, ok := ws.(controlWriter); ok {
 					_ = cw.WriteControl(websocket.CloseMessage,
 						websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-						time.Now().Add(controlWriteDeadline))
+						time.Now().Add(wsutil.ControlWriteDeadline))
 				}
 			}
 			if err := ws.Close(); err != nil {
@@ -285,7 +280,7 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 					if cw, ok := ws.(controlWriter); ok {
 						_ = cw.WriteControl(websocket.CloseMessage,
 							websocket.FormatCloseMessage(CloseCodeInitializeTimeout, "initialize timeout"),
-							time.Now().Add(controlWriteDeadline))
+							time.Now().Add(wsutil.ControlWriteDeadline))
 					}
 				} else if validatedFirstMessage && isTimeout {
 					log.CtxWarn(serveCtx, "role=server conn_id=%s reason=read_timeout timeout=%v err=%v", connID, t.readTimeout, err)
@@ -293,7 +288,7 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 					if cw, ok := ws.(controlWriter); ok {
 						_ = cw.WriteControl(websocket.CloseMessage,
 							websocket.FormatCloseMessage(websocket.CloseGoingAway, "read timeout"),
-							time.Now().Add(controlWriteDeadline))
+							time.Now().Add(wsutil.ControlWriteDeadline))
 					}
 				} else {
 					log.CtxDebug(serveCtx, "read websocket message: %v", err)
@@ -312,7 +307,7 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 				if cw, ok := ws.(controlWriter); ok {
 					_ = cw.WriteControl(websocket.CloseMessage,
 						websocket.FormatCloseMessage(websocket.ClosePolicyViolation, wsutil.SafeCloseReason(err.Error())),
-						time.Now().Add(controlWriteDeadline))
+						time.Now().Add(wsutil.ControlWriteDeadline))
 				}
 				return
 			}

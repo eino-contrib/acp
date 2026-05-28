@@ -19,10 +19,10 @@ import (
 )
 
 const (
-	// controlWriteDeadline is the deadline for all control frame writes
-	// (Pong, Close). Set to 5s to tolerate contention with concurrent data
-	// frame writes that share the same internal write lock.
-	controlWriteDeadline = 5 * time.Second
+	// skipCloseFrame is a sentinel close code returned by classifyPumpErr to
+	// indicate that no close frame should be sent (e.g. the connection is
+	// already broken due to a pong write failure).
+	skipCloseFrame = -1
 
 	// CloseCodeFirstFrameTimeout is a custom close code sent when the client
 	// fails to send the first data frame within the configured timeout.
@@ -71,7 +71,7 @@ func (pc *proxyConn) installHeartbeat() {
 	// only echo Pong without refreshing the read deadline. After first frame,
 	// also refresh read deadline.
 	pc.ws.SetPingHandler(func(appData string) error {
-		if err := pc.ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(controlWriteDeadline)); err != nil {
+		if err := pc.ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(wsutil.ControlWriteDeadline)); err != nil {
 			acplog.Warn("role=proxy conn_id=%s reason=pong_write_failed err=%v", pc.id, err)
 			return fmt.Errorf("%w: %v", errPongWriteFailed, err)
 		}
@@ -236,12 +236,12 @@ func (pc *proxyConn) writeWSMessage(msgType int, data []byte) error {
 func (pc *proxyConn) close(code int, reason string) {
 	pc.closeOnce.Do(func() {
 		pc.setCloseReason(reason)
-		// Send close frame unless code == -1 (connection already broken,
+		// Send close frame unless skipCloseFrame (connection already broken,
 		// e.g. pong write failure).
-		if code >= 0 {
+		if code != skipCloseFrame {
 			_ = pc.ws.WriteControl(websocket.CloseMessage,
 				websocket.FormatCloseMessage(code, wsutil.SafeCloseReason(reason)),
-				time.Now().Add(controlWriteDeadline))
+				time.Now().Add(wsutil.ControlWriteDeadline))
 		}
 
 		if err := pc.streamer.Close(reason); err != nil {
@@ -281,7 +281,7 @@ func classifyPumpErr(err error) (int, string) {
 	}
 	if errors.Is(err, errPongWriteFailed) {
 		// Connection is already broken; skip close frame entirely.
-		return -1, "pong_write_failed"
+		return skipCloseFrame, "pong_write_failed"
 	}
 	if errors.Is(err, websocket.ErrReadLimit) || errors.Is(err, errPayloadTooLarge) {
 		return websocket.CloseMessageTooBig, "message too big"

@@ -153,10 +153,10 @@ func (m *mockHeartbeatConn) getReadDeadlines() []time.Time {
 }
 
 // newTestTransport creates a minimal WebSocketClientTransport for heartbeat tests.
-func newTestTransport(pingInterval, pongTimeout time.Duration) *WebSocketClientTransport {
+func newTestTransport(pingInterval, readTimeout time.Duration) *WebSocketClientTransport {
 	t := &WebSocketClientTransport{
 		pingInterval: pingInterval,
-		pongTimeout:  pongTimeout,
+		readTimeout:  readTimeout,
 		inbox:        make(chan json.RawMessage, 16),
 		done:         make(chan struct{}),
 		writePermit:  make(chan struct{}, 1),
@@ -310,8 +310,8 @@ func TestPingIntervalZeroNoPingPump(t *testing.T) {
 	}
 }
 
-// TestPongTimeoutZeroNoReadDeadline verifies that pongTimeout=0 does not set read deadline.
-func TestPongTimeoutZeroNoReadDeadline(t *testing.T) {
+// TestReadTimeoutZeroNoReadDeadline verifies that readTimeout=0 does not set read deadline.
+func TestReadTimeoutZeroNoReadDeadline(t *testing.T) {
 	conn := newMockHeartbeatConn()
 	tr := newTestTransport(10*time.Millisecond, 0)
 
@@ -322,7 +322,7 @@ func TestPongTimeoutZeroNoReadDeadline(t *testing.T) {
 	}
 
 	if conn.getPongHandler() != nil {
-		t.Error("expected pongHandler to be nil when pongTimeout=0")
+		t.Error("expected pongHandler to be nil when readTimeout=0")
 	}
 }
 
@@ -494,7 +494,7 @@ func TestDataFrameRefreshesReadDeadline(t *testing.T) {
 }
 
 // TestWriteControlPingUsesControlWriteDeadline verifies the deadline passed to
-// WriteControl for Ping is approximately controlWriteDeadline (5s) from now.
+// WriteControl for Ping is approximately wsutil.ControlWriteDeadline (5s) from now.
 func TestWriteControlPingUsesControlWriteDeadline(t *testing.T) {
 	conn := newMockHeartbeatConn()
 	tr := newTestTransport(10*time.Millisecond, 50*time.Millisecond)
@@ -536,18 +536,18 @@ func TestWriteControlPingUsesControlWriteDeadline(t *testing.T) {
 // TestNegativeConfigValuesIgnored verifies that negative ping/pong config
 // values don't crash; they are silently ignored.
 func TestNegativeConfigValuesIgnored(t *testing.T) {
-	tr := newTestTransport(DefaultPingInterval, DefaultPongTimeout)
+	tr := newTestTransport(DefaultPingInterval, DefaultReadTimeout)
 
 	// Apply negative options — should not panic.
 	WithPingInterval(-1 * time.Second)(tr)
-	WithPongTimeout(-5 * time.Second)(tr)
+	WithReadTimeout(-5 * time.Second)(tr)
 
 	// Values should remain at defaults.
 	if tr.pingInterval != DefaultPingInterval {
 		t.Errorf("expected pingInterval to remain default, got %v", tr.pingInterval)
 	}
-	if tr.pongTimeout != DefaultPongTimeout {
-		t.Errorf("expected pongTimeout to remain default, got %v", tr.pongTimeout)
+	if tr.readTimeout != DefaultReadTimeout {
+		t.Errorf("expected readTimeout to remain default, got %v", tr.readTimeout)
 	}
 }
 
@@ -565,7 +565,7 @@ func TestConfigPingZeroPongPositiveDoesNotCrash(t *testing.T) {
 		t.Error("expected pingDone to be nil")
 	}
 	if conn.getReadDeadlineCount() == 0 {
-		t.Error("expected read deadline to be set when pongTimeout > 0")
+		t.Error("expected read deadline to be set when readTimeout > 0")
 	}
 
 	_ = fmt.Sprintf("transport: %+v", tr) // use fmt import
