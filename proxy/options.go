@@ -7,7 +7,7 @@ import (
 	"github.com/hertz-contrib/websocket"
 
 	"github.com/eino-contrib/acp/internal/endpoint"
-	acplog "github.com/eino-contrib/acp/internal/log"
+	"github.com/eino-contrib/acp/internal/wsutil"
 	acptransport "github.com/eino-contrib/acp/transport"
 )
 
@@ -95,7 +95,6 @@ type options struct {
 	wsReadTimeout     time.Duration
 	firstFrameTimeout time.Duration
 	maxMessageSize    int
-
 }
 
 func defaultOptions() options {
@@ -180,7 +179,7 @@ func WithWebSocketWriteTimeout(d time.Duration) Option {
 // Clients).
 func WithWebSocketReadTimeout(d time.Duration) Option {
 	return func(o *options) {
-		if !acplog.ValidateDuration("proxy", "WithWebSocketReadTimeout", d, time.Second) {
+		if !wsutil.ValidateDuration("proxy", "WithWebSocketReadTimeout", d, time.Second) {
 			return
 		}
 		o.wsReadTimeout = d
@@ -193,7 +192,7 @@ func WithWebSocketReadTimeout(d time.Duration) Option {
 // Zero disables the timeout. Default: 15s.
 func WithWebSocketFirstFrameTimeout(d time.Duration) Option {
 	return func(o *options) {
-		if !acplog.ValidateDuration("proxy", "WithWebSocketFirstFrameTimeout", d, time.Second) {
+		if !wsutil.ValidateDuration("proxy", "WithWebSocketFirstFrameTimeout", d, time.Second) {
 			return
 		}
 		o.firstFrameTimeout = d

@@ -14,7 +14,7 @@ import (
 	acpconn "github.com/eino-contrib/acp/conn"
 	"github.com/eino-contrib/acp/internal/endpoint"
 	acphttpserver "github.com/eino-contrib/acp/internal/httpserver"
-	acplog "github.com/eino-contrib/acp/internal/log"
+	"github.com/eino-contrib/acp/internal/wsutil"
 	acptransport "github.com/eino-contrib/acp/transport"
 )
 
@@ -27,6 +27,10 @@ const (
 	// recent POST or GET activity. 5 min matches typical HTTP keepalive
 	// windows and releases per-connection state after clients disappear.
 	defaultConnectionIdleTimeout = 5 * time.Minute
+	// defaultWSInitializeTimeout bounds how long a freshly upgraded WebSocket
+	// client has to send its initialize request before the server tears the
+	// connection down. Prevents idle half-open upgrades from holding state.
+	defaultWSInitializeTimeout = 15 * time.Second
 )
 
 // AgentFactory creates a new Agent for a single remote ACP connection.
@@ -138,7 +142,7 @@ func WithNotificationErrorHandler(fn func(method string, err error)) Option {
 // Production environments should set this to 75s once all clients support Ping.
 func WithWebSocketReadTimeout(d time.Duration) Option {
 	return func(s *ACPServer) {
-		if !acplog.ValidateDuration("server", "WithWebSocketReadTimeout", d, time.Second) {
+		if !wsutil.ValidateDuration("server", "WithWebSocketReadTimeout", d, time.Second) {
 			return
 		}
 		s.wsReadTimeout = d
@@ -150,7 +154,7 @@ func WithWebSocketReadTimeout(d time.Duration) Option {
 // Default: 15s.
 func WithWebSocketInitializeTimeout(d time.Duration) Option {
 	return func(s *ACPServer) {
-		if !acplog.ValidateDuration("server", "WithWebSocketInitializeTimeout", d, time.Second) {
+		if !wsutil.ValidateDuration("server", "WithWebSocketInitializeTimeout", d, time.Second) {
 			return
 		}
 		s.wsInitializeTimeout = d
@@ -205,7 +209,7 @@ func NewACPServer(factory AgentFactory, opts ...Option) (*ACPServer, error) {
 		endpoint:              acptransport.DefaultACPEndpointPath,
 		requestTimeout:        defaultRequestTimeout,
 		connectionIdleTimeout: defaultConnectionIdleTimeout,
-		wsInitializeTimeout:   15 * time.Second,
+		wsInitializeTimeout:   defaultWSInitializeTimeout,
 		done:                  make(chan struct{}),
 		rootCtx:               rootCtx,
 		rootCancel:            rootCancel,

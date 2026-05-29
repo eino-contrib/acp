@@ -141,7 +141,7 @@ func WithEndpointPath(path string) ClientTransportOption {
 // will be torn down. Negative values are ignored (warn logged). Default: 30s.
 func WithPingInterval(d time.Duration) ClientTransportOption {
 	return func(t *WebSocketClientTransport) {
-		if !acplog.ValidateDuration("client", "WithPingInterval", d, time.Second) {
+		if !wsutil.ValidateDuration("client", "WithPingInterval", d, time.Second) {
 			return
 		}
 		t.pingInterval = d
@@ -155,7 +155,7 @@ func WithPingInterval(d time.Duration) ClientTransportOption {
 // Negative values are ignored (warn logged). Default: 75s.
 func WithReadTimeout(d time.Duration) ClientTransportOption {
 	return func(t *WebSocketClientTransport) {
-		if !acplog.ValidateDuration("client", "WithReadTimeout", d, time.Second) {
+		if !wsutil.ValidateDuration("client", "WithReadTimeout", d, time.Second) {
 			return
 		}
 		t.readTimeout = d
@@ -170,7 +170,7 @@ func WithReadTimeout(d time.Duration) ClientTransportOption {
 // ignored (warn logged). Default: 30s (DefaultConnectTimeout).
 func WithConnectTimeout(d time.Duration) ClientTransportOption {
 	return func(t *WebSocketClientTransport) {
-		if !acplog.ValidateDuration("client", "WithConnectTimeout", d, time.Second) {
+		if !wsutil.ValidateDuration("client", "WithConnectTimeout", d, time.Second) {
 			return
 		}
 		t.connectTimeout = d

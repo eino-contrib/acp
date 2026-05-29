@@ -58,29 +58,24 @@ type proxyConn struct {
 // installHeartbeat wires the PingHandler and initial read deadline. The proxy
 // no longer sends Ping frames — heartbeat is driven by the Client SDK.
 func (pc *proxyConn) installHeartbeat() {
-	// Install PingHandler that echoes Pong. Before the first data frame,
-	// only echo Pong without refreshing the read deadline. After first frame,
-	// also refresh read deadline.
-	pc.ws.SetPingHandler(func(appData string) error {
-		if err := pc.ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(wsutil.ControlWriteDeadline)); err != nil {
-			// A pong write that times out only means we lost the race for the
-			// shared internal write lock against an in-flight data frame; the
-			// connection is not necessarily dead. The read deadline is the
-			// authoritative liveness check, so swallow the contention timeout
-			// and keep the connection alive instead of tearing it down.
-			if wsutil.IsControlWriteContention(err) {
-				acplog.Warn("role=proxy conn_id=%s reason=pong_write_contention err=%v", pc.id, err)
-				return nil
-			}
+	// Echo Pong for every inbound Ping. Before the first data frame, only echo
+	// without refreshing the read deadline; after it, also refresh. The shared
+	// PongResponder centralises the contention-swallow rule (see wsutil).
+	pc.ws.SetPingHandler(wsutil.PongResponder{
+		WriteControl:    pc.ws.WriteControl,
+		SetReadDeadline: pc.ws.SetReadDeadline,
+		ReadTimeout:     pc.readTimeout,
+		RefreshDeadline: pc.firstFrameReceived.Load,
+		OnContention: func(err error) {
+			acplog.Warn("role=proxy conn_id=%s reason=pong_write_contention err=%v", pc.id, err)
+		},
+		OnWriteFailed: func(err error) {
 			acplog.Warn("role=proxy conn_id=%s reason=pong_write_failed err=%v", pc.id, err)
+		},
+		WrapWriteFailed: func(err error) error {
 			return fmt.Errorf("%w: %v", errPongWriteFailed, err)
-		}
-		// Only refresh read deadline after the first data frame
-		if pc.firstFrameReceived.Load() && pc.readTimeout > 0 {
-			_ = pc.ws.SetReadDeadline(time.Now().Add(pc.readTimeout))
-		}
-		return nil
-	})
+		},
+	}.Handler())
 
 	// Set initial deadline: only firstFrameTimeout controls the first-frame window.
 	// When firstFrameTimeout is 0 (disabled), no initial deadline is set —

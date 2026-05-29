@@ -1,6 +1,10 @@
-package log
+package wsutil
 
-import "time"
+import (
+	"time"
+
+	"github.com/eino-contrib/acp/internal/log"
+)
 
 // ValidateDuration checks a duration value used by WebSocket Option functions.
 // It returns true if the value should be applied.
@@ -13,11 +17,11 @@ import "time"
 // option is the Option function name (e.g. "WithPingInterval").
 func ValidateDuration(role, option string, d time.Duration, minPositive time.Duration) bool {
 	if d < 0 {
-		Warn("[ws] role=%s option=%s value=%v constraint=\"must be >= 0\" action=ignored", role, option, d)
+		log.Warn("[ws] role=%s option=%s value=%v constraint=\"must be >= 0\" action=ignored", role, option, d)
 		return false
 	}
 	if d > 0 && d < minPositive {
-		Warn("[ws] role=%s option=%s value=%v constraint=\"production value should be >= %v\"", role, option, d, minPositive)
+		log.Warn("[ws] role=%s option=%s value=%v constraint=\"production value should be >= %v\"", role, option, d, minPositive)
 	}
 	return true
 }

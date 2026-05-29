@@ -65,6 +65,13 @@ func (c *stubMessageConn) SetReadLimit(limit int64) {
 	c.readLimit = limit
 }
 
+func (c *stubMessageConn) SetWriteDeadline(time.Time) error  { return nil }
+func (c *stubMessageConn) SetReadDeadline(time.Time) error   { return nil }
+func (c *stubMessageConn) SetPingHandler(func(string) error) {}
+func (c *stubMessageConn) WriteControl(int, []byte, time.Time) error {
+	return nil
+}
+
 func newScriptedMessageConn() *scriptedMessageConn {
 	return &scriptedMessageConn{
 		readCh: make(chan readResult, 1),
@@ -110,6 +117,13 @@ func (c *scriptedMessageConn) SetReadLimit(limit int64) {
 	c.readLimit = limit
 }
 
+func (c *scriptedMessageConn) SetWriteDeadline(time.Time) error  { return nil }
+func (c *scriptedMessageConn) SetReadDeadline(time.Time) error   { return nil }
+func (c *scriptedMessageConn) SetPingHandler(func(string) error) {}
+func (c *scriptedMessageConn) WriteControl(int, []byte, time.Time) error {
+	return nil
+}
+
 func (c *blockingWriteMessageConn) ReadMessage() (int, []byte, error) {
 	select {
 	case result := <-c.readCh:
@@ -151,6 +165,12 @@ func (c *blockingWriteMessageConn) SetReadLimit(limit int64) {
 }
 
 func (c *blockingWriteMessageConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+func (c *blockingWriteMessageConn) SetReadDeadline(time.Time) error   { return nil }
+func (c *blockingWriteMessageConn) SetPingHandler(func(string) error) {}
+func (c *blockingWriteMessageConn) WriteControl(int, []byte, time.Time) error {
 	return nil
 }
 

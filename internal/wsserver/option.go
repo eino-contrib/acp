@@ -3,7 +3,7 @@ package wsserver
 import (
 	"time"
 
-	"github.com/eino-contrib/acp/internal/log"
+	"github.com/eino-contrib/acp/internal/wsutil"
 )
 
 // Option configures a wsserver Transport.
@@ -15,7 +15,7 @@ type Option func(*Transport)
 // Negative values are ignored.
 func WithReadTimeout(d time.Duration) Option {
 	return func(t *Transport) {
-		if !log.ValidateDuration("server", "WithReadTimeout", d, time.Second) {
+		if !wsutil.ValidateDuration("server", "WithReadTimeout", d, time.Second) {
 			return
 		}
 		t.readTimeout = d
@@ -28,7 +28,7 @@ func WithReadTimeout(d time.Duration) Option {
 // Note: this transport has no built-in default; server.ACPServer passes 15s.
 func WithInitializeTimeout(d time.Duration) Option {
 	return func(t *Transport) {
-		if !log.ValidateDuration("server", "WithInitializeTimeout", d, time.Second) {
+		if !wsutil.ValidateDuration("server", "WithInitializeTimeout", d, time.Second) {
 			return
 		}
 		t.initializeTimeout = d
