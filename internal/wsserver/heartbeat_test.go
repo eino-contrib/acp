@@ -11,19 +11,20 @@ import (
 	"github.com/hertz-contrib/websocket"
 
 	"github.com/eino-contrib/acp/internal/wsutil"
+	"github.com/eino-contrib/acp/transport"
 )
 
-// mockServerConn implements messageConn + all optional interfaces used by ServeConn.
+// mockServerConn implements the full messageConn contract used by ServeConn.
 type mockServerConn struct {
 	mu sync.Mutex
 
-	messages     chan msgEntry
-	closed       chan struct{}
-	closeOnce    sync.Once
-	writtenMsgs  []msgEntry
-	readLimit    int64
-	pingHandler  func(string) error
-	closeErr     error
+	messages    chan msgEntry
+	closed      chan struct{}
+	closeOnce   sync.Once
+	writtenMsgs []msgEntry
+	readLimit   int64
+	pingHandler func(string) error
+	closeErr    error
 
 	// Track SetReadDeadline calls
 	readDeadlines []time.Time
@@ -208,8 +209,8 @@ func TestInitializeTimeout(t *testing.T) {
 				t.Fatal("close frame payload too short to contain close code")
 			}
 			code := int(cw.Data[0])<<8 | int(cw.Data[1])
-			if code != CloseCodeInitializeTimeout {
-				t.Fatalf("expected close code %d, got %d", CloseCodeInitializeTimeout, code)
+			if code != transport.WSCloseInitializeTimeout {
+				t.Fatalf("expected close code %d, got %d", transport.WSCloseInitializeTimeout, code)
 			}
 			break
 		}
@@ -546,14 +547,9 @@ func TestReadTimeoutAfterInit_ClosesWithGoingAway(t *testing.T) {
 	}
 }
 
-// Verify mockServerConn satisfies all the optional interfaces.
+// Verify mockServerConn satisfies the full messageConn contract.
 var (
-	_ messageConn      = (*mockServerConn)(nil)
-	_ readLimitSetter  = (*mockServerConn)(nil)
-	_ writeDeadliner   = (*mockServerConn)(nil)
-	_ readDeadliner    = (*mockServerConn)(nil)
-	_ pingHandlerSetter = (*mockServerConn)(nil)
-	_ controlWriter    = (*mockServerConn)(nil)
+	_ messageConn = (*mockServerConn)(nil)
 )
 
 // Suppress unused import warnings for json and atomic.
