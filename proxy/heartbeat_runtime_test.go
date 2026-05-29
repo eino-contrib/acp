@@ -178,7 +178,6 @@ func TestProxyFirstFrameTimeout(t *testing.T) {
 		id:                "test-first-frame",
 		ws:                serverConn,
 		streamer:          streamer,
-		wsWriteMu:         &sync.Mutex{},
 		firstFrameTimeout: 50 * time.Millisecond,
 		readTimeout:       500 * time.Millisecond,
 	}
@@ -233,7 +232,6 @@ func TestProxyPingBeforeFirstFrame(t *testing.T) {
 		id:                "test-ping-before",
 		ws:                serverConn,
 		streamer:          streamer,
-		wsWriteMu:         &sync.Mutex{},
 		firstFrameTimeout: 80 * time.Millisecond,
 		readTimeout:       500 * time.Millisecond,
 	}
@@ -301,7 +299,6 @@ func TestProxyPingAfterFirstFrame(t *testing.T) {
 		id:                "test-ping-after",
 		ws:                serverConn,
 		streamer:          streamer,
-		wsWriteMu:         &sync.Mutex{},
 		firstFrameTimeout: 200 * time.Millisecond,
 		readTimeout:       60 * time.Millisecond,
 	}

@@ -101,7 +101,7 @@ func (p *ACPProxy) Close() error {
 		p.conns = make(map[string]*proxyConn)
 		p.connsMu.Unlock()
 		for _, c := range conns {
-			c.close(websocket.CloseGoingAway, "proxy shutdown")
+			c.close(closeAction{SendFrame: true, Code: websocket.CloseGoingAway, Reason: "proxy shutdown"})
 		}
 	})
 	return nil
@@ -204,7 +204,6 @@ func (p *ACPProxy) serveConn(parentCtx context.Context, cid string, meta map[str
 		firstFrameTimeout: p.opts.firstFrameTimeout,
 		maxMessageSize:    p.opts.maxMessageSize,
 	}
-	pc.wsWriteMu = &sync.Mutex{}
 	// SetReadLimit makes the WS library abort ReadMessage with a 1009
 	// (MessageTooBig) close error the moment a frame exceeds the cap,
 	// preventing the proxy from allocating buffers for hostile / broken
@@ -231,7 +230,7 @@ func (p *ACPProxy) serveConn(parentCtx context.Context, cid string, meta map[str
 	// reference) per historical connection. pc.close is idempotent
 	// (closeOnce), so being woken on the already-closed path is a safe no-op.
 	safe.CancelOnDone(
-		func() { pc.close(websocket.CloseGoingAway, "proxy shutdown") },
+		func() { pc.close(closeAction{SendFrame: true, Code: websocket.CloseGoingAway, Reason: "proxy shutdown"}) },
 		connCtx.Done(),
 		p.rootCtx.Done(),
 	)

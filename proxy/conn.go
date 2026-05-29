@@ -19,13 +19,6 @@ import (
 	acptransport "github.com/eino-contrib/acp/transport"
 )
 
-const (
-	// skipCloseFrame is a sentinel close code returned by classifyPumpErr to
-	// indicate that no close frame should be sent (e.g. the connection is
-	// already broken due to a pong write failure).
-	skipCloseFrame = -1
-)
-
 // proxyConn owns one active ACP WS ↔ Streamer bridge. It is created after a
 // successful upgrade + NewStreamer and torn down when either side fails.
 type proxyConn struct {
@@ -38,8 +31,9 @@ type proxyConn struct {
 	// WriteMessage calls. Control frames (Close, Pong) bypass this mutex via
 	// WriteControl, but still share the websocket library's internal write lock
 	// with data-frame writes. Always use WriteControl with a short deadline to
-	// avoid being blocked by long data-frame writes.
-	wsWriteMu      *sync.Mutex
+	// avoid being blocked by long data-frame writes. A proxyConn is always
+	// used by pointer and never copied, so a value mutex is safe.
+	wsWriteMu      sync.Mutex
 	wsWriteTimeout time.Duration
 
 	// Heartbeat configuration
@@ -116,20 +110,20 @@ func (pc *proxyConn) run(ctx context.Context) {
 	runPump("downPump", pc.downPump)
 
 	first := <-errCh
-	code, reason := classifyPumpErr(first)
+	action := classifyPumpErr(first)
 
 	// Log WARN for timeout events per observability spec.
 	if errors.Is(first, errFirstFrameTimeout) {
 		acplog.Warn("role=proxy conn_id=%s reason=first_frame_timeout timeout=%v", pc.id, pc.firstFrameTimeout)
 	} else if errors.Is(first, errReadTimeout) {
 		acplog.Warn("role=proxy conn_id=%s reason=read_timeout timeout=%v", pc.id, pc.readTimeout)
-	} else if code == websocket.CloseInternalServerErr {
+	} else if action.Code == websocket.CloseInternalServerErr {
 		// The wire reason is deliberately generic ("internal error"); record
 		// the full error here, correlated by conn_id, for diagnosis.
 		acplog.Warn("role=proxy conn_id=%s reason=internal_error err=%v", pc.id, first)
 	}
 
-	pc.close(code, reason)
+	pc.close(action)
 
 	// Drain the second pump. It will see either the closed WS (upPump) or
 	// the closed Streamer (downPump) and return promptly.
@@ -240,21 +234,21 @@ func (pc *proxyConn) writeWSMessage(msgType int, data []byte) error {
 	return pc.ws.WriteMessage(msgType, data)
 }
 
-// close tears down both the streamer and the ws. Idempotent. code is the
-// WebSocket close code delivered to the peer; reason is the corresponding
-// human-readable text (safely truncated before being put on the wire).
-func (pc *proxyConn) close(code int, reason string) {
+// close tears down both the streamer and the ws. Idempotent. The supplied
+// closeAction decides whether a close frame is written to the peer and which
+// close code / reason it carries.
+func (pc *proxyConn) close(action closeAction) {
 	pc.closeOnce.Do(func() {
-		pc.setCloseReason(reason)
-		// Send close frame unless skipCloseFrame (connection already broken,
-		// e.g. pong write failure).
-		if code != skipCloseFrame {
+		pc.setCloseReason(action.Reason)
+		// Skip the close frame when the connection is already broken (e.g. a
+		// pong write failure) — writing a frame onto a dead socket is pointless.
+		if action.SendFrame {
 			_ = pc.ws.WriteControl(websocket.CloseMessage,
-				websocket.FormatCloseMessage(code, wsutil.SafeCloseReason(reason)),
+				websocket.FormatCloseMessage(action.Code, wsutil.SafeCloseReason(action.Reason)),
 				time.Now().Add(wsutil.ControlWriteDeadline))
 		}
 
-		if err := pc.streamer.Close(reason); err != nil {
+		if err := pc.streamer.Close(action.Reason); err != nil {
 			acplog.Warn("proxy[%s]: streamer close returned: %v", pc.id, err)
 		}
 		if err := pc.ws.Close(); err != nil && !isBenignCloseErr(err) {
@@ -277,43 +271,62 @@ func (pc *proxyConn) closeReason() string {
 	return pc.closeReasonS
 }
 
-// classifyPumpErr maps a terminal pump error to the WebSocket close code and
-// reason the proxy should return to the client.
-func classifyPumpErr(err error) (int, string) {
+// closeAction describes how the proxy should close a connection: whether to
+// emit a WebSocket close frame and, if so, which close code and reason to put
+// on the wire. Keeping SendFrame separate from Code avoids overloading the
+// (uint16) close-code space with an out-of-band sentinel.
+type closeAction struct {
+	// SendFrame reports whether a close frame should be written to the peer.
+	// It is false when the connection is already broken (e.g. a pong write
+	// failure) and a frame would never reach the peer anyway.
+	SendFrame bool
+	// Code is the WebSocket close code; only meaningful when SendFrame is true.
+	Code int
+	// Reason is the human-readable close reason (safely truncated before being
+	// put on the wire). It is also recorded as the connection's close reason.
+	Reason string
+}
+
+// classifyPumpErr maps a terminal pump error to the close action the proxy
+// should take toward the client.
+func classifyPumpErr(err error) closeAction {
+	send := func(code int, reason string) closeAction {
+		return closeAction{SendFrame: true, Code: code, Reason: reason}
+	}
 	if err == nil {
-		return websocket.CloseNormalClosure, ""
+		return send(websocket.CloseNormalClosure, "")
 	}
 	if errors.Is(err, errFirstFrameTimeout) {
-		return acptransport.WSCloseFirstFrameTimeout, "first frame timeout"
+		return send(acptransport.WSCloseFirstFrameTimeout, "first frame timeout")
 	}
 	if errors.Is(err, errReadTimeout) {
-		return websocket.CloseGoingAway, "read timeout"
+		return send(websocket.CloseGoingAway, "read timeout")
 	}
 	if errors.Is(err, errPongWriteFailed) {
-		// Connection is already broken; skip close frame entirely.
-		return skipCloseFrame, "pong_write_failed"
+		// Connection is already broken; skip the close frame entirely.
+		return closeAction{SendFrame: false, Reason: "pong_write_failed"}
 	}
 	if errors.Is(err, websocket.ErrReadLimit) || errors.Is(err, errPayloadTooLarge) {
-		return websocket.CloseMessageTooBig, "message too big"
+		return send(websocket.CloseMessageTooBig, "message too big")
 	}
 	var ce *websocket.CloseError
 	if errors.As(err, &ce) {
 		switch ce.Code {
 		case websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived:
-			return websocket.CloseNormalClosure, fmt.Sprintf("client closed (code=%d)", ce.Code)
+			return send(websocket.CloseNormalClosure, fmt.Sprintf("client closed (code=%d)", ce.Code))
 		}
-		return websocket.CloseInternalServerErr, "internal error"
+		return send(websocket.CloseInternalServerErr, "internal error")
 	}
 	if errors.Is(err, io.EOF) {
-		return websocket.CloseNormalClosure, "upstream eof"
+		return send(websocket.CloseNormalClosure, "upstream eof")
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return websocket.CloseGoingAway, "canceled"
+		return send(websocket.CloseGoingAway, "canceled")
 	}
 	// Default: never leak the raw internal error (which may reference upstream
 	// addresses or internal details) onto the wire. The full error is logged
 	// against the conn_id in run() for diagnosis.
-	return websocket.CloseInternalServerErr, "internal error"
+	return send(websocket.CloseInternalServerErr, "internal error")
 }
 
 // isBenignCloseErr filters noise from the WS close path.
