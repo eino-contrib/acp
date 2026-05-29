@@ -36,6 +36,12 @@ const (
 	// DefaultReadTimeout is the default read deadline applied to the WebSocket
 	// connection. Approximately 2.5x DefaultPingInterval, tolerating 1-2 missed pongs.
 	DefaultReadTimeout = 75 * time.Second
+
+	// DefaultConnectTimeout is the maximum time allowed for the WebSocket
+	// dial + upgrade handshake. If the caller's context has no deadline,
+	// this timeout is applied as a safety net to prevent Connect() from
+	// blocking indefinitely (which would also block Close() on connectMu).
+	DefaultConnectTimeout = 30 * time.Second
 )
 
 // DefaultPongTimeout is a deprecated alias for DefaultReadTimeout.
@@ -240,6 +246,15 @@ func (t *WebSocketClientTransport) Connect(ctx context.Context) error {
 }
 
 func (t *WebSocketClientTransport) connectWithHertz(ctx context.Context) error {
+	// If the caller's context has no deadline, apply DefaultConnectTimeout as a
+	// safety net. This prevents Connect() from blocking indefinitely on network
+	// IO while holding connectMu, which would also block Close().
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, DefaultConnectTimeout)
+		defer cancel()
+	}
+
 	req := protocol.AcquireRequest()
 	resp := protocol.AcquireResponse()
 	httpURL := normalizeHTTPRequestURL(t.baseURL)

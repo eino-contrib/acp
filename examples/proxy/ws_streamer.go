@@ -114,7 +114,7 @@ func (s *wsStreamer) Close(reason string) error {
 		// Best-effort close frame via WriteControl with independent deadline.
 		_ = s.conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, wsutil.SafeCloseReason(reason)),
-			time.Now().Add(5*time.Second))
+			time.Now().Add(wsutil.ControlWriteDeadline))
 		s.closeErr = s.conn.Close()
 		close(s.closed)
 
