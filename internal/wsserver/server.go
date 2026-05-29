@@ -103,11 +103,6 @@ type controlWriter interface {
 	WriteControl(messageType int, data []byte, deadline time.Time) error
 }
 
-const (
-	// CloseCodeInitializeTimeout re-exports from wsutil for backward compatibility.
-	CloseCodeInitializeTimeout = wsutil.CloseCodeInitializeTimeout
-)
-
 var _ transport.Transport = (*Transport)(nil)
 
 // New creates a new WebSocket server transport.
@@ -165,6 +160,16 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 			phs.SetPingHandler(func(appData string) error {
 				// Always respond with Pong (RFC 6455 §5.5.3)
 				if err := cw.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(wsutil.ControlWriteDeadline)); err != nil {
+					// A pong write that times out only means we lost the race
+					// for the shared internal write lock against an in-flight
+					// data frame; the connection is not necessarily dead. The
+					// read deadline is the authoritative liveness check, so
+					// swallow the contention timeout and keep the connection
+					// alive instead of tearing it down.
+					if wsutil.IsControlWriteContention(err) {
+						log.CtxWarn(serveCtx, "role=server conn_id=%s reason=pong_write_contention err=%v", connID, err)
+						return nil
+					}
 					log.CtxWarn(serveCtx, "role=server conn_id=%s reason=pong_write_failed err=%v", connID, err)
 					// Mark closeSent so closeWS does not send a 1000 NormalClosure
 					// frame on top of a broken connection.
@@ -278,7 +283,7 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 					closeSent.Store(true)
 					if cw, ok := ws.(controlWriter); ok {
 						_ = cw.WriteControl(websocket.CloseMessage,
-							websocket.FormatCloseMessage(CloseCodeInitializeTimeout, "initialize timeout"),
+							websocket.FormatCloseMessage(transport.WSCloseInitializeTimeout, "initialize timeout"),
 							time.Now().Add(wsutil.ControlWriteDeadline))
 					}
 				} else if validatedFirstMessage && isTimeout {
@@ -304,8 +309,11 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 				log.CtxWarn(serveCtx, "reject websocket connection: %v", err)
 				closeSent.Store(true)
 				if cw, ok := ws.(controlWriter); ok {
+					// Use a fixed wire reason rather than echoing the peer's
+					// (untrusted) input back on the close frame; the detailed
+					// validation error is logged above for diagnosis.
 					_ = cw.WriteControl(websocket.CloseMessage,
-						websocket.FormatCloseMessage(websocket.ClosePolicyViolation, wsutil.SafeCloseReason(err.Error())),
+						websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "invalid initialize request"),
 						time.Now().Add(wsutil.ControlWriteDeadline))
 				}
 				return

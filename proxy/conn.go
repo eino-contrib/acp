@@ -16,6 +16,7 @@ import (
 	"github.com/eino-contrib/acp/internal/safe"
 	"github.com/eino-contrib/acp/internal/wsutil"
 	"github.com/eino-contrib/acp/stream"
+	acptransport "github.com/eino-contrib/acp/transport"
 )
 
 const (
@@ -23,9 +24,6 @@ const (
 	// indicate that no close frame should be sent (e.g. the connection is
 	// already broken due to a pong write failure).
 	skipCloseFrame = -1
-
-	// CloseCodeFirstFrameTimeout re-exports from wsutil for backward compatibility.
-	CloseCodeFirstFrameTimeout = wsutil.CloseCodeFirstFrameTimeout
 )
 
 // proxyConn owns one active ACP WS ↔ Streamer bridge. It is created after a
@@ -71,6 +69,15 @@ func (pc *proxyConn) installHeartbeat() {
 	// also refresh read deadline.
 	pc.ws.SetPingHandler(func(appData string) error {
 		if err := pc.ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(wsutil.ControlWriteDeadline)); err != nil {
+			// A pong write that times out only means we lost the race for the
+			// shared internal write lock against an in-flight data frame; the
+			// connection is not necessarily dead. The read deadline is the
+			// authoritative liveness check, so swallow the contention timeout
+			// and keep the connection alive instead of tearing it down.
+			if wsutil.IsControlWriteContention(err) {
+				acplog.Warn("role=proxy conn_id=%s reason=pong_write_contention err=%v", pc.id, err)
+				return nil
+			}
 			acplog.Warn("role=proxy conn_id=%s reason=pong_write_failed err=%v", pc.id, err)
 			return fmt.Errorf("%w: %v", errPongWriteFailed, err)
 		}
@@ -116,6 +123,10 @@ func (pc *proxyConn) run(ctx context.Context) {
 		acplog.Warn("role=proxy conn_id=%s reason=first_frame_timeout timeout=%v", pc.id, pc.firstFrameTimeout)
 	} else if errors.Is(first, errReadTimeout) {
 		acplog.Warn("role=proxy conn_id=%s reason=read_timeout timeout=%v", pc.id, pc.readTimeout)
+	} else if code == websocket.CloseInternalServerErr {
+		// The wire reason is deliberately generic ("internal error"); record
+		// the full error here, correlated by conn_id, for diagnosis.
+		acplog.Warn("role=proxy conn_id=%s reason=internal_error err=%v", pc.id, first)
 	}
 
 	pc.close(code, reason)
@@ -273,7 +284,7 @@ func classifyPumpErr(err error) (int, string) {
 		return websocket.CloseNormalClosure, ""
 	}
 	if errors.Is(err, errFirstFrameTimeout) {
-		return CloseCodeFirstFrameTimeout, "first frame timeout"
+		return acptransport.WSCloseFirstFrameTimeout, "first frame timeout"
 	}
 	if errors.Is(err, errReadTimeout) {
 		return websocket.CloseGoingAway, "read timeout"
@@ -291,7 +302,7 @@ func classifyPumpErr(err error) (int, string) {
 		case websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived:
 			return websocket.CloseNormalClosure, fmt.Sprintf("client closed (code=%d)", ce.Code)
 		}
-		return websocket.CloseInternalServerErr, err.Error()
+		return websocket.CloseInternalServerErr, "internal error"
 	}
 	if errors.Is(err, io.EOF) {
 		return websocket.CloseNormalClosure, "upstream eof"
@@ -299,7 +310,10 @@ func classifyPumpErr(err error) (int, string) {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return websocket.CloseGoingAway, "canceled"
 	}
-	return websocket.CloseInternalServerErr, err.Error()
+	// Default: never leak the raw internal error (which may reference upstream
+	// addresses or internal details) onto the wire. The full error is logged
+	// against the conn_id in run() for diagnosis.
+	return websocket.CloseInternalServerErr, "internal error"
 }
 
 // isBenignCloseErr filters noise from the WS close path.

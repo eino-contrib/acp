@@ -59,6 +59,13 @@ type WebSocketClientTransport struct {
 
 	connectMu sync.Mutex
 
+	// dialCancel cancels an in-flight dial. Connect() holds connectMu for the
+	// whole dial, so Close() cannot take connectMu to interrupt it; instead
+	// Close() loads this cancel func (set without holding connectMu) and calls
+	// it so a stuck dial returns promptly instead of blocking Close() for up
+	// to DefaultConnectTimeout.
+	dialCancel atomic.Pointer[context.CancelFunc]
+
 	wsConn    websocketConn
 	connected bool
 	closed    atomic.Bool
@@ -231,6 +238,17 @@ func (t *WebSocketClientTransport) connectWithHertz(ctx context.Context) error {
 		defer cancel()
 	}
 
+	// Make the dial cancelable by Close(). Close() cannot take connectMu while
+	// a dial is in flight (we hold it here), so it interrupts the dial through
+	// this cancel func instead. Cleared on return so a later Close() does not
+	// touch a stale cancel.
+	dialCtx, dialCancel := context.WithCancel(ctx)
+	t.dialCancel.Store(&dialCancel)
+	defer func() {
+		t.dialCancel.Store(nil)
+		dialCancel()
+	}()
+
 	req := protocol.AcquireRequest()
 	resp := protocol.AcquireResponse()
 	httpURL := normalizeHTTPRequestURL(t.baseURL)
@@ -240,7 +258,7 @@ func (t *WebSocketClientTransport) connectWithHertz(ctx context.Context) error {
 	t.applyCustomHeaders(req)
 	t.hUpgrader.PrepareRequest(req)
 
-	if err := t.hClient.Do(ctx, req, resp); err != nil {
+	if err := t.hClient.Do(dialCtx, req, resp); err != nil {
 		protocol.ReleaseRequest(req)
 		protocol.ReleaseResponse(resp)
 		return fmt.Errorf("websocket dial: %w", err)
@@ -411,6 +429,12 @@ func (t *WebSocketClientTransport) Close() error {
 	t.closed.Store(true)
 	t.closeDone()
 
+	// Interrupt any in-flight dial so Close() does not block on connectMu for
+	// up to DefaultConnectTimeout while Connect() is mid-handshake.
+	if cancel := t.dialCancel.Load(); cancel != nil {
+		(*cancel)()
+	}
+
 	t.connectMu.Lock()
 	conn := t.wsConn
 	t.wsConn = nil
@@ -497,6 +521,16 @@ func (t *WebSocketClientTransport) pingPump(conn websocketConn) {
 				// do not treat the write failure as a terminal error.
 				if t.closed.Load() {
 					return
+				}
+				// A ping write that times out only means we lost the race for
+				// the shared internal write lock against an in-flight
+				// application frame; the connection is not necessarily dead.
+				// The read deadline (readTimeout) is the authoritative liveness
+				// check and will tear down a genuinely dead connection, so keep
+				// pinging instead of killing the transport on contention.
+				if wsutil.IsControlWriteContention(err) {
+					acplog.Warn("[ws] role=client local_conn_id=%s reason=ping_write_contention err=%v", t.localConnID, err)
+					continue
 				}
 				acplog.Warn("[ws] role=client local_conn_id=%s reason=ping_write_failed err=%v", t.localConnID, err)
 				t.setTerminalError(fmt.Errorf("ping write: %w", err))

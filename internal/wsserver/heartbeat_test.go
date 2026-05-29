@@ -11,6 +11,7 @@ import (
 	"github.com/hertz-contrib/websocket"
 
 	"github.com/eino-contrib/acp/internal/wsutil"
+	"github.com/eino-contrib/acp/transport"
 )
 
 // mockServerConn implements messageConn + all optional interfaces used by ServeConn.
@@ -208,8 +209,8 @@ func TestInitializeTimeout(t *testing.T) {
 				t.Fatal("close frame payload too short to contain close code")
 			}
 			code := int(cw.Data[0])<<8 | int(cw.Data[1])
-			if code != CloseCodeInitializeTimeout {
-				t.Fatalf("expected close code %d, got %d", CloseCodeInitializeTimeout, code)
+			if code != transport.WSCloseInitializeTimeout {
+				t.Fatalf("expected close code %d, got %d", transport.WSCloseInitializeTimeout, code)
 			}
 			break
 		}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/eino-contrib/acp/internal/safe"
 	"github.com/eino-contrib/acp/stream"
+	acptransport "github.com/eino-contrib/acp/transport"
 )
 
 // mockStreamer implements stream.Streamer for proxy heartbeat tests.
@@ -213,8 +214,8 @@ func TestProxyFirstFrameTimeout(t *testing.T) {
 	if !errors.As(err, &closeErr) {
 		t.Fatalf("expected websocket.CloseError, got %T: %v", err, err)
 	}
-	if closeErr.Code != CloseCodeFirstFrameTimeout {
-		t.Fatalf("expected close code %d, got %d", CloseCodeFirstFrameTimeout, closeErr.Code)
+	if closeErr.Code != acptransport.WSCloseFirstFrameTimeout {
+		t.Fatalf("expected close code %d, got %d", acptransport.WSCloseFirstFrameTimeout, closeErr.Code)
 	}
 }
 
