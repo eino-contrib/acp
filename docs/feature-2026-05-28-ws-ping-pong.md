@@ -20,12 +20,12 @@ Proxy 北向连接的 Client 也是我们的 SDK Client，因此 Proxy 自己发
 
 ### 统一为 Client 主动 Ping
 
-所有场景（SDK 直连、Proxy 北向）统一为 **Client 发 Ping，Server/Proxy 安装 PingHandler 刷新 read deadline**。
+所有场景（SDK 直连、Proxy 北向）统一为 **Client 发 Ping，Server/Proxy 安装 PingHandler 始终回 Pong；initialize / first-frame 完成后才刷新 read deadline，初始阶段只回 Pong 不刷新 deadline**。
 
 | 角色 | 职责 |
 |------|------|
 | **Client** | 起 pingPump，周期发 Ping（默认 30s）；设 PongHandler 刷新自身 read deadline |
-| **Server / Proxy** | 设 read deadline（默认 0 不启用，生产推荐 75s）；安装 PingHandler 刷新 deadline 并回 Pong；读到 ACP text message 也刷新 deadline（Proxy 额外接受 BinaryMessage） |
+| **Server / Proxy** | 设 read deadline（默认 0 不启用，生产推荐 75s）；安装 PingHandler 始终回 Pong，initialize / first-frame 完成后才刷新 deadline；Server 只接受 TextMessage（首条还需通过 initialize 校验，非 TextMessage 首帧立即关闭），后续 text data frame 刷新 deadline；Proxy 读到任意 WebSocket data frame（TextMessage 或 BinaryMessage，不校验内容）刷新 deadline |
 
 **关键约束**：hertz-contrib/websocket 中 Ping/Pong 是 control frame，由库内部处理，不会作为 ReadMessage() 的返回值。因此 Server/Proxy **必须**通过 SetPingHandler 主动刷新 read deadline，不能仅依赖 ReadMessage() 返回时刷新。
 
@@ -54,13 +54,15 @@ Proxy 北向连接的 Client 也是我们的 SDK Client，因此 Proxy 自己发
 
 新增心跳 Options：
 - `WithPingInterval(d)` — Ping 发送间隔，默认 30s，0 禁用（见配置约束章节）
-- `WithReadTimeout(d)` — read deadline，默认 75s，0 禁用（不推荐）
+- `WithReadTimeout(d)` — Client read deadline，默认 75s，0 禁用（不推荐）。Client 侧没有独立的 PongTimeout option，`ReadTimeout` 同时承担 Pong timeout 语义：收到 Pong 或 ACP text data frame 都会刷新 read deadline，超时即视为对端死亡（BinaryMessage 会被读循环忽略，不参与刷新）。
 
 行为：
-1. 连接成功后安装心跳——设初始 read deadline + PongHandler
+1. 连接成功后安装心跳：当 `ReadTimeout > 0` 时设置初始 read deadline 并安装 PongHandler（用于在收到 Pong 时刷新 read deadline）；`ReadTimeout=0` 时不设 read deadline，也不安装 PongHandler
 2. 读循环每次读到 ACP text message 也刷新 read deadline（活跃连接不会被误杀）
 3. 独立 pingPump goroutine 周期发 Ping 帧（通过 WriteControl 写入，与 WriteMessage 共享底层连接写锁，但 WriteControl 支持独立 deadline，不会被长数据帧写入无限阻塞）
-4. Ping 写失败收敛：写失败 → 设 terminal error → 关底层 ws → 读循环退出 → 上层感知
+4. Ping 写失败分类收敛：
+   - 写锁竞争超时（`websocket: write timeout`，与 in-flight data frame 共享底层写锁）：仅记录 `ping_write_contention` WARN 并继续 ping，连接存活性依赖 read deadline 兜底，不设 terminal error，不关闭连接
+   - 非 contention 的真实写失败：记录 `ping_write_failed` WARN → 设 terminal error → 关底层 ws → 读循环退出 → 上层感知
 
 pingPump 生命周期：
 - `PingInterval=0` 时不启动，Close() 跳过等待不 hang
@@ -72,9 +74,14 @@ pingPump 生命周期：
 
 ### Server 端
 
-新增 Options：
-- `WithReadTimeout(d)` — WS 连接 read deadline，默认 0（不启用），生产推荐 75s，0 禁用
-- `WithInitializeTimeout(d)` — 首条消息必须是合法的 initialize request 并在此时间内到达，否则断连；默认 15s，0 禁用
+新增 Options（默认值由各层分别维护，下方 "Server public 配置链路" 章节说明穿透方式）：
+
+- internal `wsserver` 层（无内建默认值，0 禁用）：
+  - `wsserver.WithReadTimeout(d)` — WS 连接 read deadline
+  - `wsserver.WithInitializeTimeout(d)` — 首条消息必须是合法的 initialize request（TextMessage）并在此时间内到达，否则断连。若首帧不是 TextMessage，立即关闭（`ClosePolicyViolation` / `invalid initialize request`），不等 initialize deadline。
+- public `server` 层（维护默认值，由 `ACPServer` 透传到 internal wsserver）：
+  - `server.WithWebSocketReadTimeout(d)` — 默认 0（不启用），生产推荐 75s
+  - `server.WithWebSocketInitializeTimeout(d)` — 默认 15s
 
 行为：
 1. WS 升级成功后设 initialize deadline，此阶段 PingHandler 不刷新 deadline
@@ -82,12 +89,13 @@ pingPump 生命周期：
 3. PingHandler 始终回 Pong（echo Ping payload，符合 RFC 6455 §5.5.3）
 4. 读循环中每次读到 ACP text message 也刷新 read deadline
 5. Read deadline 超时 → 关连接、释放资源
+6. initialize 完成前若首个 data frame 不是 TextMessage（如 BinaryMessage），立即以 `ClosePolicyViolation` / `invalid initialize request` 关闭连接，不再静默忽略
 
 Initialize Timeout 设计：限制未完成初始化的 WebSocket 连接占用资源的最长时长。当前实现中 Agent / AgentConnection 会在 WebSocket 升级前创建（newWSConn 内部已调用 AgentFactory 并启动 AgentConnection，随后才执行 Upgrade），因此该 timeout 不能避免资源创建，只能限制资源占用时间。初始化等待阶段收到 Ping 仍回 Pong（协议要求），但不刷新 initialize deadline。
 
 ### Control Frame Write Deadline
 
-**所有角色**的所有 control frame（Ping、Pong、Close）必须使用 `WriteControl` 而非 `WriteMessage`，且必须设非零 deadline，统一为 5s。
+**ACP 显式发起**的所有 control frame（Client Ping、Server/Proxy Pong、主动 Close）必须使用 `WriteControl` 而非 `WriteMessage`，且必须设非零 deadline，统一为 5s。`hertz-contrib/websocket` 内部自动生成的 control frame（如 read-limit / protocol-error 触发的 Close、默认 CloseHandler）仍使用库默认 `writeWait`（1s），不在本方案统一范围内。
 
 | 场景 | deadline |
 |------|----------|
@@ -161,16 +169,16 @@ internal/wsserver 是 internal 包，外部用户无法直接配置。Public opt
 
 | 角色 | 规则 | 原因 |
 |------|------|------|
-| Client | `PongTimeout >= 2 × PingInterval`（推荐 2.5×） | 容忍 1 次 Ping 丢帧 + 网络抖动 |
-| Client | `PingInterval=0 && PongTimeout>0` → warn | 无下行 data frame 时 Client 会超时 |
-| Client | `PingInterval>0 && PongTimeout=0` → 允许 | Client 发 Ping 保活但不做超时检测 |
+| Client | `ReadTimeout >= 2 × PingInterval`（推荐 2.5×） | 容忍 1 次 Ping 丢帧 + 网络抖动 |
+| Client | `PingInterval=0 && ReadTimeout>0` → warn | 无下行 data frame 时 Client 会超时 |
+| Client | `PingInterval>0 && ReadTimeout=0` → 允许 | Client 发 Ping 保活但不做超时检测 |
 
 ### 部署约束（跨进程，无法自动校验）
 
 以下是 Client 与 Server/Proxy 之间的配比关系，只能通过文档、示例、集成测试和 metrics 观察保证：
 
 - `Server/Proxy ReadTimeout >= 2 × Client PingInterval`——否则健康连接可能被误杀
-- Client PongTimeout 和 Server/Proxy ReadTimeout 建议对齐（生产推荐均配置为 75s）
+- Client `ReadTimeout` 和 Server/Proxy `ReadTimeout` 建议对齐（生产推荐均配置为 75s）
 - Server/Proxy `ReadTimeout>0` 时，必须确保上游 Client 会发送 Ping 或周期性数据帧（Server/Proxy 无法在本进程内自动校验上游 Client 的 PingInterval 配置）
 
 文档和 GoDoc 中需注明推荐组合，但 Option 层**不做跨端校验**。
@@ -210,7 +218,7 @@ internal/wsserver 是 internal 包，外部用户无法直接配置。Public opt
 
 ### 本次发布策略
 
-- Client 默认启用 Ping（PingInterval=30s, PongTimeout=75s）
+- Client 默认启用 Ping（PingInterval=30s, ReadTimeout=75s）
 - Server/Proxy 新增 `ReadTimeout` 能力，**默认值为 0**（不启用），保持旧行为不 break 旧 Client
 - 生产环境**推荐显式配置** `ReadTimeout=75s`，确认所有 Client 已升级后再启用
 - 旧 `WithWebSocketPingInterval` 和 `WithWebSocketPongTimeout` 标记 deprecated 但保留编译兼容；`WithWebSocketPongTimeout` 内部映射到 `WithWebSocketReadTimeout`
@@ -272,9 +280,13 @@ SDK Client                          Server / Proxy
     │  只发 Ping 不发 initialize/data     │
     │                                     │  15s initialize/first-frame timeout → 关连接
     │                                     │
-    │  Ping 写失败 (WriteControl 5s超时)  │
-    │  → set termErr → close ws           │
-    │  → readLoop 退出 → 上层感知         │
+    │  Ping WriteControl 5s 超时          │
+    │  ├─ 写锁竞争 (websocket: write       │
+    │  │   timeout)：log contention，继续   │
+    │  │   ping，依赖 read deadline 兜底    │
+    │  └─ 非 contention 真实写失败：       │
+    │     set termErr → close ws → readLoop│
+    │     退出 → 上层感知                   │
     │                                     │
     │  Close() 调用                       │
     │  → close(done)                      │
@@ -291,8 +303,8 @@ SDK Client                          Server / Proxy
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | Client `PingInterval` | 30s | 0 禁用（见配置约束）；若目标环境 NAT idle timeout 恰好为 30s，应调低至 20~25s |
-| Client `PongTimeout` | 75s | ≈ 2.5 × PingInterval，容忍 1-2 次丢帧；PingInterval=0 时也独立生效 |
-| Server/Proxy `ReadTimeout` | 0（默认不启用，生产推荐显式配置 75s） | 启用后与 Client PongTimeout 对齐 |
+| Client `ReadTimeout` | 75s | ≈ 2.5 × PingInterval，容忍 1-2 次丢帧；同时承担 Pong timeout 语义（收到 Pong 或 data frame 都会刷新 read deadline）；PingInterval=0 时也独立生效 |
+| Server/Proxy `ReadTimeout` | 0（默认不启用，生产推荐显式配置 75s） | 启用后与 Client `ReadTimeout` 对齐 |
 | Server `InitializeTimeout` | 15s | 首条 data frame 必须通过 initialize 校验，防止未初始化连接占用资源 |
 | Proxy `FirstFrameTimeout` | 15s | 首条 data frame 必须在此时间内到达（Proxy 不校验内容，只要求有 data frame） |
 | Control frame write deadline | 5s | 所有 WriteControl（Ping/Pong/Close）统一；需高于正常 data frame 写入延迟以避免写锁竞争误杀 |
@@ -316,26 +328,28 @@ SDK Client                          Server / Proxy
 
 | 场景 | 触发端 | local error | 是否发 close frame | close code | metric reason | 日志字段 |
 |------|--------|-------------|-------------------|------------|---------------|----------|
-| Client Pong timeout (read deadline exceeded) | Client | `i/o timeout` | 否（超时后直接关底层连接） | 无（不发 close frame） | `pong_timeout` | local_conn_id, timeout |
-| Client Ping write failed | Client | `WriteControl` 返回的底层 error | 否（写失败意味着连接已不可用） | 无 | `ping_write_failed` | local_conn_id, err |
+| Client read timeout (read deadline exceeded; 含 Pong timeout 语义) | Client | `i/o timeout` | 否（超时后直接关底层连接） | 无（不发 close frame） | `read_timeout` | local_conn_id, timeout |
+| Client Ping write contention (内部写锁竞争超时，`websocket: write timeout`) | Client | `WriteControl` 超时 error | 否（不关闭连接，继续 ping，依赖 read deadline 兜底） | 无 | `ping_write_contention` | local_conn_id, err |
+| Client Ping write failed (非 contention 的真实写失败) | Client | `WriteControl` 返回的底层 error | 否（写失败意味着连接已不可用） | 无 | `ping_write_failed` | local_conn_id, err |
 | Server/Proxy read timeout | Server/Proxy | `i/o timeout` | 是，best-effort | 1001 (Going Away) | `read_timeout` | conn_id, timeout, role |
 | Server initialize timeout | Server | `i/o timeout` | 是，best-effort | 4000 (Initialize Timeout，自定义) | `initialize_timeout` | conn_id, timeout |
 | Proxy first-frame timeout | Proxy | `i/o timeout` | 是，best-effort | 4001 (First Frame Timeout，自定义) | `first_frame_timeout` | conn_id, timeout |
-| PingHandler WriteControl(Pong) failed | Server/Proxy | `WriteControl` 返回的底层 error | 否 | 无 | `pong_write_failed` | conn_id, err |
+| PingHandler WriteControl(Pong) contention (内部写锁竞争超时) | Server/Proxy | `WriteControl` 超时 error | 否（不向上传播失败；Server initialize 完成后 / Proxy 首帧到达后，且 ReadTimeout 启用时刷新 read deadline，避免被误杀） | 无 | `pong_write_contention` | conn_id, err |
+| PingHandler WriteControl(Pong) failed (非 contention 的真实写失败) | Server/Proxy | `WriteControl` 返回的底层 error | 否 | 无 | `pong_write_failed` | conn_id, err |
 | Client 主动 Close() | Client | 无 | 是，best-effort | 1000 (Normal Closure) | `normal_close` | local_conn_id |
 | Server 主动 Close() | Server | 无 | 是，best-effort | 1000 (Normal Closure) | `normal_close` | conn_id |
 | Proxy 主动 Close() / shutdown | Proxy | 无 | 是，best-effort | 1001 (Going Away) | `normal_close` | conn_id |
 
 **自定义 close code 范围**：4000-4999 为应用自定义区间（RFC 6455 §7.4.2），本方案使用 4000-4001。
 
-**best-effort close frame**：所有 close frame 通过 `WriteControl(CloseMessage, payload, deadline=now+5s)` 发送，失败不阻塞关闭流程。
+**best-effort close frame**：ACP 显式发起的 close frame 通过 `WriteControl(CloseMessage, payload, deadline=now+5s)` 发送，失败不阻塞关闭流程。hertz 库内部自动生成的 close frame 仍使用库默认 `writeWait`。
 
 ## 成功指标
 
 | 指标 | 验收标准 |
 |------|----------|
 | 半开连接检测 | Server/Proxy 启用 ReadTimeout 后，在 Client 崩溃后 ≤ ReadTimeout 内发现并释放连接 |
-| Client 死亡感知 | Server 不回 Pong 时，Client 在 ≤ PongTimeout（默认 75s）内返回 terminal error |
+| Client 死亡感知 | Server 不回 Pong 时，Client 在 ≤ `ReadTimeout`（默认 75s，承担 Pong timeout 语义）内返回 terminal error |
 | Proxy goroutine 开销 | Proxy 不再为每条北向连接启动 pingPump goroutine |
 | goroutine 无泄漏 | Close() 后 readLoop 和 pingPump 均已退出，无残留 goroutine |
 | race 安全 | `go test -race ./...` 通过 |
@@ -348,12 +362,14 @@ SDK Client                          Server / Proxy
 
 | 事件 | 级别 | 关键信息 |
 |------|------|----------|
-| Client Ping write failed | WARN | local_conn_id, err |
-| Client Pong timeout (read deadline exceeded) | WARN | local_conn_id, timeout |
+| Client Ping write contention (`websocket: write timeout`，不关闭连接) | WARN | local_conn_id, err |
+| Client Ping write failed (非 contention，关闭连接) | WARN | local_conn_id, err |
+| Client read timeout (read deadline exceeded; includes Pong timeout semantics) | WARN | local_conn_id, timeout |
 | Server/Proxy read timeout → close | WARN | conn_id, timeout |
 | Server initialize timeout → close | WARN | conn_id, timeout |
 | Proxy first-frame timeout → close | WARN | conn_id, timeout |
-| PingHandler WriteControl(Pong) failed | WARN | conn_id, err |
+| PingHandler WriteControl(Pong) contention (`websocket: write timeout`，不关闭连接；Server initialize 完成后 / Proxy 首帧到达后，且 ReadTimeout 启用时刷新 read deadline) | WARN | conn_id, err |
+| PingHandler WriteControl(Pong) failed (非 contention，按真实写失败处理) | WARN | conn_id, err |
 | 配置不变量违反 | WARN | option, value, constraint |
 
 ### conn_id 设计
@@ -379,13 +395,14 @@ SDK Client                          Server / Proxy
 - 新旧版本兼容矩阵（旧 Client + 新 Server、新 Client + 旧 Server）
 - 真实 control frame 集成测试（验证 Ping/Pong 的库 dispatch 行为，而非仅手动调用 handler）
 - server 包 option 穿透测试（验证 WithWebSocketReadTimeout / WithWebSocketInitializeTimeout 通过 newWSConn 传给 internal wsserver）
+- WriteControl 写锁竞争 call-site 行为测试已覆盖：Client ping_write_contention 不设 terminal error / 不关闭连接（TestPingWriteContentionKeepsConnectionAlive）；PongResponder pong_write_contention 调用 OnContention、刷新 read deadline 且 handler 返回 nil（TestPongResponderContentionKeepsConnectionAlive 等）
 
 ## 关键风险项
 
 | 风险 | 说明 | 缓解 |
 |------|------|------|
 | Close() / pingPump 生命周期 | Close() 必须先关 ws 再等 goroutine，顺序不对会 hang 或 panic | TestCloseDoesNotHang / TestCloseDoesNotHangPingIntervalZero / TestCloseMustCloseWSToUnblockReadMessage 覆盖；race test 必须通过 |
-| WriteControl 与 WriteMessage 共享写锁 | WriteControl 和 WriteMessage 竞争同一个连接内部锁，WriteControl 必须设合理 deadline 以容忍正常写锁竞争 | 统一 5s deadline（高于正常 data frame 网络延迟，低于 data frame write timeout 30s）；TestWriteControlPingUsesControlWriteDeadline / TestPingHandlerWriteControlUsesControlWriteDeadline 覆盖 |
+| WriteControl 与 WriteMessage 共享写锁 | WriteControl 和 WriteMessage 竞争同一个连接内部锁，WriteControl 必须设合理 deadline 以容忍正常写锁竞争 | 统一 5s deadline（高于正常 data frame 网络延迟，低于 data frame write timeout 30s）；TestWriteControlPingUsesControlWriteDeadline / TestPingHandlerWriteControlUsesControlWriteDeadline 覆盖 deadline 取值；contention 时连接存活语义由 TestPingWriteContentionKeepsConnectionAlive（Client）与 TestPongResponderContentionKeepsConnectionAlive 等（PongResponder）覆盖 |
 | PingInterval 默认值与 NAT 边界 | 默认 30s 恰好等于部分 NAT/LB 的最短 idle timeout | 文档在配置约束中注明应小于 NAT idle timeout；若目标环境 idle=30s，用户需调低至 20~25s |
 | read deadline 配置误杀 | ReadTimeout 过短 + 网络抖动可能误断健康连接 | 默认 2.5× 容忍；配置章节要求 `>= 2×PingInterval`，违反时打 warn |
 | read deadline 覆盖边界 | read deadline 只检测 socket read 空闲/半开，不覆盖读出消息后的业务转发阻塞（如 Proxy streamer.WritePayload 或 Client/Server inbox 满） | Proxy upPump 对 WritePayload 增加 per-call timeout（30s）；Client/Server inbox 投递有 done channel 兜底 |
@@ -425,15 +442,19 @@ SDK Client                          Server / Proxy
 
 ### Control Frame Deadline vs Data Write Timeout
 
-All control frames (Ping, Pong, Close) use `WriteControl` with a 5s deadline. Data frame writes (`WriteMessage`) default to 30s timeout. Both share the websocket library's internal write lock.
+All control frames explicitly issued by ACP (Client Ping, Server/Proxy Pong, explicit Close) use `WriteControl` with a 5s deadline. Data frame writes (`WriteMessage`) default to 30s timeout. Both share the websocket library's internal write lock. Control frames generated internally by `hertz-contrib/websocket` (e.g. read-limit or protocol-error triggered Close, default CloseHandler) still use the library default `writeWait` (1s) and are not covered by this scheme.
 
-**Implication**: If a data frame write holds the internal write lock for more than 5s (e.g. large payload + slow network), a concurrent `WriteControl` call will timeout. This causes:
-- Client: pingPump treats it as `ping_write_failed` and closes the connection
-- Server/Proxy: Pong write fails, logged as `pong_write_failed`
+**Implication**: If a data frame write holds the internal write lock for more than 5s (e.g. large payload + slow network), a concurrent `WriteControl` call returns `websocket: write timeout`. This is treated as **write-lock contention** rather than a connection failure:
+- Client: pingPump logs `reason=ping_write_contention` and continues pinging; the connection is NOT closed. Liveness still relies on the read deadline.
+- Server/Proxy: PongResponder logs `reason=pong_write_contention`, refreshes the read deadline (the inbound Ping itself proves the peer is alive), and does NOT propagate the failure upward; the connection is NOT closed.
 
-This is a **deliberate trade-off**: 5s is chosen to balance between tolerating normal write-lock contention and detecting truly broken connections. In practice, data frame writes rarely exceed 5s on healthy networks. If this becomes an issue in specific deployments (e.g. very large payloads over high-latency links), operators should:
+Only **non-contention** `WriteControl` errors (e.g. underlying socket broken, write deadline on a dead connection) are treated as terminal:
+- Client: logged as `ping_write_failed`, transport is torn down.
+- Server/Proxy: logged as `pong_write_failed`, handled by the existing failure path.
+
+This is a **deliberate trade-off**: 5s is chosen to balance between tolerating normal write-lock contention and detecting truly broken connections. In practice, data frame writes rarely exceed 5s on healthy networks. If contention warnings become noisy in specific deployments (e.g. very large payloads over high-latency links), operators should:
 1. Reduce max message size to keep individual writes short
-2. Or accept that heartbeat may declare the connection dead during extreme write latency
+2. Or accept occasional contention warnings — the read deadline remains the authoritative liveness signal
 
 ### Read Loop Backpressure and Heartbeat Interaction
 
@@ -447,10 +468,12 @@ During this blocking period, the read loop cannot call `ReadMessage()`, so:
 
 **Impact by role**:
 
-- **Proxy**: `WritePayload` has a per-call context timeout (default 30s). If downstream is slow, the write times out, the read loop resumes, and the next `ReadMessage()` hits the expired read deadline — connection closes. Read deadline effectively acts as a backpressure circuit breaker for Proxy.
+- **Proxy**: `WritePayload` has a per-call context timeout derived from `WithWebSocketWriteTimeout` (default 30s). If downstream is slow and the write times out (`context.DeadlineExceeded`), `upPump` returns immediately and `pc.run()` tears the connection down via `classifyPumpErr`, which currently maps both `context.Canceled` and `context.DeadlineExceeded` to a `1001 / "canceled"` close frame. This path does **not** go through the read deadline — the write timeout itself is what trips the breaker. Read deadline still applies, but it only fires when the read side is genuinely idle (no incoming data frames or Pongs within `read_timeout`), not when the read loop is blocked on a slow downstream write.
 - **Client/Server**: The read loop blocks on a Go channel send (`inbox <- msg`). If `inbox` is full and the consumer is stalled, the goroutine is stuck in the channel send — it never returns to `ReadMessage()`. The socket read deadline only fires during an active `Read()` syscall, so it **cannot** interrupt a blocked channel send. The connection will only close when `done` channel is closed or the consumer resumes and the next `ReadMessage()` sees the expired deadline.
 
-**Consequence**: For Client/Server, read deadline is NOT a backpressure circuit breaker when the consumer is permanently stalled. It only triggers if the consumer eventually unblocks and the read loop re-enters `ReadMessage()`.
+**Consequence**:
+- For Client/Server, read deadline is NOT a backpressure circuit breaker when the consumer is permanently stalled. It only triggers if the consumer eventually unblocks and the read loop re-enters `ReadMessage()`.
+- For Proxy, the backpressure breaker is `WithWebSocketWriteTimeout` on `Streamer.WritePayload`, not the read deadline. When debugging, expect to see a `1001 / canceled` close frame on Proxy backpressure timeouts; this is currently shared with `ctx.Cancel`-driven shutdowns. A future improvement could classify `streamer write timeout` separately for better observability.
 
 **Recommendation for operators**: Ensure the application layer continuously drains messages from `ReadMessage()` / the inbox channel. If processing a single message may take a long time, offload it to a worker pool rather than blocking the read loop consumer. Do not rely on read deadline alone to protect against permanently stalled consumers on Client/Server — implement application-level consumption timeouts or monitoring if needed.
 

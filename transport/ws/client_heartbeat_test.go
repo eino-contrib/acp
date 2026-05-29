@@ -20,6 +20,16 @@ func (netTimeoutErr) Error() string   { return "i/o timeout" }
 func (netTimeoutErr) Timeout() bool   { return true }
 func (netTimeoutErr) Temporary() bool { return false }
 
+// hertzWriteLockTimeoutErr mimics the net.Error returned by
+// hertz-contrib/websocket when WriteControl loses the race for the
+// connection's shared internal write lock. Its Error() string must match
+// wsutil.IsControlWriteContention's stable sentinel verbatim.
+type hertzWriteLockTimeoutErr struct{}
+
+func (hertzWriteLockTimeoutErr) Error() string   { return "websocket: write timeout" }
+func (hertzWriteLockTimeoutErr) Timeout() bool   { return true }
+func (hertzWriteLockTimeoutErr) Temporary() bool { return true }
+
 // mockHeartbeatConn implements websocketConn for heartbeat testing.
 type mockHeartbeatConn struct {
 	mu sync.Mutex
@@ -235,7 +245,10 @@ func TestPongTimeoutTerminalError(t *testing.T) {
 	}()
 
 	// Simulate read deadline expiry by sending a net.Error with Timeout()=true,
-	// which exercises the pong_timeout classification branch in readLoop.
+	// which exercises the read_timeout classification branch in readLoop
+	// (the metric reason is read_timeout; semantically this also covers the
+	// "Pong not received in time" case because Pong frames refresh the same
+	// read deadline).
 	time.Sleep(25 * time.Millisecond)
 	conn.readCh <- readResult{err: netTimeoutErr{}}
 
@@ -569,4 +582,60 @@ func TestConfigPingZeroPongPositiveDoesNotCrash(t *testing.T) {
 	}
 
 	_ = fmt.Sprintf("transport: %+v", tr) // use fmt import
+}
+
+// TestPingWriteContentionKeepsConnectionAlive verifies the documented
+// connection-survival semantics for ping_write_contention
+// (docs/feature-2026-05-28-ws-ping-pong.md): when WriteControl fails with the
+// hertz write-lock timeout sentinel, the client must NOT set a terminal
+// error, MUST NOT close the underlying conn, and MUST keep ticking. Without
+// this guarantee, large data frame writes that hold the shared internal
+// write lock for >5s would let healthy connections be torn down.
+func TestPingWriteContentionKeepsConnectionAlive(t *testing.T) {
+	conn := newMockHeartbeatConn()
+	conn.writeControlErr = hertzWriteLockTimeoutErr{}
+
+	tr := newTestTransport(10*time.Millisecond, 50*time.Millisecond)
+	tr.wsConn = conn
+	tr.connected = true
+	tr.readDone = make(chan struct{})
+
+	tr.installHeartbeat(conn)
+
+	// Let the ticker fire several times so we can prove pingPump did not
+	// exit on the first contention error.
+	time.Sleep(45 * time.Millisecond)
+
+	// pingPump must still be running — contention is non-terminal.
+	select {
+	case <-tr.pingDone:
+		t.Fatal("pingPump exited on contention; expected it to keep ticking")
+	default:
+	}
+
+	if got := conn.closeCalled.Load(); got != 0 {
+		t.Errorf("expected conn.Close not to be called on contention, got %d calls", got)
+	}
+	if err := tr.getTerminalError(); err != nil {
+		t.Errorf("expected no terminal error on contention, got: %v", err)
+	}
+	if c := conn.getPingCount(); c < 2 {
+		t.Errorf("expected pingPump to keep ticking through contention; got %d pings", c)
+	}
+
+	// Cleanly shut down: closeDone unblocks the ticker select; conn.Close
+	// unblocks ReadMessage so any subsequent test setup is consistent.
+	tr.closeDone()
+	conn.Close()
+	select {
+	case <-tr.pingDone:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("pingPump did not exit after closeDone")
+	}
+
+	// Final invariant: even after the pump exits via closeDone, contention
+	// must not have been promoted to a terminal error.
+	if err := tr.getTerminalError(); err != nil {
+		t.Errorf("expected no terminal error after clean shutdown post-contention, got: %v", err)
+	}
 }

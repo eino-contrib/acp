@@ -49,6 +49,14 @@ type Transport struct {
 
 const defaultMaxReadMessageSize int64 = int64(transport.DefaultMaxMessageSize)
 
+// errPongWriteFailed is a sentinel that handleReadError uses to recognise a
+// Pong write failure surfaced from PingHandler, so it does NOT mis-classify
+// it as a read/initialize timeout and does NOT emit a close frame on top of
+// an already-broken connection. The PongResponder's OnWriteFailed has
+// already logged the underlying cause; ReadMessage just needs to return
+// silently.
+var errPongWriteFailed = errors.New("pong write failed")
+
 // defaultOutboxSendTimeout caps the time a WriteMessage call will wait for the
 // outbox to accept a message when the caller provided no deadline. Without
 // this cap a slow peer (or a peer that stopped reading) would back-pressure
@@ -184,6 +192,14 @@ func (s *serveSession) installHeartbeat() {
 			// frame on top of a broken connection.
 			s.closeSent.Store(true)
 		},
+		// Tag non-contention pong write failures with errPongWriteFailed so
+		// handleReadError can short-circuit on it instead of mis-classifying
+		// a `net.Error.Timeout()==true` socket-write failure as a
+		// read/initialize timeout (which would emit a misleading
+		// 4000/1001 close frame on top of an already-broken connection).
+		WrapWriteFailed: func(err error) error {
+			return fmt.Errorf("%w: %v", errPongWriteFailed, err)
+		},
 	}.Handler())
 
 	if s.t.initializeTimeout > 0 {
@@ -253,7 +269,18 @@ func (s *serveSession) runReadLoop() {
 			return
 		}
 		if messageType != websocket.TextMessage {
-			continue // ignore binary frames per spec
+			if !validatedFirstMessage {
+				// Per protocol, the first ACP message must be an initialize
+				// request, which is always a TextMessage. A non-text first
+				// data frame violates the contract — close immediately with
+				// the same close action as a malformed initialize payload,
+				// rather than silently ignoring it and waiting for the
+				// initialize deadline to expire.
+				log.CtxWarn(s.ctx, "reject websocket connection: non-text first frame (type=%d)", messageType)
+				s.sendCloseFrame(websocket.ClosePolicyViolation, "invalid initialize request")
+				return
+			}
+			continue // ignore binary frames per spec after initialize
 		}
 
 		if !validatedFirstMessage {
@@ -291,6 +318,15 @@ func (s *serveSession) runReadLoop() {
 func (s *serveSession) handleReadError(err error, validatedFirstMessage bool) {
 	if errors.Is(err, io.EOF) ||
 		websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+		return
+	}
+	// A pong write failure surfaces here because PingHandler's return value
+	// is propagated by ReadMessage. The connection is already broken and
+	// OnWriteFailed has already logged + marked closeSent — must NOT fall
+	// through to the timeout branch (which would otherwise misread a
+	// `net.Error.Timeout()==true` socket-write failure as a read/initialize
+	// timeout and emit a 4000/1001 close frame).
+	if errors.Is(err, errPongWriteFailed) {
 		return
 	}
 	var ne net.Error

@@ -199,6 +199,37 @@ func WithWebSocketFirstFrameTimeout(d time.Duration) Option {
 	}
 }
 
+// WithWebSocketPingInterval is retained for source-compatibility with the
+// pre-heartbeat-refactor Proxy API.
+//
+// Deprecated: the proxy no longer sends WebSocket Ping frames itself —
+// liveness is driven by the Client's Ping and the proxy's read deadline
+// (see WithWebSocketReadTimeout). This option has no runtime effect; it
+// only validates d so callers still get the standard warn log on a sub-1s
+// or negative value. Remove the call when migrating to the new heartbeat
+// model.
+func WithWebSocketPingInterval(d time.Duration) Option {
+	return func(_ *options) {
+		_ = wsutil.ValidateDuration("proxy", "WithWebSocketPingInterval", d, time.Second)
+	}
+}
+
+// WithWebSocketPongTimeout is retained for source-compatibility with the
+// pre-heartbeat-refactor Proxy API.
+//
+// Deprecated: use WithWebSocketReadTimeout. The proxy no longer tracks Pong
+// arrival explicitly; the read deadline (refreshed on every Ping and data
+// frame) is the authoritative liveness check. This option is implemented as
+// a thin alias for WithWebSocketReadTimeout(d) so existing call sites keep
+// compiling, but runtime semantics differ from the old proxy-driven
+// Ping/Pong model: the proxy no longer sends Ping itself, so upstream
+// Clients must send WS Ping or periodic data frames to keep the read
+// deadline refreshed. Idle Clients that relied on the old proxy-driven
+// Ping for liveness will now hit ReadTimeout and be closed.
+func WithWebSocketPongTimeout(d time.Duration) Option {
+	return WithWebSocketReadTimeout(d)
+}
+
 // WithMaxMessageSize caps a single WebSocket payload in bytes (north-bound
 // inbound frames via SetReadLimit and south-bound Streamer payloads relayed
 // back). Zero or a negative value disables the cap — not recommended for
