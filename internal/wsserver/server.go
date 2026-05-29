@@ -219,6 +219,13 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 	writerDone := make(chan struct{})
 	deadliner, hasDeadliner := ws.(writeDeadliner)
 	safe.Go(func() {
+		// Close connState.done on every writer exit path. Once the writer is
+		// gone the outbox has no consumer, so WriteMessage's post-send re-check
+		// (see below) must observe a closed done and report ErrTransportClosed
+		// instead of nil. Relying solely on the reader teardown
+		// (deactivateConnection) to close it leaves a window where a message
+		// enqueued during shutdown is reported as sent but never flushed.
+		defer connState.once.Do(func() { close(connState.done) })
 		defer close(writerDone)
 		for {
 			select {

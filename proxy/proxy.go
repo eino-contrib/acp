@@ -220,7 +220,7 @@ func (p *ACPProxy) serveConn(parentCtx context.Context, cid string, meta map[str
 	acplog.CtxInfo(connCtx, "proxy[%s]: connection opened (meta_keys=%v)", cid, metaKeys)
 	start := time.Now()
 	defer func() {
-		acplog.CtxInfo(connCtx, "proxy[%s]: connection closed (duration=%s, reason=%s)", cid, time.Since(start), pc.closeReason())
+		acplog.CtxInfo(connCtx, "proxy[%s]: connection closed (duration=%s, reason=%s)", cid, time.Since(start), pc.getCloseReason())
 	}()
 
 	// Propagate root shutdown by closing the connection when rootCtx is done.
@@ -230,7 +230,9 @@ func (p *ACPProxy) serveConn(parentCtx context.Context, cid string, meta map[str
 	// reference) per historical connection. pc.close is idempotent
 	// (closeOnce), so being woken on the already-closed path is a safe no-op.
 	safe.CancelOnDone(
-		func() { pc.close(closeAction{SendFrame: true, Code: websocket.CloseGoingAway, Reason: "proxy shutdown"}) },
+		func() {
+			pc.close(closeAction{SendFrame: true, Code: websocket.CloseGoingAway, Reason: "proxy shutdown"})
+		},
 		connCtx.Done(),
 		p.rootCtx.Done(),
 	)

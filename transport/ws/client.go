@@ -57,6 +57,10 @@ type WebSocketClientTransport struct {
 	pingInterval time.Duration
 	readTimeout  time.Duration
 
+	// connectTimeout bounds the dial + upgrade handshake when the caller's
+	// context has no deadline. Zero disables the safety net (rely on ctx).
+	connectTimeout time.Duration
+
 	connectMu sync.Mutex
 
 	// dialCancel cancels an in-flight dial. Connect() holds connectMu for the
@@ -158,6 +162,21 @@ func WithReadTimeout(d time.Duration) ClientTransportOption {
 	}
 }
 
+// WithConnectTimeout sets the maximum time allowed for the WebSocket dial +
+// upgrade handshake. It is applied only when the caller's Connect context has
+// no deadline of its own, acting as a safety net so Connect() cannot block
+// indefinitely (which would also block Close() on connectMu). Zero disables
+// the safety net (rely entirely on the caller's context). Negative values are
+// ignored (warn logged). Default: 30s (DefaultConnectTimeout).
+func WithConnectTimeout(d time.Duration) ClientTransportOption {
+	return func(t *WebSocketClientTransport) {
+		if !acplog.ValidateDuration("client", "WithConnectTimeout", d, time.Second) {
+			return
+		}
+		t.connectTimeout = d
+	}
+}
+
 // NewWebSocketClientTransport creates a WebSocket client transport.
 // baseURL is the server origin (e.g. "ws://localhost:8080").
 // The input URL may use either http(s):// or ws(s)://. Only the scheme and
@@ -167,13 +186,14 @@ func WithReadTimeout(d time.Duration) ClientTransportOption {
 // WithEndpointPath only when the server is mounted on a non-default path.
 func NewWebSocketClientTransport(baseURL string, opts ...ClientTransportOption) (*WebSocketClientTransport, error) {
 	transport := &WebSocketClientTransport{
-		baseURL:      normalizeWebSocketURL(baseURL),
-		endpointPath: acptransport.DefaultACPEndpointPath,
-		pingInterval: DefaultPingInterval,
-		readTimeout:  DefaultReadTimeout,
-		inbox:        make(chan json.RawMessage, acptransport.DefaultInboxSize),
-		done:         make(chan struct{}),
-		writePermit:  make(chan struct{}, 1),
+		baseURL:        normalizeWebSocketURL(baseURL),
+		endpointPath:   acptransport.DefaultACPEndpointPath,
+		pingInterval:   DefaultPingInterval,
+		readTimeout:    DefaultReadTimeout,
+		connectTimeout: DefaultConnectTimeout,
+		inbox:          make(chan json.RawMessage, acptransport.DefaultInboxSize),
+		done:           make(chan struct{}),
+		writePermit:    make(chan struct{}, 1),
 	}
 	transport.writePermit <- struct{}{}
 	for _, opt := range opts {
@@ -229,12 +249,13 @@ func (t *WebSocketClientTransport) Connect(ctx context.Context) error {
 }
 
 func (t *WebSocketClientTransport) connectWithHertz(ctx context.Context) error {
-	// If the caller's context has no deadline, apply DefaultConnectTimeout as a
+	// If the caller's context has no deadline, apply connectTimeout as a
 	// safety net. This prevents Connect() from blocking indefinitely on network
-	// IO while holding connectMu, which would also block Close().
-	if _, ok := ctx.Deadline(); !ok {
+	// IO while holding connectMu, which would also block Close(). A zero
+	// connectTimeout disables the safety net.
+	if _, ok := ctx.Deadline(); !ok && t.connectTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, DefaultConnectTimeout)
+		ctx, cancel = context.WithTimeout(ctx, t.connectTimeout)
 		defer cancel()
 	}
 

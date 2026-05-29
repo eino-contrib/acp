@@ -52,7 +52,7 @@ type proxyConn struct {
 
 	closeOnce     sync.Once
 	closeReasonMu sync.Mutex
-	closeReasonS  string
+	closeReason   string
 }
 
 // installHeartbeat wires the PingHandler and initial read deadline. The proxy
@@ -259,16 +259,16 @@ func (pc *proxyConn) close(action closeAction) {
 
 func (pc *proxyConn) setCloseReason(reason string) {
 	pc.closeReasonMu.Lock()
-	if pc.closeReasonS == "" {
-		pc.closeReasonS = reason
+	if pc.closeReason == "" {
+		pc.closeReason = reason
 	}
 	pc.closeReasonMu.Unlock()
 }
 
-func (pc *proxyConn) closeReason() string {
+func (pc *proxyConn) getCloseReason() string {
 	pc.closeReasonMu.Lock()
 	defer pc.closeReasonMu.Unlock()
-	return pc.closeReasonS
+	return pc.closeReason
 }
 
 // closeAction describes how the proxy should close a connection: whether to
