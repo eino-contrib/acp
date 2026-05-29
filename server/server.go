@@ -138,12 +138,8 @@ func WithNotificationErrorHandler(fn func(method string, err error)) Option {
 // Production environments should set this to 75s once all clients support Ping.
 func WithWebSocketReadTimeout(d time.Duration) Option {
 	return func(s *ACPServer) {
-		if d < 0 {
-			acplog.Warn("[ws] role=server option=WithWebSocketReadTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
+		if !acplog.ValidateDuration("server", "WithWebSocketReadTimeout", d, time.Second) {
 			return
-		}
-		if d > 0 && d < time.Second {
-			acplog.Warn("[ws] role=server option=WithWebSocketReadTimeout value=%v constraint=\"production value should be >= 1s\"", d)
 		}
 		s.wsReadTimeout = d
 	}
@@ -154,12 +150,8 @@ func WithWebSocketReadTimeout(d time.Duration) Option {
 // Default: 15s.
 func WithWebSocketInitializeTimeout(d time.Duration) Option {
 	return func(s *ACPServer) {
-		if d < 0 {
-			acplog.Warn("[ws] role=server option=WithWebSocketInitializeTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
+		if !acplog.ValidateDuration("server", "WithWebSocketInitializeTimeout", d, time.Second) {
 			return
-		}
-		if d > 0 && d < time.Second {
-			acplog.Warn("[ws] role=server option=WithWebSocketInitializeTimeout value=%v constraint=\"production value should be >= 1s\"", d)
 		}
 		s.wsInitializeTimeout = d
 	}

@@ -135,12 +135,8 @@ func WithEndpointPath(path string) ClientTransportOption {
 // will be torn down. Negative values are ignored (warn logged). Default: 30s.
 func WithPingInterval(d time.Duration) ClientTransportOption {
 	return func(t *WebSocketClientTransport) {
-		if d < 0 {
-			acplog.Warn("[ws] role=client option=WithPingInterval value=%v constraint=\"must be >= 0\" action=ignored", d)
+		if !acplog.ValidateDuration("client", "WithPingInterval", d, time.Second) {
 			return
-		}
-		if d > 0 && d < time.Second {
-			acplog.Warn("[ws] role=client option=WithPingInterval value=%v constraint=\"production value should be >= 1s\"", d)
 		}
 		t.pingInterval = d
 	}
@@ -155,12 +151,8 @@ func WithPingInterval(d time.Duration) ClientTransportOption {
 // Deprecated: WithPongTimeout is an alias kept for backward compatibility.
 func WithReadTimeout(d time.Duration) ClientTransportOption {
 	return func(t *WebSocketClientTransport) {
-		if d < 0 {
-			acplog.Warn("[ws] role=client option=WithReadTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
+		if !acplog.ValidateDuration("client", "WithReadTimeout", d, time.Second) {
 			return
-		}
-		if d > 0 && d < time.Second {
-			acplog.Warn("[ws] role=client option=WithReadTimeout value=%v constraint=\"production value should be >= 1s\"", d)
 		}
 		t.readTimeout = d
 	}

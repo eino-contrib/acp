@@ -15,12 +15,8 @@ type Option func(*Transport)
 // Negative values are ignored.
 func WithReadTimeout(d time.Duration) Option {
 	return func(t *Transport) {
-		if d < 0 {
-			log.Warn("[ws] role=server option=WithReadTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
+		if !log.ValidateDuration("server", "WithReadTimeout", d, time.Second) {
 			return
-		}
-		if d > 0 && d < time.Second {
-			log.Warn("[ws] role=server option=WithReadTimeout value=%v constraint=\"production value should be >= 1s\"", d)
 		}
 		t.readTimeout = d
 	}
@@ -32,12 +28,8 @@ func WithReadTimeout(d time.Duration) Option {
 // Note: this transport has no built-in default; server.ACPServer passes 15s.
 func WithInitializeTimeout(d time.Duration) Option {
 	return func(t *Transport) {
-		if d < 0 {
-			log.Warn("[ws] role=server option=WithInitializeTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
+		if !log.ValidateDuration("server", "WithInitializeTimeout", d, time.Second) {
 			return
-		}
-		if d > 0 && d < time.Second {
-			log.Warn("[ws] role=server option=WithInitializeTimeout value=%v constraint=\"production value should be >= 1s\"", d)
 		}
 		t.initializeTimeout = d
 	}

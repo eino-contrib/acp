@@ -25,16 +25,7 @@ const (
 	// side so a stalled Client cannot freeze the down-pump goroutine.
 	DefaultWebSocketWriteTimeout = 30 * time.Second
 
-	// DefaultWebSocketPingInterval is deprecated and no longer used by the proxy.
-	// The proxy no longer sends Ping frames; heartbeat is now driven by the
-	// Client SDK. This constant is kept for reference only.
-	DefaultWebSocketPingInterval = 30 * time.Second
-
-	// DefaultWebSocketPongTimeout is deprecated; use DefaultWebSocketReadTimeout instead.
-	// The proxy now relies on a general read deadline rather than a Pong-specific timeout.
-	DefaultWebSocketPongTimeout = 75 * time.Second
-
-	// DefaultWebSocketReadTimeout bounds how long the proxy will wait on a
+// DefaultWebSocketReadTimeout bounds how long the proxy will wait on a
 	// silent north-bound socket before tearing the connection down. The read
 	// deadline is refreshed on every Ping and data frame. Default is 0
 	// (disabled) to avoid breaking old Clients that do not send Ping.
@@ -105,9 +96,6 @@ type options struct {
 	firstFrameTimeout time.Duration
 	maxMessageSize    int
 
-	// Deprecated fields kept for compile compatibility
-	wsPingInterval time.Duration
-	wsPongTimeout  time.Duration
 }
 
 func defaultOptions() options {
@@ -179,45 +167,6 @@ func WithWebSocketWriteTimeout(d time.Duration) Option {
 	}
 }
 
-// WithWebSocketPingInterval is deprecated. The proxy no longer sends
-// Ping frames; heartbeat is now driven by the Client SDK. This option is
-// kept for compile compatibility but has no runtime effect.
-//
-// Deprecated: Remove usage. The proxy relies on client-initiated Ping.
-func WithWebSocketPingInterval(d time.Duration) Option {
-	return func(o *options) {
-		if d < 0 {
-			acplog.Warn("[ws] role=proxy option=WithWebSocketPingInterval value=%v constraint=\"must be >= 0\" action=ignored", d)
-			return
-		}
-		if d > 0 && d < time.Second {
-			acplog.Warn("[ws] role=proxy option=WithWebSocketPingInterval value=%v constraint=\"production value should be >= 1s\"", d)
-		}
-		o.wsPingInterval = d
-	}
-}
-
-// WithWebSocketPongTimeout is deprecated. Use WithWebSocketReadTimeout instead.
-// This option is kept for compile compatibility and maps the timeout value to
-// WithWebSocketReadTimeout, but it is NOT behaviorally equivalent for idle
-// clients that relied on proxy-initiated Ping. The proxy no longer sends Ping
-// frames; clients must send Ping or periodic data frames to refresh the deadline.
-//
-// Deprecated: Use WithWebSocketReadTimeout.
-func WithWebSocketPongTimeout(d time.Duration) Option {
-	return func(o *options) {
-		if d < 0 {
-			acplog.Warn("[ws] role=proxy option=WithWebSocketPongTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
-			return
-		}
-		if d > 0 && d < time.Second {
-			acplog.Warn("[ws] role=proxy option=WithWebSocketPongTimeout value=%v constraint=\"production value should be >= 1s\"", d)
-		}
-		o.wsPongTimeout = d
-		o.wsReadTimeout = d
-	}
-}
-
 // WithWebSocketReadTimeout bounds how long the proxy waits for any north-bound
 // frame (data or Ping) before tearing the connection down. This timeout only
 // takes effect after the first data frame has been received. Before that, the
@@ -231,12 +180,8 @@ func WithWebSocketPongTimeout(d time.Duration) Option {
 // Clients).
 func WithWebSocketReadTimeout(d time.Duration) Option {
 	return func(o *options) {
-		if d < 0 {
-			acplog.Warn("[ws] role=proxy option=WithWebSocketReadTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
+		if !acplog.ValidateDuration("proxy", "WithWebSocketReadTimeout", d, time.Second) {
 			return
-		}
-		if d > 0 && d < time.Second {
-			acplog.Warn("[ws] role=proxy option=WithWebSocketReadTimeout value=%v constraint=\"production value should be >= 1s\"", d)
 		}
 		o.wsReadTimeout = d
 	}
@@ -248,12 +193,8 @@ func WithWebSocketReadTimeout(d time.Duration) Option {
 // Zero disables the timeout. Default: 15s.
 func WithWebSocketFirstFrameTimeout(d time.Duration) Option {
 	return func(o *options) {
-		if d < 0 {
-			acplog.Warn("[ws] role=proxy option=WithWebSocketFirstFrameTimeout value=%v constraint=\"must be >= 0\" action=ignored", d)
+		if !acplog.ValidateDuration("proxy", "WithWebSocketFirstFrameTimeout", d, time.Second) {
 			return
-		}
-		if d > 0 && d < time.Second {
-			acplog.Warn("[ws] role=proxy option=WithWebSocketFirstFrameTimeout value=%v constraint=\"production value should be >= 1s\"", d)
 		}
 		o.firstFrameTimeout = d
 	}

@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -15,10 +16,10 @@ import (
 	"github.com/cloudwego/hertz/pkg/network/standard"
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/hertz-contrib/websocket"
+
 	"github.com/eino-contrib/acp/internal/safe"
 	"github.com/eino-contrib/acp/stream"
-	"github.com/hertz-contrib/websocket"
-	"io"
 )
 
 // mockStreamer implements stream.Streamer for proxy heartbeat tests.
