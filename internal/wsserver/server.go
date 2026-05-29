@@ -104,9 +104,8 @@ type controlWriter interface {
 }
 
 const (
-	// CloseCodeInitializeTimeout is a custom close code sent when the client
-	// fails to send "initialize" within the configured timeout.
-	CloseCodeInitializeTimeout = 4000
+	// CloseCodeInitializeTimeout re-exports from wsutil for backward compatibility.
+	CloseCodeInitializeTimeout = wsutil.CloseCodeInitializeTimeout
 )
 
 var _ transport.Transport = (*Transport)(nil)

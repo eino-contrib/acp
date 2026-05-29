@@ -54,7 +54,7 @@ Proxy 北向连接的 Client 也是我们的 SDK Client，因此 Proxy 自己发
 
 新增心跳 Options：
 - `WithPingInterval(d)` — Ping 发送间隔，默认 30s，0 禁用（见配置约束章节）
-- `WithPongTimeout(d)` — read deadline，默认 75s，0 禁用（不推荐）
+- `WithReadTimeout(d)` — read deadline，默认 75s，0 禁用（不推荐）
 
 行为：
 1. 连接成功后安装心跳——设初始 read deadline + PongHandler

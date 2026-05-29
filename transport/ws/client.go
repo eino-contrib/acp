@@ -44,11 +44,6 @@ const (
 	DefaultConnectTimeout = 30 * time.Second
 )
 
-// DefaultPongTimeout is a deprecated alias for DefaultReadTimeout.
-//
-// Deprecated: Use DefaultReadTimeout instead.
-const DefaultPongTimeout = DefaultReadTimeout
-
 // WebSocketClientTransport implements the Transport interface over an ACP WebSocket.
 type WebSocketClientTransport struct {
 	baseURL       string
@@ -147,8 +142,6 @@ func WithPingInterval(d time.Duration) ClientTransportOption {
 // considered dead. Recommended: >= 2 × PingInterval (default 75s = 2.5 × 30s).
 // Zero disables the read deadline (not recommended).
 // Negative values are ignored (warn logged). Default: 75s.
-//
-// Deprecated: WithPongTimeout is an alias kept for backward compatibility.
 func WithReadTimeout(d time.Duration) ClientTransportOption {
 	return func(t *WebSocketClientTransport) {
 		if !acplog.ValidateDuration("client", "WithReadTimeout", d, time.Second) {
@@ -156,15 +149,6 @@ func WithReadTimeout(d time.Duration) ClientTransportOption {
 		}
 		t.readTimeout = d
 	}
-}
-
-// WithPongTimeout is a deprecated alias for WithReadTimeout.
-// The timeout controls the read deadline for the entire connection (any frame
-// — including Pong and data frames — refreshes it), not just Pong responses.
-//
-// Deprecated: Use WithReadTimeout instead.
-func WithPongTimeout(d time.Duration) ClientTransportOption {
-	return WithReadTimeout(d)
 }
 
 // NewWebSocketClientTransport creates a WebSocket client transport.

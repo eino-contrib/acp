@@ -24,9 +24,8 @@ const (
 	// already broken due to a pong write failure).
 	skipCloseFrame = -1
 
-	// CloseCodeFirstFrameTimeout is a custom close code sent when the client
-	// fails to send the first data frame within the configured timeout.
-	CloseCodeFirstFrameTimeout = 4001
+	// CloseCodeFirstFrameTimeout re-exports from wsutil for backward compatibility.
+	CloseCodeFirstFrameTimeout = wsutil.CloseCodeFirstFrameTimeout
 )
 
 // proxyConn owns one active ACP WS ↔ Streamer bridge. It is created after a
@@ -308,10 +307,10 @@ func isBenignCloseErr(err error) bool {
 	if err == nil {
 		return true
 	}
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, net.ErrClosed) {
 		return true
 	}
+	// crypto/tls does not expose a sentinel; fall back to string match.
 	msg := err.Error()
-	return msg == "use of closed network connection" ||
-		msg == "tls: use of closed connection"
+	return msg == "tls: use of closed connection"
 }

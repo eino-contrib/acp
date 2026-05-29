@@ -544,7 +544,7 @@ WebSocket 客户端 Option / 默认值 (`transport/ws`)：
 | `WithEndpointPath(p)` | `/acp` |
 | `WithCustomHeaders(m)` | 空 |
 | `WithPingInterval(d)` | 30 s（客户端主动 Ping 间隔；`0` 禁用 ping pump —— 仅高级/调试场景） |
-| `WithPongTimeout(d)` | 75 s（读 deadline；收到 Pong 或 data frame 刷新；`0` 禁用 —— 不推荐） |
+| `WithReadTimeout(d)` | 75 s（读 deadline；收到 Pong 或 data frame 刷新；`0` 禁用 —— 不推荐） |
 | （内置）单次写 deadline（无 ctx deadline 时） | 30 s |
 | （内置）Close frame 通过 `WriteControl` 发送 | 5 s deadline |
 

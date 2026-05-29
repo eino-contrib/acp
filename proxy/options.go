@@ -25,7 +25,7 @@ const (
 	// side so a stalled Client cannot freeze the down-pump goroutine.
 	DefaultWebSocketWriteTimeout = 30 * time.Second
 
-// DefaultWebSocketReadTimeout bounds how long the proxy will wait on a
+	// DefaultWebSocketReadTimeout bounds how long the proxy will wait on a
 	// silent north-bound socket before tearing the connection down. The read
 	// deadline is refreshed on every Ping and data frame. Default is 0
 	// (disabled) to avoid breaking old Clients that do not send Ping.
