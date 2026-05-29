@@ -57,7 +57,18 @@ type WebSocketClientTransport struct {
 	pingInterval time.Duration
 	readTimeout  time.Duration
 
+	// connectTimeout bounds the dial + upgrade handshake when the caller's
+	// context has no deadline. Zero disables the safety net (rely on ctx).
+	connectTimeout time.Duration
+
 	connectMu sync.Mutex
+
+	// dialCancel cancels an in-flight dial. Connect() holds connectMu for the
+	// whole dial, so Close() cannot take connectMu to interrupt it; instead
+	// Close() loads this cancel func (set without holding connectMu) and calls
+	// it so a stuck dial returns promptly instead of blocking Close() for up
+	// to DefaultConnectTimeout.
+	dialCancel atomic.Pointer[context.CancelFunc]
 
 	wsConn    websocketConn
 	connected bool
@@ -130,7 +141,7 @@ func WithEndpointPath(path string) ClientTransportOption {
 // will be torn down. Negative values are ignored (warn logged). Default: 30s.
 func WithPingInterval(d time.Duration) ClientTransportOption {
 	return func(t *WebSocketClientTransport) {
-		if !acplog.ValidateDuration("client", "WithPingInterval", d, time.Second) {
+		if !wsutil.ValidateDuration("client", "WithPingInterval", d, time.Second) {
 			return
 		}
 		t.pingInterval = d
@@ -144,10 +155,25 @@ func WithPingInterval(d time.Duration) ClientTransportOption {
 // Negative values are ignored (warn logged). Default: 75s.
 func WithReadTimeout(d time.Duration) ClientTransportOption {
 	return func(t *WebSocketClientTransport) {
-		if !acplog.ValidateDuration("client", "WithReadTimeout", d, time.Second) {
+		if !wsutil.ValidateDuration("client", "WithReadTimeout", d, time.Second) {
 			return
 		}
 		t.readTimeout = d
+	}
+}
+
+// WithConnectTimeout sets the maximum time allowed for the WebSocket dial +
+// upgrade handshake. It is applied only when the caller's Connect context has
+// no deadline of its own, acting as a safety net so Connect() cannot block
+// indefinitely (which would also block Close() on connectMu). Zero disables
+// the safety net (rely entirely on the caller's context). Negative values are
+// ignored (warn logged). Default: 30s (DefaultConnectTimeout).
+func WithConnectTimeout(d time.Duration) ClientTransportOption {
+	return func(t *WebSocketClientTransport) {
+		if !wsutil.ValidateDuration("client", "WithConnectTimeout", d, time.Second) {
+			return
+		}
+		t.connectTimeout = d
 	}
 }
 
@@ -160,13 +186,14 @@ func WithReadTimeout(d time.Duration) ClientTransportOption {
 // WithEndpointPath only when the server is mounted on a non-default path.
 func NewWebSocketClientTransport(baseURL string, opts ...ClientTransportOption) (*WebSocketClientTransport, error) {
 	transport := &WebSocketClientTransport{
-		baseURL:      normalizeWebSocketURL(baseURL),
-		endpointPath: acptransport.DefaultACPEndpointPath,
-		pingInterval: DefaultPingInterval,
-		readTimeout:  DefaultReadTimeout,
-		inbox:        make(chan json.RawMessage, acptransport.DefaultInboxSize),
-		done:         make(chan struct{}),
-		writePermit:  make(chan struct{}, 1),
+		baseURL:        normalizeWebSocketURL(baseURL),
+		endpointPath:   acptransport.DefaultACPEndpointPath,
+		pingInterval:   DefaultPingInterval,
+		readTimeout:    DefaultReadTimeout,
+		connectTimeout: DefaultConnectTimeout,
+		inbox:          make(chan json.RawMessage, acptransport.DefaultInboxSize),
+		done:           make(chan struct{}),
+		writePermit:    make(chan struct{}, 1),
 	}
 	transport.writePermit <- struct{}{}
 	for _, opt := range opts {
@@ -222,14 +249,26 @@ func (t *WebSocketClientTransport) Connect(ctx context.Context) error {
 }
 
 func (t *WebSocketClientTransport) connectWithHertz(ctx context.Context) error {
-	// If the caller's context has no deadline, apply DefaultConnectTimeout as a
+	// If the caller's context has no deadline, apply connectTimeout as a
 	// safety net. This prevents Connect() from blocking indefinitely on network
-	// IO while holding connectMu, which would also block Close().
-	if _, ok := ctx.Deadline(); !ok {
+	// IO while holding connectMu, which would also block Close(). A zero
+	// connectTimeout disables the safety net.
+	if _, ok := ctx.Deadline(); !ok && t.connectTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, DefaultConnectTimeout)
+		ctx, cancel = context.WithTimeout(ctx, t.connectTimeout)
 		defer cancel()
 	}
+
+	// Make the dial cancelable by Close(). Close() cannot take connectMu while
+	// a dial is in flight (we hold it here), so it interrupts the dial through
+	// this cancel func instead. Cleared on return so a later Close() does not
+	// touch a stale cancel.
+	dialCtx, dialCancel := context.WithCancel(ctx)
+	t.dialCancel.Store(&dialCancel)
+	defer func() {
+		t.dialCancel.Store(nil)
+		dialCancel()
+	}()
 
 	req := protocol.AcquireRequest()
 	resp := protocol.AcquireResponse()
@@ -240,7 +279,7 @@ func (t *WebSocketClientTransport) connectWithHertz(ctx context.Context) error {
 	t.applyCustomHeaders(req)
 	t.hUpgrader.PrepareRequest(req)
 
-	if err := t.hClient.Do(ctx, req, resp); err != nil {
+	if err := t.hClient.Do(dialCtx, req, resp); err != nil {
 		protocol.ReleaseRequest(req)
 		protocol.ReleaseResponse(resp)
 		return fmt.Errorf("websocket dial: %w", err)
@@ -411,6 +450,12 @@ func (t *WebSocketClientTransport) Close() error {
 	t.closed.Store(true)
 	t.closeDone()
 
+	// Interrupt any in-flight dial so Close() does not block on connectMu for
+	// up to DefaultConnectTimeout while Connect() is mid-handshake.
+	if cancel := t.dialCancel.Load(); cancel != nil {
+		(*cancel)()
+	}
+
 	t.connectMu.Lock()
 	conn := t.wsConn
 	t.wsConn = nil
@@ -497,6 +542,16 @@ func (t *WebSocketClientTransport) pingPump(conn websocketConn) {
 				// do not treat the write failure as a terminal error.
 				if t.closed.Load() {
 					return
+				}
+				// A ping write that times out only means we lost the race for
+				// the shared internal write lock against an in-flight
+				// application frame; the connection is not necessarily dead.
+				// The read deadline (readTimeout) is the authoritative liveness
+				// check and will tear down a genuinely dead connection, so keep
+				// pinging instead of killing the transport on contention.
+				if wsutil.IsControlWriteContention(err) {
+					acplog.Warn("[ws] role=client local_conn_id=%s reason=ping_write_contention err=%v", t.localConnID, err)
+					continue
 				}
 				acplog.Warn("[ws] role=client local_conn_id=%s reason=ping_write_failed err=%v", t.localConnID, err)
 				t.setTerminalError(fmt.Errorf("ping write: %w", err))

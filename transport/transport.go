@@ -36,6 +36,21 @@ const DefaultACPEndpointPath = "/acp"
 // root acp package (which carries protocol-level type definitions).
 const MethodInitialize = "initialize"
 
+// ACP-specific WebSocket close codes, in the 4000–4999 range reserved for
+// application use (RFC 6455 §7.4.2). These are part of the wire contract a
+// peer observes on the close frame, so they live in this public package as the
+// single source of truth — both the server/proxy that emit them and any client
+// that wants to recognise them reference these constants.
+const (
+	// WSCloseInitializeTimeout is sent by the server when the client fails to
+	// send the "initialize" request within the configured timeout.
+	WSCloseInitializeTimeout = 4000
+
+	// WSCloseFirstFrameTimeout is sent by the proxy when the client fails to
+	// send the first data frame within the configured timeout.
+	WSCloseFirstFrameTimeout = 4001
+)
+
 // Sentinel errors for stable errors.Is checks across packages.
 //
 // These errors are intentionally defined in the public transport package so
