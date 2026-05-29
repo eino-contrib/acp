@@ -123,141 +123,133 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 	serveCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	connState := t.activateConnection()
+	s := &serveSession{
+		t:          t,
+		ws:         ws,
+		connID:     connID,
+		ctx:        serveCtx,
+		connState:  t.activateConnection(),
+		writerDone: make(chan struct{}),
+	}
 
 	ws.SetReadLimit(defaultMaxReadMessageSize)
+	s.installHeartbeat()
+	s.startWriter()
+	s.startCloseWatcher()
 
-	// Install the Ping responder. Before initialize completes it only echoes
-	// Pong (does NOT refresh the read deadline); after initialize, it refreshes
-	// the read deadline too.
-	var initialized atomic.Bool
-	// closeSent tracks whether a close frame was already written (e.g. timeout,
-	// policy violation, or pong write failure). closeWS checks this to avoid
-	// sending a redundant 1000 NormalClosure on top of a broken connection.
-	var closeSent atomic.Bool
-	ws.SetPingHandler(wsutil.PongResponder{
-		WriteControl:    ws.WriteControl,
-		SetReadDeadline: ws.SetReadDeadline,
-		ReadTimeout:     t.readTimeout,
-		RefreshDeadline: initialized.Load,
+	// teardown runs before cancel() (defers are LIFO): deactivate the
+	// connection, close the socket, then wait for the writer to drain.
+	defer s.teardown()
+	s.runReadLoop()
+}
+
+// serveSession owns the per-connection state for a single ServeConn call. It
+// is created fresh per upgrade, never copied, and torn down via teardown.
+type serveSession struct {
+	t      *Transport
+	ws     messageConn
+	connID string
+	ctx    context.Context
+
+	connState  *activeServerConnection
+	writerDone chan struct{}
+
+	// initialized flips to true once the first message passes initialize
+	// validation; the Ping responder only refreshes the read deadline after
+	// this point.
+	initialized atomic.Bool
+	// closeSent tracks whether a specific close frame was already written
+	// (e.g. timeout, policy violation, or pong write failure). closeWS checks
+	// it to avoid sending a redundant 1000 NormalClosure over a broken or
+	// already-signalled connection.
+	closeSent atomic.Bool
+	closeOnce sync.Once
+}
+
+// installHeartbeat wires the Ping responder and the initialize read deadline.
+// Before initialize completes the responder only echoes Pong (does NOT refresh
+// the read deadline); after initialize it refreshes the deadline too.
+func (s *serveSession) installHeartbeat() {
+	s.ws.SetPingHandler(wsutil.PongResponder{
+		WriteControl:    s.ws.WriteControl,
+		SetReadDeadline: s.ws.SetReadDeadline,
+		ReadTimeout:     s.t.readTimeout,
+		RefreshDeadline: s.initialized.Load,
 		OnContention: func(err error) {
-			log.CtxWarn(serveCtx, "role=server conn_id=%s reason=pong_write_contention err=%v", connID, err)
+			log.CtxWarn(s.ctx, "role=server conn_id=%s reason=pong_write_contention err=%v", s.connID, err)
 		},
 		OnWriteFailed: func(err error) {
-			log.CtxWarn(serveCtx, "role=server conn_id=%s reason=pong_write_failed err=%v", connID, err)
+			log.CtxWarn(s.ctx, "role=server conn_id=%s reason=pong_write_failed err=%v", s.connID, err)
 			// Mark closeSent so closeWS does not send a 1000 NormalClosure
 			// frame on top of a broken connection.
-			closeSent.Store(true)
+			s.closeSent.Store(true)
 		},
 	}.Handler())
 
-	// Set initialize deadline if configured.
-	if t.initializeTimeout > 0 {
-		_ = ws.SetReadDeadline(time.Now().Add(t.initializeTimeout))
+	if s.t.initializeTimeout > 0 {
+		_ = s.ws.SetReadDeadline(time.Now().Add(s.t.initializeTimeout))
 	}
+}
 
-	// closeWS safely closes the WebSocket exactly once, preventing double-close
-	// across the multiple goroutines that may trigger shutdown.
-	// If a specific close frame was already sent (e.g. timeout or policy violation),
-	// set closeSent to true so closeWS only closes the underlying connection.
-	var closeOnce sync.Once
-	closeWS := func() {
-		closeOnce.Do(func() {
-			// Only send 1000 NormalClosure if no close frame was sent yet.
-			if !closeSent.Load() {
-				_ = ws.WriteControl(websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-					time.Now().Add(wsutil.ControlWriteDeadline))
-			}
-			if err := ws.Close(); err != nil {
-				log.CtxDebug(serveCtx, "close websocket server connection: %v", err)
-			}
-		})
-	}
-
-	// Writer goroutine: reads from outbox and sends as WS text frames.
-	writerDone := make(chan struct{})
+// startWriter launches the writer goroutine that drains the connection outbox
+// onto the socket as WS text frames.
+func (s *serveSession) startWriter() {
 	safe.Go(func() {
 		// Close connState.done on every writer exit path. Once the writer is
 		// gone the outbox has no consumer, so WriteMessage's post-send re-check
-		// (see below) must observe a closed done and report ErrTransportClosed
-		// instead of nil. Relying solely on the reader teardown
-		// (deactivateConnection) to close it leaves a window where a message
-		// enqueued during shutdown is reported as sent but never flushed.
-		defer connState.once.Do(func() { close(connState.done) })
-		defer close(writerDone)
+		// must observe a closed done and report ErrTransportClosed instead of
+		// nil. Relying solely on the reader teardown (deactivateConnection) to
+		// close it leaves a window where a message enqueued during shutdown is
+		// reported as sent but never flushed.
+		defer s.connState.once.Do(func() { close(s.connState.done) })
+		defer close(s.writerDone)
 		for {
 			select {
-			case msg, ok := <-connState.outbox:
+			case msg, ok := <-s.connState.outbox:
 				if !ok {
 					return
 				}
-				log.Access(serveCtx, "ws-server", log.AccessDirectionSend, msg)
-				if err := ws.SetWriteDeadline(time.Now().Add(defaultSocketWriteTimeout)); err != nil {
-					log.CtxDebug(serveCtx, "set websocket write deadline: %v", err)
+				log.Access(s.ctx, "ws-server", log.AccessDirectionSend, msg)
+				if err := s.ws.SetWriteDeadline(time.Now().Add(defaultSocketWriteTimeout)); err != nil {
+					log.CtxDebug(s.ctx, "set websocket write deadline: %v", err)
 				}
-				if err := ws.WriteMessage(websocket.TextMessage, msg); err != nil {
-					log.CtxError(serveCtx, "write websocket message: %v", err)
+				if err := s.ws.WriteMessage(websocket.TextMessage, msg); err != nil {
+					log.CtxError(s.ctx, "write websocket message: %v", err)
 					return
 				}
-			case <-connState.done:
+			case <-s.connState.done:
 				return
-			case <-serveCtx.Done():
+			case <-s.ctx.Done():
 				return
-			case <-t.done:
+			case <-s.t.done:
 				return
 			}
 		}
 	})
+}
 
-	// Closer goroutine: ensures the WebSocket is closed when the context is
-	// cancelled or the transport is closed, unblocking the reader loop.
+// startCloseWatcher closes the WebSocket once the context is cancelled, the
+// transport is closed, or the writer exits — unblocking the reader's
+// ReadMessage so ServeConn can return.
+func (s *serveSession) startCloseWatcher() {
 	safe.Go(func() {
 		select {
-		case <-serveCtx.Done():
-			closeWS()
-		case <-t.done:
-			closeWS()
-		case <-writerDone:
-			// Writer exited on its own (write error or outbox closed).
-			// Close the WebSocket so the reader's ReadMessage unblocks.
-			closeWS()
+		case <-s.ctx.Done():
+		case <-s.t.done:
+		case <-s.writerDone:
 		}
+		s.closeWS()
 	})
+}
 
-	// Reader loop: reads WS text frames and forwards to the transport inbox.
-	defer func() {
-		t.deactivateConnection(connState)
-		closeWS()
-		<-writerDone
-	}()
-
+// runReadLoop reads WS text frames and forwards them to the transport inbox.
+// It returns when the connection fails, is closed, or the transport shuts down.
+func (s *serveSession) runReadLoop() {
 	validatedFirstMessage := false
 	for {
-		messageType, data, err := ws.ReadMessage()
+		messageType, data, err := s.ws.ReadMessage()
 		if err != nil {
-			if !errors.Is(err, io.EOF) &&
-				!websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				// Determine if the error is a timeout.
-				var ne net.Error
-				isTimeout := errors.As(err, &ne) && ne.Timeout()
-
-				if !validatedFirstMessage && isTimeout {
-					log.CtxWarn(serveCtx, "role=server conn_id=%s reason=initialize_timeout timeout=%v err=%v", connID, t.initializeTimeout, err)
-					closeSent.Store(true)
-					_ = ws.WriteControl(websocket.CloseMessage,
-						websocket.FormatCloseMessage(transport.WSCloseInitializeTimeout, "initialize timeout"),
-						time.Now().Add(wsutil.ControlWriteDeadline))
-				} else if validatedFirstMessage && isTimeout {
-					log.CtxWarn(serveCtx, "role=server conn_id=%s reason=read_timeout timeout=%v err=%v", connID, t.readTimeout, err)
-					closeSent.Store(true)
-					_ = ws.WriteControl(websocket.CloseMessage,
-						websocket.FormatCloseMessage(websocket.CloseGoingAway, "read timeout"),
-						time.Now().Add(wsutil.ControlWriteDeadline))
-				} else {
-					log.CtxDebug(serveCtx, "read websocket message: %v", err)
-				}
-			}
+			s.handleReadError(err, validatedFirstMessage)
 			return
 		}
 		if messageType != websocket.TextMessage {
@@ -266,43 +258,97 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 
 		if !validatedFirstMessage {
 			if err := validateInitialWebSocketMessage(data); err != nil {
-				log.CtxWarn(serveCtx, "reject websocket connection: %v", err)
-				closeSent.Store(true)
+				log.CtxWarn(s.ctx, "reject websocket connection: %v", err)
 				// Use a fixed wire reason rather than echoing the peer's
 				// (untrusted) input back on the close frame; the detailed
 				// validation error is logged above for diagnosis.
-				_ = ws.WriteControl(websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "invalid initialize request"),
-					time.Now().Add(wsutil.ControlWriteDeadline))
+				s.sendCloseFrame(websocket.ClosePolicyViolation, "invalid initialize request")
 				return
 			}
 			validatedFirstMessage = true
-			initialized.Store(true)
-
-			// Switch from initialize deadline to normal read deadline.
-			if t.readTimeout > 0 {
-				_ = ws.SetReadDeadline(time.Now().Add(t.readTimeout))
-			} else {
-				// Clear the initialize deadline
-				_ = ws.SetReadDeadline(time.Time{})
-			}
-		} else {
+			s.initialized.Store(true)
+			s.applyReadDeadlineAfterInit()
+		} else if s.t.readTimeout > 0 {
 			// Refresh read deadline on every data frame.
-			if t.readTimeout > 0 {
-				_ = ws.SetReadDeadline(time.Now().Add(t.readTimeout))
-			}
+			_ = s.ws.SetReadDeadline(time.Now().Add(s.t.readTimeout))
 		}
 
-		log.Access(serveCtx, "ws-server", log.AccessDirectionRecv, data)
+		log.Access(s.ctx, "ws-server", log.AccessDirectionRecv, data)
 
 		select {
-		case t.inbox <- transport.CloneMessage(data):
-		case <-serveCtx.Done():
+		case s.t.inbox <- transport.CloneMessage(data):
+		case <-s.ctx.Done():
 			return
-		case <-t.done:
+		case <-s.t.done:
 			return
 		}
 	}
+}
+
+// handleReadError classifies a terminal ReadMessage error and, for timeouts,
+// emits the appropriate close frame. Benign EOF / normal-close errors are
+// silent; unexpected errors are logged at debug.
+func (s *serveSession) handleReadError(err error, validatedFirstMessage bool) {
+	if errors.Is(err, io.EOF) ||
+		websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+		return
+	}
+	var ne net.Error
+	isTimeout := errors.As(err, &ne) && ne.Timeout()
+	switch {
+	case isTimeout && !validatedFirstMessage:
+		log.CtxWarn(s.ctx, "role=server conn_id=%s reason=initialize_timeout timeout=%v err=%v", s.connID, s.t.initializeTimeout, err)
+		s.sendCloseFrame(transport.WSCloseInitializeTimeout, "initialize timeout")
+	case isTimeout && validatedFirstMessage:
+		log.CtxWarn(s.ctx, "role=server conn_id=%s reason=read_timeout timeout=%v err=%v", s.connID, s.t.readTimeout, err)
+		s.sendCloseFrame(websocket.CloseGoingAway, "read timeout")
+	default:
+		log.CtxDebug(s.ctx, "read websocket message: %v", err)
+	}
+}
+
+// applyReadDeadlineAfterInit switches from the initialize deadline to the
+// steady-state read deadline (or clears it when readTimeout is disabled).
+func (s *serveSession) applyReadDeadlineAfterInit() {
+	if s.t.readTimeout > 0 {
+		_ = s.ws.SetReadDeadline(time.Now().Add(s.t.readTimeout))
+	} else {
+		_ = s.ws.SetReadDeadline(time.Time{})
+	}
+}
+
+// sendCloseFrame writes a specific close frame to the peer and marks closeSent
+// so the final closeWS does not overwrite it with a 1000 NormalClosure. It is
+// the single path for every non-normal server-initiated close.
+func (s *serveSession) sendCloseFrame(code int, reason string) {
+	s.closeSent.Store(true)
+	_ = s.ws.WriteControl(websocket.CloseMessage,
+		websocket.FormatCloseMessage(code, reason),
+		time.Now().Add(wsutil.ControlWriteDeadline))
+}
+
+// closeWS closes the WebSocket exactly once, preventing double-close across the
+// goroutines that may trigger shutdown. When no specific close frame was sent
+// yet it first emits a 1000 NormalClosure.
+func (s *serveSession) closeWS() {
+	s.closeOnce.Do(func() {
+		if !s.closeSent.Load() {
+			_ = s.ws.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+				time.Now().Add(wsutil.ControlWriteDeadline))
+		}
+		if err := s.ws.Close(); err != nil {
+			log.CtxDebug(s.ctx, "close websocket server connection: %v", err)
+		}
+	})
+}
+
+// teardown deactivates the connection, closes the socket, and waits for the
+// writer goroutine to exit. Safe to call exactly once at the end of ServeConn.
+func (s *serveSession) teardown() {
+	s.t.deactivateConnection(s.connState)
+	s.closeWS()
+	<-s.writerDone
 }
 
 func validateInitialWebSocketMessage(data []byte) error {
