@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hertz-contrib/websocket"
@@ -16,6 +18,16 @@ import (
 	"github.com/eino-contrib/acp/stream"
 )
 
+const (
+	// skipCloseFrame is a sentinel close code returned by classifyPumpErr to
+	// indicate that no close frame should be sent (e.g. the connection is
+	// already broken due to a pong write failure).
+	skipCloseFrame = -1
+
+	// CloseCodeFirstFrameTimeout re-exports from wsutil for backward compatibility.
+	CloseCodeFirstFrameTimeout = wsutil.CloseCodeFirstFrameTimeout
+)
+
 // proxyConn owns one active ACP WS ↔ Streamer bridge. It is created after a
 // successful upgrade + NewStreamer and torn down when either side fails.
 type proxyConn struct {
@@ -23,19 +35,22 @@ type proxyConn struct {
 	ws       *websocket.Conn
 	streamer stream.Streamer
 
-	// wsWriteMu serialises writes on the underlying WebSocket because
-	// gorilla/hertz websocket.Conn is not safe for concurrent WriteMessage
-	// calls. Both the down-pump (sending payloads to the client) and the
-	// close path (sending a CloseMessage) go through this mutex.
+	// wsWriteMu serialises data-frame writes on the underlying WebSocket
+	// because gorilla/hertz websocket.Conn is not safe for concurrent
+	// WriteMessage calls. Control frames (Close, Pong) bypass this mutex via
+	// WriteControl, but still share the websocket library's internal write lock
+	// with data-frame writes. Always use WriteControl with a short deadline to
+	// avoid being blocked by long data-frame writes.
 	wsWriteMu      *sync.Mutex
 	wsWriteTimeout time.Duration
 
-	// Heartbeat knobs: pingInterval is how often pingPump emits a Ping frame;
-	// pongTimeout is the read deadline refreshed on every pong and every
-	// successfully-read data frame. Either <= 0 disables that half of the
-	// heartbeat independently.
-	pingInterval time.Duration
-	pongTimeout  time.Duration
+	// Heartbeat configuration
+	readTimeout       time.Duration
+	firstFrameTimeout time.Duration
+
+	// firstFrameReceived is set to true once the first data frame arrives.
+	// Before this, PingHandler only echoes Pong without refreshing deadline.
+	firstFrameReceived atomic.Bool
 
 	// maxMessageSize caps a single south-bound payload read from the Streamer
 	// before it is relayed to the north-bound WS. North-bound reads are
@@ -43,29 +58,39 @@ type proxyConn struct {
 	// is only consulted on the down path. <= 0 disables the cap.
 	maxMessageSize int
 
-	closeOnce   sync.Once
+	closeOnce     sync.Once
 	closeReasonMu sync.Mutex
 	closeReasonS  string
 }
 
-// installHeartbeat wires the read deadline and pong handler so a silent
-// north-bound socket cannot hold a concurrency slot forever. Safe to call
-// with pongTimeout <= 0 (no-op).
+// installHeartbeat wires the PingHandler and initial read deadline. The proxy
+// no longer sends Ping frames — heartbeat is driven by the Client SDK.
 func (pc *proxyConn) installHeartbeat() {
-	if pc.pongTimeout <= 0 {
-		return
-	}
-	_ = pc.ws.SetReadDeadline(time.Now().Add(pc.pongTimeout))
-	pc.ws.SetPongHandler(func(string) error {
-		// Every pong extends the deadline by another full pongTimeout, so a
-		// client that keeps acknowledging pings stays alive indefinitely.
-		return pc.ws.SetReadDeadline(time.Now().Add(pc.pongTimeout))
+	// Install PingHandler that echoes Pong. Before the first data frame,
+	// only echo Pong without refreshing the read deadline. After first frame,
+	// also refresh read deadline.
+	pc.ws.SetPingHandler(func(appData string) error {
+		if err := pc.ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(wsutil.ControlWriteDeadline)); err != nil {
+			acplog.Warn("role=proxy conn_id=%s reason=pong_write_failed err=%v", pc.id, err)
+			return fmt.Errorf("%w: %v", errPongWriteFailed, err)
+		}
+		// Only refresh read deadline after the first data frame
+		if pc.firstFrameReceived.Load() && pc.readTimeout > 0 {
+			_ = pc.ws.SetReadDeadline(time.Now().Add(pc.readTimeout))
+		}
+		return nil
 	})
+
+	// Set initial deadline: only firstFrameTimeout controls the first-frame window.
+	// When firstFrameTimeout is 0 (disabled), no initial deadline is set —
+	// readTimeout only takes effect after the first data frame arrives.
+	if pc.firstFrameTimeout > 0 {
+		_ = pc.ws.SetReadDeadline(time.Now().Add(pc.firstFrameTimeout))
+	}
 }
 
 // run drives the pumps and returns after the two terminal pumps have exited.
-// It always closes the connection before returning. A best-effort pingPump is
-// started alongside and torn down in step with the terminal pumps.
+// It always closes the connection before returning.
 func (pc *proxyConn) run(ctx context.Context) {
 	errCh := make(chan error, 2)
 
@@ -83,36 +108,46 @@ func (pc *proxyConn) run(ctx context.Context) {
 	runPump("upPump", pc.upPump)
 	runPump("downPump", pc.downPump)
 
-	// pingPump is best-effort and not a terminal pump: it exits once
-	// pingCtx is cancelled (either when run returns or when the close path
-	// tears the socket down and pingWrite fails). We still Wait for it so
-	// the caller's goroutine accounting stays exact.
-	pingCtx, pingCancel := context.WithCancel(ctx)
-	var pingWG sync.WaitGroup
-	if pc.pingInterval > 0 {
-		pingWG.Add(1)
-		safe.GoRecover(
-			func() { defer pingWG.Done(); pc.pingPump(pingCtx) },
-			func(r any) { defer pingWG.Done(); acplog.Warn("proxy[%s]: pingPump panic: %v", pc.id, r) },
-		)
-	}
-
 	first := <-errCh
 	code, reason := classifyPumpErr(first)
+
+	// Log WARN for timeout events per observability spec.
+	if errors.Is(first, errFirstFrameTimeout) {
+		acplog.Warn("role=proxy conn_id=%s reason=first_frame_timeout timeout=%v", pc.id, pc.firstFrameTimeout)
+	} else if errors.Is(first, errReadTimeout) {
+		acplog.Warn("role=proxy conn_id=%s reason=read_timeout timeout=%v", pc.id, pc.readTimeout)
+	}
+
 	pc.close(code, reason)
-	pingCancel()
 
 	// Drain the second pump. It will see either the closed WS (upPump) or
 	// the closed Streamer (downPump) and return promptly.
 	<-errCh
-	pingWG.Wait()
 }
+
+// errFirstFrameTimeout is a sentinel that classifyPumpErr maps to 4001.
+var errFirstFrameTimeout = errors.New("first frame timeout")
+
+// errReadTimeout is a sentinel that classifyPumpErr maps to 1001.
+var errReadTimeout = errors.New("read timeout")
+
+// errPongWriteFailed is a sentinel for PingHandler pong write failures.
+// classifyPumpErr maps this to no close frame (connection is already broken).
+var errPongWriteFailed = errors.New("pong write failed")
 
 // upPump: north-bound WS → south-bound Streamer.
 func (pc *proxyConn) upPump(ctx context.Context) error {
 	for {
 		msgType, data, err := pc.ws.ReadMessage()
 		if err != nil {
+			// Distinguish timeout errors for proper close code classification.
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
+				if !pc.firstFrameReceived.Load() {
+					return fmt.Errorf("ws read: %w", errFirstFrameTimeout)
+				}
+				return fmt.Errorf("ws read: %w", errReadTimeout)
+			}
 			return fmt.Errorf("ws read: %w", err)
 		}
 		switch msgType {
@@ -122,16 +157,35 @@ func (pc *proxyConn) upPump(ctx context.Context) error {
 		default:
 			continue
 		}
-		// WS read deadlines are absolute, not sliding: a successful data-frame
-		// read does NOT auto-extend the deadline. An actively-sending peer that
-		// happens not to emit pongs within pongTimeout would otherwise be
-		// reaped as idle. Refresh here so any inbound traffic counts as
-		// liveness, with PongHandler as the silent-peer fallback.
-		if pc.pongTimeout > 0 {
-			_ = pc.ws.SetReadDeadline(time.Now().Add(pc.pongTimeout))
+
+		// On the first data frame, switch from first-frame deadline to normal
+		// read deadline and mark the connection as having received first frame.
+		if !pc.firstFrameReceived.Load() {
+			pc.firstFrameReceived.Store(true)
+			if pc.readTimeout > 0 {
+				_ = pc.ws.SetReadDeadline(time.Now().Add(pc.readTimeout))
+			} else {
+				// Clear the first-frame deadline
+				_ = pc.ws.SetReadDeadline(time.Time{})
+			}
+		} else {
+			// Refresh read deadline on subsequent data frames.
+			if pc.readTimeout > 0 {
+				_ = pc.ws.SetReadDeadline(time.Now().Add(pc.readTimeout))
+			}
 		}
+
 		acplog.Access(ctx, "proxy-up", acplog.AccessDirectionRecv, data)
-		if err := pc.streamer.WritePayload(ctx, data); err != nil {
+		var writeCtx context.Context
+		var writeCancel context.CancelFunc
+		if pc.wsWriteTimeout > 0 {
+			writeCtx, writeCancel = context.WithTimeout(ctx, pc.wsWriteTimeout)
+		} else {
+			writeCtx, writeCancel = ctx, func() {}
+		}
+		err = pc.streamer.WritePayload(writeCtx, data)
+		writeCancel()
+		if err != nil {
 			return fmt.Errorf("streamer write: %w", err)
 		}
 	}
@@ -151,38 +205,11 @@ func (pc *proxyConn) downPump(ctx context.Context) error {
 			return fmt.Errorf("streamer read: %w", err)
 		}
 		if pc.maxMessageSize > 0 && len(payload) > pc.maxMessageSize {
-			// Refuse to forward an oversized payload: a custom Streamer may
-			// not enforce its own cap, and relaying an arbitrary-size frame
-			// back to the WS client would defeat the north-bound SetReadLimit
-			// protection and risk the peer's own buffers too.
 			return fmt.Errorf("streamer payload %d bytes: %w", len(payload), errPayloadTooLarge)
 		}
 		acplog.Access(ctx, "proxy-down", acplog.AccessDirectionSend, payload)
 		if err := pc.writeWSMessage(websocket.TextMessage, payload); err != nil {
 			return fmt.Errorf("ws write: %w", err)
-		}
-	}
-}
-
-// pingPump emits an application-level Ping frame at pingInterval. It is not a
-// terminal pump: write failures or ctx cancellation just end the loop. The
-// matching Pong refreshes the read deadline via SetPongHandler (installed in
-// installHeartbeat), so a silent peer will eventually trip upPump's read
-// deadline and tear the whole connection down through the normal path.
-func (pc *proxyConn) pingPump(ctx context.Context) {
-	t := time.NewTicker(pc.pingInterval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			if err := pc.writeWSMessage(websocket.PingMessage, nil); err != nil {
-				// Either the socket was closed by the terminal pumps or the
-				// peer is no longer reachable. In both cases the terminal
-				// pumps will return shortly; no need to escalate here.
-				return
-			}
 		}
 	}
 }
@@ -208,9 +235,13 @@ func (pc *proxyConn) writeWSMessage(msgType int, data []byte) error {
 func (pc *proxyConn) close(code int, reason string) {
 	pc.closeOnce.Do(func() {
 		pc.setCloseReason(reason)
-		// Best-effort close frame to help the Client SDK report the cause.
-		_ = pc.writeWSMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(code, wsutil.SafeCloseReason(reason)))
+		// Send close frame unless skipCloseFrame (connection already broken,
+		// e.g. pong write failure).
+		if code != skipCloseFrame {
+			_ = pc.ws.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(code, wsutil.SafeCloseReason(reason)),
+				time.Now().Add(wsutil.ControlWriteDeadline))
+		}
 
 		if err := pc.streamer.Close(reason); err != nil {
 			acplog.Warn("proxy[%s]: streamer close returned: %v", pc.id, err)
@@ -236,58 +267,50 @@ func (pc *proxyConn) closeReason() string {
 }
 
 // classifyPumpErr maps a terminal pump error to the WebSocket close code and
-// reason the proxy should return to the client. The close code is the key
-// signal clients use to decide whether a shutdown was clean (no retry) or
-// abnormal (retry / alert), so this mapping matters more than the reason
-// string.
+// reason the proxy should return to the client.
 func classifyPumpErr(err error) (int, string) {
 	if err == nil {
 		return websocket.CloseNormalClosure, ""
 	}
-	// Size-cap breach on either direction — echo a 1009 so the peer can
-	// distinguish "too big" from a generic server fault. The north-bound
-	// library already best-effort-sent its own 1009 frame, but our close
-	// path still runs and a matching code keeps logs consistent.
+	if errors.Is(err, errFirstFrameTimeout) {
+		return CloseCodeFirstFrameTimeout, "first frame timeout"
+	}
+	if errors.Is(err, errReadTimeout) {
+		return websocket.CloseGoingAway, "read timeout"
+	}
+	if errors.Is(err, errPongWriteFailed) {
+		// Connection is already broken; skip close frame entirely.
+		return skipCloseFrame, "pong_write_failed"
+	}
 	if errors.Is(err, websocket.ErrReadLimit) || errors.Is(err, errPayloadTooLarge) {
 		return websocket.CloseMessageTooBig, "message too big"
 	}
-	// Peer-initiated graceful close surfaces as a CloseError from
-	// ws.ReadMessage; echo a matching code so the handshake looks symmetric.
 	var ce *websocket.CloseError
 	if errors.As(err, &ce) {
 		switch ce.Code {
 		case websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived:
 			return websocket.CloseNormalClosure, fmt.Sprintf("client closed (code=%d)", ce.Code)
 		}
-		// Unusual peer close code — treat as abnormal but preserve the peer's
-		// reason for diagnostics.
 		return websocket.CloseInternalServerErr, err.Error()
 	}
-	// Streamer signalled graceful EOF — normal shutdown from upstream.
 	if errors.Is(err, io.EOF) {
 		return websocket.CloseNormalClosure, "upstream eof"
 	}
-	// Connection-scoped cancellation (parent ctx or proxy shutdown): the
-	// server side is going away, not the client.
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return websocket.CloseGoingAway, "canceled"
 	}
-	// Anything else is a server-side / upstream fault.
 	return websocket.CloseInternalServerErr, err.Error()
 }
 
-// isBenignCloseErr filters noise from the WS close path: after the other
-// side has already closed, Close can return "use of closed network
-// connection" or io.EOF variants. These are expected during teardown and
-// should not pollute the info-level log.
+// isBenignCloseErr filters noise from the WS close path.
 func isBenignCloseErr(err error) bool {
 	if err == nil {
 		return true
 	}
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, net.ErrClosed) {
 		return true
 	}
+	// crypto/tls does not expose a sentinel; fall back to string match.
 	msg := err.Error()
-	return msg == "use of closed network connection" ||
-		msg == "tls: use of closed connection"
+	return msg == "tls: use of closed connection"
 }

@@ -522,7 +522,7 @@ _ = conn.Start(ctx)
 - **URL 归一化**：支持 `http://` / `https://` / `ws://` / `wss://` / 甚至 `host:port` 纯地址；SDK 会自动补全 scheme（默认 `ws://`）和 endpoint path。
 - **只用 origin**：`baseURL` 的 path / query / fragment 会被丢弃，最终 URL = `origin + endpointPath`。想改路径只能用 `WithEndpointPath`。
 - **Cookie Jar**：握手请求会附带内置 `cookiejar`，并把响应里的 `Set-Cookie` 写回 jar。WS 每个 transport 实例只握手一次，保留 jar 主要是为了接口一致性，实际作用有限。
-- **写超时兜底**：调用方未给 ctx deadline 时，单次写默认 **30s** deadline；`Close` 尝试发 close frame 时仅等 **100ms** 抢写锁，抢不到就直接关 socket（避免被其他阻塞写卡死）。
+- **写超时兜底**：调用方未给 ctx deadline 时，单次写默认 **30s** deadline；`Close` 通过 `WriteControl` 发送 close frame（5s deadline），不经过应用层 `writePermit`，但仍与 data frame 写共享 websocket 库内部写锁；若底层写被阻塞，最多等待 5s 后失败并继续关闭流程。
 - **Close 顺序**：`Close` 会先发送 close frame → 关 socket → 等 read loop 退出 → 释放 Hertz request/response 对象，保证无 use-after-free。
 - **不自动重连**：业务方按需自行重建 transport + connection。
 
@@ -533,7 +533,7 @@ WebSocket 服务端是 `server.ACPServer` 内置能力，见 [5.3 服务端节�
 **常见坑位：**
 
 1. **`srv.NoHijackConnPool = true`**：Hertz 默认会把 hijack 的连接送回池子，这会把 WebSocket 连接断开。部署 ACPServer 时**一定要**设置这个标志。
-2. **超大帧**：服务端读限制 **10 MB**，超限直接关连接（1009 MessageTooBig）；客户端同限制。
+2. **超大帧**：服务端和客户端读限制均为 **10 MB**（`transport.DefaultMaxMessageSize`），超限直接关连接（1009 MessageTooBig）。
 3. **10 次连续解析失败**：WS 服务端连续 **10** 次 JSON-RPC 解析失败会主动关断连接，防止恶意 peer。
 4. **并发写安全**：ACP 的 `Transport` 接口要求 `WriteMessage` 并发安全；WS 客户端内部用 `writePermit` 信号量实现互斥，业务方放心并发调用即可。
 
@@ -543,9 +543,10 @@ WebSocket 客户端 Option / 默认值 (`transport/ws`)：
 | --- | --- |
 | `WithEndpointPath(p)` | `/acp` |
 | `WithCustomHeaders(m)` | 空 |
+| `WithPingInterval(d)` | 30 s（客户端主动 Ping 间隔；`0` 禁用 ping pump —— 仅高级/调试场景） |
+| `WithReadTimeout(d)` | 75 s（读 deadline；收到 Pong 或 data frame 刷新；`0` 禁用 —— 不推荐） |
 | （内置）单次写 deadline（无 ctx deadline 时） | 30 s |
-| （内置）Close 抢写锁等待 | 100 ms |
-| （内置）Close frame 写 deadline | 500 ms |
+| （内置）Close frame 通过 `WriteControl` 发送 | 5 s deadline |
 
 ### 5.3 服务端节点：ACPServer
 
@@ -579,7 +580,20 @@ remote, err := acpserver.NewACPServer(factory,
 | `server.WithPendingQueueSize(n)` | 1024 | 会话创建后、GET SSE 建立前的消息缓冲 |
 | `server.WithMaxInflightDispatch(n)` | 4096 | 单条 HTTP 连接并发 dispatch 上限；超限返回 503；负数 = 不限 |
 | `server.WithWebSocketUpgrader(u)` | `websocket.HertzUpgrader{}` | 自定义 subprotocols / origin 校验 |
+| `server.WithWebSocketReadTimeout(d)` | 0（禁用） | 初始化完成后的读 deadline；Ping 和 data frame 都会刷新；超时按 `1001` 关闭 |
+| `server.WithWebSocketInitializeTimeout(d)` | 15 s | upgrade 后等待 initialize 请求的 deadline；超时按 `4000` 关闭 |
 | `server.WithNotificationErrorHandler(fn)` | 无 | WS 通知失败回调（HTTP 不触发——HTTP direct-dispatch 无读循环，通知错只会记日志） |
+
+**WebSocket 心跳保活（Server）**
+
+Server 依赖 **Client 主动发送 Ping** 作为心跳：
+
+- 初始化阶段：PingHandler 回复 Pong，但**不**刷新初始化 deadline；
+- 初始化完成后：Ping 和 data frame 均会刷新读 deadline；
+- 若在 `WithWebSocketReadTimeout` 窗口内未收到 Ping 或 data frame，连接以 `1001 Going Away` 关闭；
+- `WithWebSocketReadTimeout(0)`（默认）禁用读 deadline——为兼容不发 Ping 的旧 Client；
+- 推荐配比：`Server ReadTimeout >= 2 × Client PingInterval`（如 `75s >= 2 × 30s`）；
+- 启用 `ReadTimeout > 0` 前，请确认**所有**接入的 Client 都会发送 WS Ping 或周期性 data frame——不发 Ping 的旧 SDK / 浏览器 / 第三方 WebSocket Client 会在空闲时被断连。
 
 > ⚠️ 注意：不同 Option 对 `0` 的处理不一致：
 > - `WithRequestTimeout(0)` / `WithConnectionIdleTimeout(0)` → 禁用（不限）
@@ -633,8 +647,9 @@ func main() {
 		acpproxy.WithMaxConcurrentConnections(10000),
 		acpproxy.WithHandshakeTimeout(15*time.Second),
 		acpproxy.WithWebSocketWriteTimeout(30*time.Second),
-		acpproxy.WithWebSocketPingInterval(30*time.Second),
-		acpproxy.WithWebSocketPongTimeout(75*time.Second),
+		acpproxy.WithWebSocketFirstFrameTimeout(15*time.Second),
+		// 仅当所有上游 Client 都会发送 WS Ping 或周期性 data frame 后，再启用读超时。
+		// acpproxy.WithWebSocketReadTimeout(75*time.Second),
 		acpproxy.WithMaxMessageSize(10*1024*1024),
 	)
 	if err != nil { log.Fatal(err) }
@@ -699,22 +714,26 @@ acpproxy.WithHeaderForwarder(func(c *app.RequestContext) map[string]string {
 
 #### 5.4.5 Keepalive & 连接健康
 
-Proxy 实现了 WS 层心跳：
+Proxy 依赖 **Client 主动 Ping** 实现心跳（不再由 Proxy 主动发 Ping）：
 
-- 每 `WithWebSocketPingInterval`（默认 30s）发一次 Ping；
-- `WithWebSocketPongTimeout`（默认 75s）没收到任何帧（data 或 pong）就关连接；
-- **Pong 收到会刷新读 deadline**——正常连接永远不会超时。
+- Client SDK 每 `WithPingInterval`（默认 30s）发一次 Ping；
+- 首帧前：Proxy 回 Pong，但**不**刷新 first-frame deadline；
+- 首帧后：Proxy 在 Ping 和 data frame 到达时刷新读 deadline；
+- 首帧后，`WithWebSocketReadTimeout`（默认 0 = 禁用）内没收到 Ping 或 data frame 就关连接，close code `1001 Going Away`；
+- `WithWebSocketFirstFrameTimeout`（默认 15s）要求首个 data frame 在规定时间内到达，超时 close code `4001`。
 
-> `WithWebSocketPingInterval(0)` 仅停发主动 Ping，读 deadline 仍由 Pong timeout 控制；
-> `WithWebSocketPongTimeout(0)` 会禁用读 deadline，半开连接将**永久**占用一个并发槽位，**不推荐**。
+> `WithWebSocketReadTimeout(0)` 会禁用首帧后的读 deadline。默认 `WithWebSocketFirstFrameTimeout(15s)` 仍保护首帧前阶段；首个 data frame 到达后，半开连接将**无限期**占用并发槽位，**不推荐**（生产环境建议设 75s）。
+> `WithWebSocketPingInterval` 已 **deprecated**，无运行时效果。`WithWebSocketPongTimeout` 已 **deprecated**，但内部仍映射为 `WithWebSocketReadTimeout`。请改用 `WithWebSocketReadTimeout` / `WithWebSocketFirstFrameTimeout`。
 
 #### 5.4.6 背压与上限
 
 | 维度 | 参数 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | 最大并发连接 | `proxy.WithMaxConcurrentConnections(n)` | 10000 | 超限返回 503 |
-| 握手超时 | `proxy.WithHandshakeTimeout(d)` | 15 s | WS 握手阶段的截止时间 |
-| WS 写超时 | `proxy.WithWebSocketWriteTimeout(d)` | 30 s | 单次写 deadline |
+| 握手超时 | `proxy.WithHandshakeTimeout(d)` | 15 s | 下游 StreamerFactory.NewStreamer / 南向建连的截止时间 |
+| 首帧超时 | `proxy.WithWebSocketFirstFrameTimeout(d)` | 15 s | streamer 创建后首个 data frame 的截止时间（非 WS upgrade 后立即计时） |
+| 读超时（首帧后） | `proxy.WithWebSocketReadTimeout(d)` | 0（禁用） | Ping/data frame 刷新的读 deadline |
+| WS 写超时 | `proxy.WithWebSocketWriteTimeout(d)` | 30 s | 同时约束 downPump WS 写和 upPump Streamer 写的 deadline |
 | 单条消息上限 | `proxy.WithMaxMessageSize(n)` | 10 MB | 超限关连接 |
 
 Proxy 的关键不变量：**一条 Client WS ↔ 一个 Streamer**，独立的 up/down 两条 pump goroutine，跨连接互不影响。

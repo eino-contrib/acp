@@ -185,27 +185,24 @@ func (p *ACPProxy) serveConn(parentCtx context.Context, cid string, meta map[str
 		acplog.CtxError(parentCtx, "proxy[%s]: new streamer failed: %v", cid, err)
 		// Surface the upstream failure through a WS close frame so the Client
 		// SDK can include the reason in its diagnostic instead of silently
-		// swallowing the error. A short write deadline bounds the failure
-		// path: a stalled peer TCP buffer must not pin the handler goroutine
-		// (and its concurrency slot) indefinitely.
+		// swallowing the error. Use WriteControl with a short deadline so a
+		// stalled peer cannot block the handler goroutine.
 		reason := wsutil.SafeCloseReason(fmt.Sprintf("upstream: %v", err))
-		if p.opts.wsWriteTimeout > 0 {
-			_ = wsConn.SetWriteDeadline(time.Now().Add(p.opts.wsWriteTimeout))
-		}
-		_ = wsConn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, reason))
+		_ = wsConn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, reason),
+			time.Now().Add(wsutil.ControlWriteDeadline))
 		_ = wsConn.Close()
 		return
 	}
 
 	pc := &proxyConn{
-		id:             cid,
-		ws:             wsConn,
-		streamer:       s,
-		wsWriteTimeout: p.opts.wsWriteTimeout,
-		pingInterval:   p.opts.wsPingInterval,
-		pongTimeout:    p.opts.wsPongTimeout,
-		maxMessageSize: p.opts.maxMessageSize,
+		id:                cid,
+		ws:                wsConn,
+		streamer:          s,
+		wsWriteTimeout:    p.opts.wsWriteTimeout,
+		readTimeout:       p.opts.wsReadTimeout,
+		firstFrameTimeout: p.opts.firstFrameTimeout,
+		maxMessageSize:    p.opts.maxMessageSize,
 	}
 	pc.wsWriteMu = &sync.Mutex{}
 	// SetReadLimit makes the WS library abort ReadMessage with a 1009

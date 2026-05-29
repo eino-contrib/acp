@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	acpconn "github.com/eino-contrib/acp/conn"
+	"github.com/eino-contrib/acp/internal/connspi"
 	"github.com/eino-contrib/acp/internal/jsonrpc"
 	acplog "github.com/eino-contrib/acp/internal/log"
 	"github.com/eino-contrib/acp/internal/wsserver"
@@ -27,12 +28,16 @@ func (s *ACPServer) newWSConn(parent context.Context) (*wsConn, error) {
 	}
 
 	parentCtx := connectionParentContext(parent, s.rootCtx)
+	connID := uuid.NewString()
+	parentCtx = connspi.WithConnectionID(parentCtx, connID)
 	connCtx, connCancel := context.WithCancel(parentCtx)
 
-	wsTransport := wsserver.New()
+	wsTransport := wsserver.New(
+		wsserver.WithReadTimeout(s.wsReadTimeout),
+		wsserver.WithInitializeTimeout(s.wsInitializeTimeout),
+	)
 
 	agent := s.factory(connCtx)
-	connID := uuid.NewString()
 	opts := []jsonrpc.ConnectionOption{
 		jsonrpc.WithMaxConsecutiveParseErrors(10),
 		jsonrpc.WithConnectionLabel(connID),

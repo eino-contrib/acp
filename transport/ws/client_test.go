@@ -73,6 +73,12 @@ func (c *blockingWriteMessageConn) SetReadLimit(int64) {}
 
 func (c *blockingWriteMessageConn) SetWriteDeadline(time.Time) error { return nil }
 
+func (c *blockingWriteMessageConn) SetReadDeadline(time.Time) error { return nil }
+
+func (c *blockingWriteMessageConn) SetPongHandler(func(string) error) {}
+
+func (c *blockingWriteMessageConn) WriteControl(_ int, _ []byte, _ time.Time) error { return nil }
+
 func TestWebSocketClientTransportUsesHertzClientByDefault(t *testing.T) {
 	serverTransport := wsserver.New()
 	baseURL, shutdown := startHertzWebSocketServer(t, serverTransport)

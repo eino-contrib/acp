@@ -111,12 +111,10 @@ func (s *wsStreamer) ReadPayload(ctx context.Context) ([]byte, error) {
 
 func (s *wsStreamer) Close(reason string) error {
 	s.closeOnce.Do(func() {
-		// Best-effort close frame so the peer can log the reason.
-		s.writeMu.Lock()
-		_ = s.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
-		_ = s.conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, wsutil.SafeCloseReason(reason)))
-		s.writeMu.Unlock()
+		// Best-effort close frame via WriteControl with independent deadline.
+		_ = s.conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, wsutil.SafeCloseReason(reason)),
+			time.Now().Add(wsutil.ControlWriteDeadline))
 		s.closeErr = s.conn.Close()
 		close(s.closed)
 

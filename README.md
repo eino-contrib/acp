@@ -522,7 +522,7 @@ Characteristics:
 - **URL normalization**: supports `http://`, `https://`, `ws://`, `wss://`, and even bare `host:port`; the SDK automatically fills in the scheme (default `ws://`) and the endpoint path.
 - **Origin only**: the path / query / fragment in `baseURL` is discarded. The final URL is `origin + endpointPath`. To change the path, use `WithEndpointPath`.
 - **Cookie jar**: the handshake request sends the built-in `cookiejar`, and `Set-Cookie` from the response is written back into the jar. Each WS transport instance performs only one handshake, so the jar mainly exists for API consistency and has limited practical effect.
-- **Write-timeout fallback**: if the caller does not set a ctx deadline, each write uses a default **30s** deadline. During `Close`, writing the close frame waits only **100ms** to acquire the write lock; if it cannot, the socket is closed directly to avoid hanging behind another blocked write.
+- **Write-timeout fallback**: if the caller does not set a ctx deadline, each write uses a default **30s** deadline. During `Close`, the close frame is sent via `WriteControl` with a 5s deadline; it bypasses the application-level `writePermit` but still shares the websocket library's internal write lock with data-frame writes — if the lock is held, the 5s deadline prevents hanging.
 - **Close order**: `Close` sends the close frame, closes the socket, waits for the read loop to exit, and then releases Hertz request/response objects, preventing use-after-free.
 - **No automatic reconnect**: the application is responsible for recreating the transport + connection if needed.
 
@@ -533,7 +533,7 @@ WebSocket server support is built into `server.ACPServer`; see [5.3 ACPServer](#
 **Common pitfalls:**
 
 1. **`srv.NoHijackConnPool = true`**: by default Hertz returns hijacked connections to the pool, which breaks WebSocket connections. You **must** set this flag when deploying ACPServer.
-2. **Oversized frames**: the server read limit is **10 MB** and closes the connection directly with `1009 MessageTooBig` if exceeded; the client uses the same limit.
+2. **Oversized frames**: the server and client read limit is **10 MB** (`transport.DefaultMaxMessageSize`) and closes the connection directly with `1009 MessageTooBig` if exceeded.
 3. **10 consecutive parse failures**: the WS server closes the connection after **10** consecutive JSON-RPC parse errors to defend against malicious peers.
 4. **Concurrent writes are safe**: ACP's `Transport` interface requires `WriteMessage` to be concurrency-safe. The WS client uses a `writePermit` semaphore internally, so application code can call it concurrently.
 
@@ -543,9 +543,10 @@ WebSocket client options / defaults (`transport/ws`):
 | --- | --- |
 | `WithEndpointPath(p)` | `/acp` |
 | `WithCustomHeaders(m)` | empty |
+| `WithPingInterval(d)` | 30 s (client-initiated Ping; `0` disables ping pump — advanced/debug only) |
+| `WithReadTimeout(d)` | 75 s (read deadline; refreshed by Pong and data frames; `0` disables — not recommended) |
 | built-in single-write deadline (when ctx has no deadline) | 30 s |
-| built-in wait for Close to acquire write lock | 100 ms |
-| built-in close-frame write deadline | 500 ms |
+| built-in close-frame write via `WriteControl` | 5 s deadline |
 
 <a id="53-acpserver"></a>
 ### 5.3 ACPServer
@@ -580,7 +581,20 @@ remote, err := acpserver.NewACPServer(factory,
 | `server.WithPendingQueueSize(n)` | 1024 | message buffer after session creation and before GET SSE is established |
 | `server.WithMaxInflightDispatch(n)` | 4096 | max concurrent dispatches per HTTP connection; returns `503` when exceeded; negative = unlimited |
 | `server.WithWebSocketUpgrader(u)` | `websocket.HertzUpgrader{}` | custom subprotocols / origin checks |
+| `server.WithWebSocketReadTimeout(d)` | 0 (disabled) | read deadline after initialization; refreshed on Ping and data frames; close with `1001` on timeout |
+| `server.WithWebSocketInitializeTimeout(d)` | 15 s | deadline for initialize request after upgrade; close with `4000` on timeout |
 | `server.WithNotificationErrorHandler(fn)` | none | callback for WS notification failures (not triggered for HTTP, because HTTP direct-dispatch has no read loop and notification failures are logged only) |
+
+**WebSocket Keepalive (Server)**
+
+The Server relies on **client-initiated Ping** for heartbeat:
+
+- During initialization: PingHandler echoes Pong but does **not** refresh the initialize deadline;
+- After initialization: Ping and data frames refresh the read deadline;
+- If no Ping or data frame arrives within `WithWebSocketReadTimeout`, the connection is closed with `1001 Going Away`;
+- `WithWebSocketReadTimeout(0)` (default) disables the read deadline — this is for backward compatibility with old clients that do not send Ping;
+- Recommended ratio: `Server ReadTimeout >= 2 × Client PingInterval` (e.g. `75s >= 2 × 30s`);
+- Before enabling `ReadTimeout > 0`, confirm that **all** connecting clients send WS Ping or periodic data frames — old SDKs, browsers, and third-party WebSocket clients that do not send Ping will be disconnected on idle.
 
 > ⚠️ Note: different options treat `0` differently:
 > - `WithRequestTimeout(0)` / `WithConnectionIdleTimeout(0)` -> disabled (unlimited)
@@ -635,8 +649,9 @@ func main() {
 		acpproxy.WithMaxConcurrentConnections(10000),
 		acpproxy.WithHandshakeTimeout(15*time.Second),
 		acpproxy.WithWebSocketWriteTimeout(30*time.Second),
-		acpproxy.WithWebSocketPingInterval(30*time.Second),
-		acpproxy.WithWebSocketPongTimeout(75*time.Second),
+		acpproxy.WithWebSocketFirstFrameTimeout(15*time.Second),
+		// Enable read timeout only after all upstream clients send WS Ping or periodic data frames.
+		// acpproxy.WithWebSocketReadTimeout(75*time.Second),
 		acpproxy.WithMaxMessageSize(10*1024*1024),
 	)
 	if err != nil { log.Fatal(err) }
@@ -701,22 +716,26 @@ Notes:
 
 #### 5.4.5 Keepalive and Connection Health
 
-The Proxy implements WS-level heartbeats:
+The Proxy relies on **client-initiated Ping** for heartbeat (it no longer sends Ping frames itself):
 
-- sends a Ping every `WithWebSocketPingInterval` (default `30s`);
-- closes the connection if no frame (data or pong) is received within `WithWebSocketPongTimeout` (default `75s`);
-- **receiving a Pong refreshes the read deadline**, so healthy connections should never time out.
+- the Client SDK sends a Ping every `WithPingInterval` (default `30s`);
+- before the first data frame: the Proxy echoes Pong but does **not** refresh the first-frame deadline;
+- after the first data frame: the Proxy refreshes the read deadline on every Ping and data frame;
+- after the first data frame, if no Ping or data frame arrives within `WithWebSocketReadTimeout` (default `0` = disabled), the connection is closed with `1001 Going Away`;
+- `WithWebSocketFirstFrameTimeout` (default `15s`) requires the first data frame within the configured window; timeout returns close code `4001`.
 
-> `WithWebSocketPingInterval(0)` only disables active Ping sending; the read deadline is still controlled by the Pong timeout.
-> `WithWebSocketPongTimeout(0)` disables the read deadline entirely, so half-open connections will hold a concurrency slot **forever**. This is **not recommended**.
+> `WithWebSocketReadTimeout(0)` disables the post-first-frame read deadline. The default `WithWebSocketFirstFrameTimeout(15s)` still protects the pre-first-frame phase; after the first data frame arrives, a half-open connection may hold a concurrency slot **indefinitely**. This is **not recommended** once all clients support Ping.
+> `WithWebSocketPingInterval` is **deprecated** and has no runtime effect. `WithWebSocketPongTimeout` is **deprecated** but still maps internally to `WithWebSocketReadTimeout`. Use `WithWebSocketReadTimeout` / `WithWebSocketFirstFrameTimeout` instead.
 
 #### 5.4.6 Backpressure and Limits
 
 | Dimension | Option | Default | Description |
 | --- | --- | --- | --- |
 | Max concurrent connections | `proxy.WithMaxConcurrentConnections(n)` | 10000 | returns `503` when exceeded |
-| Handshake timeout | `proxy.WithHandshakeTimeout(d)` | 15 s | deadline for the WS handshake stage |
-| WS write timeout | `proxy.WithWebSocketWriteTimeout(d)` | 30 s | deadline for a single write |
+| Handshake timeout | `proxy.WithHandshakeTimeout(d)` | 15 s | deadline for downstream StreamerFactory.NewStreamer (south-bound dial) |
+| First-frame timeout | `proxy.WithWebSocketFirstFrameTimeout(d)` | 15 s | deadline for the first data frame after streamer creation (not immediately after upgrade) |
+| Read timeout (post-first-frame) | `proxy.WithWebSocketReadTimeout(d)` | 0 (disabled) | read deadline refreshed by Ping/data frames |
+| WS write timeout | `proxy.WithWebSocketWriteTimeout(d)` | 30 s | deadline for both downPump WS writes and upPump Streamer writes |
 | Max message size | `proxy.WithMaxMessageSize(n)` | 10 MB | closes the connection when exceeded |
 
 The key invariant of Proxy is: **one client WS <-> one Streamer**, with two dedicated up/down pump goroutines, and no cross-connection interference.
