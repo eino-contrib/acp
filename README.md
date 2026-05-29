@@ -544,7 +544,7 @@ WebSocket client options / defaults (`transport/ws`):
 | `WithEndpointPath(p)` | `/acp` |
 | `WithCustomHeaders(m)` | empty |
 | `WithPingInterval(d)` | 30 s (client-initiated Ping; `0` disables ping pump — advanced/debug only) |
-| `WithReadTimeout(d)` | 75 s (read deadline; refreshed by Pong and data frames; `0` disables — not recommended) |
+| `WithReadTimeout(d)` | 75 s (read deadline; refreshed by Pong and ACP text data frames; BinaryMessage is ignored; `0` disables — not recommended) |
 | built-in single-write deadline (when ctx has no deadline) | 30 s |
 | built-in close-frame write via `WriteControl` | 5 s deadline |
 

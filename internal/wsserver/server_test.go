@@ -239,6 +239,35 @@ func TestServerTransportRequiresInitializeFirst(t *testing.T) {
 	}
 }
 
+func TestServerTransportRejectsBinaryFirstFrame(t *testing.T) {
+	transport := New()
+	baseURL, shutdown := startHertzWebSocketServer(t, transport)
+	defer shutdown()
+
+	wsURL := "ws" + strings.TrimPrefix(baseURL, "http")
+	conn := dialHertzWebSocket(t, wsURL)
+
+	// A non-text first data frame violates the protocol — server must close
+	// immediately rather than silently ignoring it and waiting for the
+	// initialize deadline to expire.
+	if err := conn.WriteMessage(websocket.BinaryMessage, []byte{0x01, 0x02, 0x03}); err != nil {
+		t.Fatalf("write websocket message: %v", err)
+	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _, err := conn.ReadMessage()
+	if err == nil {
+		t.Fatal("expected websocket connection to be closed")
+	}
+	closeErr, ok := err.(*websocket.CloseError)
+	if !ok {
+		t.Fatalf("expected *websocket.CloseError, got %T: %v", err, err)
+	}
+	if closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("close code = %d, want %d", closeErr.Code, websocket.ClosePolicyViolation)
+	}
+}
+
 func TestServerTransportAcceptsInitializeFirst(t *testing.T) {
 	transport := New()
 	baseURL, shutdown := startHertzWebSocketServer(t, transport)

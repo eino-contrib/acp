@@ -40,6 +40,11 @@ type mockServerConn struct {
 	// Track WriteControl calls
 	controlWrites []controlWriteRecord
 	controlMu     sync.Mutex
+
+	// pongWriteErr, when non-nil, is returned by WriteControl for Pong
+	// frames. Used to simulate a real (non-contention) pong write failure
+	// so handleReadError can be exercised on the resulting sentinel error.
+	pongWriteErr error
 }
 
 type msgEntry struct {
@@ -61,33 +66,55 @@ func newMockServerConn() *mockServerConn {
 }
 
 func (m *mockServerConn) ReadMessage() (int, []byte, error) {
-	// Check if a read deadline is set; if so, use a timer to simulate timeout.
-	m.readDLMu.Lock()
-	dl := m.readDeadline
-	m.readDLMu.Unlock()
+	for {
+		// Check if a read deadline is set; if so, use a timer to simulate timeout.
+		m.readDLMu.Lock()
+		dl := m.readDeadline
+		m.readDLMu.Unlock()
 
-	var timer *time.Timer
-	var timerC <-chan time.Time
-	if !dl.IsZero() {
-		remaining := time.Until(dl)
-		if remaining <= 0 {
+		var timer *time.Timer
+		var timerC <-chan time.Time
+		if !dl.IsZero() {
+			remaining := time.Until(dl)
+			if remaining <= 0 {
+				return 0, nil, &netTimeoutError{}
+			}
+			timer = time.NewTimer(remaining)
+			timerC = timer.C
+		}
+
+		select {
+		case msg, ok := <-m.messages:
+			if timer != nil {
+				timer.Stop()
+			}
+			if !ok {
+				return 0, nil, &websocket.CloseError{Code: websocket.CloseNormalClosure}
+			}
+			// Simulate the library dispatching control frames through the
+			// installed PingHandler instead of returning them from
+			// ReadMessage. A handler that returns an error mimics
+			// hertz-contrib/websocket's behaviour of propagating the
+			// handler error out of ReadMessage.
+			if msg.messageType == websocket.PingMessage {
+				h := m.getPingHandler()
+				if h == nil {
+					continue
+				}
+				if err := h(string(msg.data)); err != nil {
+					return 0, nil, err
+				}
+				continue
+			}
+			return msg.messageType, msg.data, nil
+		case <-m.closed:
+			if timer != nil {
+				timer.Stop()
+			}
+			return 0, nil, &websocket.CloseError{Code: websocket.CloseNormalClosure}
+		case <-timerC:
 			return 0, nil, &netTimeoutError{}
 		}
-		timer = time.NewTimer(remaining)
-		timerC = timer.C
-		defer timer.Stop()
-	}
-
-	select {
-	case msg, ok := <-m.messages:
-		if !ok {
-			return 0, nil, &websocket.CloseError{Code: websocket.CloseNormalClosure}
-		}
-		return msg.messageType, msg.data, nil
-	case <-m.closed:
-		return 0, nil, &websocket.CloseError{Code: websocket.CloseNormalClosure}
-	case <-timerC:
-		return 0, nil, &netTimeoutError{}
 	}
 }
 
@@ -147,6 +174,9 @@ func (m *mockServerConn) WriteControl(messageType int, data []byte, deadline tim
 		Data:        append([]byte(nil), data...),
 		Deadline:    deadline,
 	})
+	if messageType == websocket.PongMessage && m.pongWriteErr != nil {
+		return m.pongWriteErr
+	}
 	return nil
 }
 
@@ -551,6 +581,79 @@ func TestReadTimeoutAfterInit_ClosesWithGoingAway(t *testing.T) {
 var (
 	_ messageConn = (*mockServerConn)(nil)
 )
+
+// fakeWriteTimeout simulates a real socket-write deadline expiry: a
+// net.Error with Timeout()==true whose message is NOT
+// hertz-contrib/websocket's lock-wait sentinel. This is the case where
+// IsControlWriteContention must return false and the failure must reach
+// OnWriteFailed / WrapWriteFailed.
+type fakeWriteTimeout struct{}
+
+func (fakeWriteTimeout) Error() string   { return "write tcp 127.0.0.1: i/o timeout" }
+func (fakeWriteTimeout) Timeout() bool   { return true }
+func (fakeWriteTimeout) Temporary() bool { return false }
+
+// TestPongWriteFailureNotMisclassifiedAsReadTimeout verifies that when the
+// PingHandler's pong WriteControl fails with a real net.Error timeout (not a
+// write-lock contention sentinel), the server:
+//   - logs reason=pong_write_failed (via OnWriteFailed)
+//   - does NOT mis-classify the error as read_timeout / initialize_timeout
+//   - does NOT emit a 1001 / 4000 close frame on top of the broken connection
+//
+// Regression test for the bug where Server PongResponder lacked
+// WrapWriteFailed: a real socket write timeout from WriteControl(Pong)
+// would surface to handleReadError as net.Error.Timeout()==true and be
+// classified as a read/initialize timeout.
+func TestPongWriteFailureNotMisclassifiedAsReadTimeout(t *testing.T) {
+	tr := New(
+		WithInitializeTimeout(500*time.Millisecond),
+		WithReadTimeout(500*time.Millisecond),
+	)
+	conn := newMockServerConn()
+	conn.pongWriteErr = fakeWriteTimeout{}
+
+	var done atomic.Bool
+	go func() {
+		tr.ServeConn(context.Background(), conn)
+		done.Store(true)
+	}()
+
+	// Pass the initialize phase so we can also rule out the
+	// "initialize_timeout" mis-classification path (i.e. the bug would
+	// otherwise hit the read_timeout branch after init).
+	time.Sleep(5 * time.Millisecond)
+	conn.enqueueText(initializeMsg)
+	time.Sleep(10 * time.Millisecond)
+
+	// Now deliver a Ping frame; the mock dispatches it through the
+	// installed PingHandler, whose pong WriteControl returns
+	// fakeWriteTimeout, which the responder wraps with errPongWriteFailed
+	// and propagates out of ReadMessage.
+	conn.enqueue(websocket.PingMessage, []byte("p"))
+
+	// Wait for ServeConn to return.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for !done.Load() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !done.Load() {
+		t.Fatal("ServeConn should have returned after pong write failure")
+	}
+
+	// Verify NO close frame was emitted (neither 4000 nor 1001 nor 1000):
+	// the connection is already broken, so handleReadError must short
+	// circuit and closeWS must observe closeSent==true (set by
+	// OnWriteFailed) and skip the NormalClosure write.
+	for _, cw := range conn.getControlWrites() {
+		if cw.MessageType == websocket.CloseMessage {
+			code := -1
+			if len(cw.Data) >= 2 {
+				code = int(cw.Data[0])<<8 | int(cw.Data[1])
+			}
+			t.Fatalf("expected NO close frame on pong write failure, got code=%d", code)
+		}
+	}
+}
 
 // Suppress unused import warnings for json and atomic.
 var _ = json.Marshal

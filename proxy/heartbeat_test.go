@@ -42,6 +42,45 @@ func TestProxyOptions(t *testing.T) {
 			t.Fatalf("negative value should be ignored, got %v", opts.wsReadTimeout)
 		}
 	})
+
+	// Deprecated options retained for source-compatibility with the
+	// pre-heartbeat-refactor Proxy API. These tests pin down the documented
+	// migration contract: WithWebSocketPingInterval is a no-op, and
+	// WithWebSocketPongTimeout aliases WithWebSocketReadTimeout.
+	t.Run("WithWebSocketPingInterval_is_noop", func(t *testing.T) {
+		opts := defaultOptions()
+		// options contains an un-comparable websocket.HertzUpgrader field, so
+		// snapshot only the timeout-related fields the heartbeat refactor
+		// could plausibly touch.
+		beforeRead := opts.wsReadTimeout
+		beforeWrite := opts.wsWriteTimeout
+		beforeFirst := opts.firstFrameTimeout
+		beforeHandshake := opts.handshakeTimeout
+		WithWebSocketPingInterval(30 * time.Second)(&opts)
+		if opts.wsReadTimeout != beforeRead ||
+			opts.wsWriteTimeout != beforeWrite ||
+			opts.firstFrameTimeout != beforeFirst ||
+			opts.handshakeTimeout != beforeHandshake {
+			t.Fatalf("WithWebSocketPingInterval should be a no-op, timeouts changed")
+		}
+	})
+
+	t.Run("WithWebSocketPongTimeout_maps_to_ReadTimeout", func(t *testing.T) {
+		opts := defaultOptions()
+		WithWebSocketPongTimeout(75 * time.Second)(&opts)
+		if opts.wsReadTimeout != 75*time.Second {
+			t.Fatalf("WithWebSocketPongTimeout should set wsReadTimeout=75s, got %v", opts.wsReadTimeout)
+		}
+	})
+
+	t.Run("WithWebSocketPongTimeout_negative_ignored", func(t *testing.T) {
+		opts := defaultOptions()
+		original := opts.wsReadTimeout
+		WithWebSocketPongTimeout(-1 * time.Second)(&opts)
+		if opts.wsReadTimeout != original {
+			t.Fatalf("negative WithWebSocketPongTimeout should be ignored, got %v", opts.wsReadTimeout)
+		}
+	})
 }
 
 func TestProxyDefaultOptions(t *testing.T) {

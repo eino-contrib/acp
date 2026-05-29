@@ -57,6 +57,11 @@ func (r PongResponder) Handler() func(appData string) error {
 				if r.OnContention != nil {
 					r.OnContention(err)
 				}
+				// Receiving the Ping is itself proof the peer is alive; the
+				// Pong write only lost the race for the shared write lock.
+				// Refresh the read deadline so persistent contention does
+				// not let the deadline expire on a healthy connection.
+				r.refreshReadDeadlineIfNeeded()
 				return nil
 			}
 			if r.OnWriteFailed != nil {
@@ -67,9 +72,17 @@ func (r PongResponder) Handler() func(appData string) error {
 			}
 			return err
 		}
-		if r.ReadTimeout > 0 && r.SetReadDeadline != nil && r.RefreshDeadline != nil && r.RefreshDeadline() {
-			_ = r.SetReadDeadline(time.Now().Add(r.ReadTimeout))
-		}
+		r.refreshReadDeadlineIfNeeded()
 		return nil
+	}
+}
+
+// refreshReadDeadlineIfNeeded extends the read deadline by ReadTimeout when
+// the responder is fully configured for it and RefreshDeadline reports true.
+// It is safe to call from both the success path and the write-lock
+// contention path.
+func (r PongResponder) refreshReadDeadlineIfNeeded() {
+	if r.ReadTimeout > 0 && r.SetReadDeadline != nil && r.RefreshDeadline != nil && r.RefreshDeadline() {
+		_ = r.SetReadDeadline(time.Now().Add(r.ReadTimeout))
 	}
 }
