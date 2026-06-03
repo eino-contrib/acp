@@ -49,6 +49,18 @@ func (g *Generator) generateDiscriminatedUnion(d Definition) {
 		return
 	}
 
+	// Unions carrying parent shared fields go through the extended path that
+	// merges parent fields into every variant and emits flat marshal/validate.
+	// Unions without them keep the existing byte-for-byte output below.
+	if unionHasParentSharedFields(s, discField) {
+		plan := g.buildObjectUnionPlan(d, discField)
+		if g.genErr != nil {
+			return
+		}
+		g.generateObjectUnionWithParent(plan)
+		return
+	}
+
 	variantInfos := g.extractVariants(goName, discField, variants)
 	if len(variantInfos) == 0 {
 		g.generateSimpleUnion(d)

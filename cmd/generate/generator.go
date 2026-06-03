@@ -16,6 +16,22 @@ type Generator struct {
 
 	needJSON bool // whether "encoding/json" is needed
 	needFmt  bool // whether "fmt" is needed
+
+	needHasKey bool // whether the hasKey raw-key helper is needed
+
+	// genErr records the first fatal generation error encountered by a deep
+	// generation function. Generate() surfaces it instead of emitting an
+	// incomplete or unsound type. Generation functions return void and write
+	// to buf, so this field is the fail-fast channel.
+	genErr error
+}
+
+// fail records the first fatal generation error. Subsequent calls are ignored
+// so the earliest, most specific cause is reported.
+func (g *Generator) fail(format string, args ...any) {
+	if g.genErr == nil {
+		g.genErr = fmt.Errorf(format, args...)
+	}
 }
 
 // NewGenerator creates a new Generator.
@@ -98,12 +114,26 @@ func (g *Generator) Generate(pkg string) ([]byte, error) {
 	// Generate Validate() methods for struct types with required fields
 	g.generateValidateMethods(defs)
 
+	// Emit the raw-key presence helper if any structural union needs it.
+	if g.needHasKey {
+		g.buf.WriteString("// hasKey reports whether a decoded JSON object contains a key with a\n")
+		g.buf.WriteString("// non-null value, used to distinguish presence from explicit null.\n")
+		g.buf.WriteString("func hasKey(raw map[string]json.RawMessage, key string) bool {\n")
+		g.buf.WriteString("\trm, ok := raw[key]\n")
+		g.buf.WriteString("\treturn ok && string(rm) != \"null\"\n")
+		g.buf.WriteString("}\n\n")
+	}
+
 	// Generate UnmarshalJSON with default values for struct types
 	g.generateDefaultUnmarshalers(defs)
 
 	// Generate method constants from meta
 	if g.meta != nil {
 		g.generateConstants()
+	}
+
+	if g.genErr != nil {
+		return nil, g.genErr
 	}
 
 	// Format the output
@@ -826,6 +856,17 @@ func (g *Generator) generateTypeAlias(d Definition) {
 func (g *Generator) generateSimpleUnion(d Definition) {
 	goName := toTitleCase(d.Name)
 	s := d.Schema
+
+	// Non-discriminator anyOf unions that carry parent shared fields go through
+	// the extended path (structural required-presence matching + parent fields).
+	if unionHasParentSharedFields(s, "") {
+		plan := g.buildObjectUnionPlan(d, "")
+		if g.genErr != nil {
+			return
+		}
+		g.generateObjectUnionWithParent(plan)
+		return
+	}
 
 	g.writeComment(goName, s.Description)
 

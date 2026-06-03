@@ -752,16 +752,128 @@ func NewContentBlockResource(v EmbeddedResource) ContentBlock {
 	return ContentBlock{Resource: &w}
 }
 
-// Form-based elicitation where the client renders a form from the provided schema.
 type CreateElicitationRequestForm struct {
 	ElicitationFormMode
-	Mode string `json:"mode,omitempty"`
+	Meta    map[string]any `json:"-"`
+	Message *string        `json:"-"`
 }
 
-// URL-based elicitation where the client directs the user to a URL.
+func (c CreateElicitationRequestForm) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	{
+		payload, err := json.Marshal(c.ElicitationFormMode)
+		if err != nil {
+			return nil, err
+		}
+		if len(payload) > 0 && string(payload) != "null" {
+			if err := json.Unmarshal(payload, &obj); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if c.Meta != nil {
+		b, err := json.Marshal(c.Meta)
+		if err != nil {
+			return nil, err
+		}
+		obj["_meta"] = b
+	}
+	{
+		b, err := json.Marshal(c.Message)
+		if err != nil {
+			return nil, err
+		}
+		obj["message"] = b
+	}
+	obj["mode"], _ = json.Marshal("form")
+	return json.Marshal(obj)
+}
+
+func (c *CreateElicitationRequestForm) UnmarshalJSON(data []byte) error {
+	*c = CreateElicitationRequestForm{}
+	if err := json.Unmarshal(data, &c.ElicitationFormMode); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["_meta"]; ok {
+		if err := json.Unmarshal(rm, &c.Meta); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["message"]; ok {
+		if err := json.Unmarshal(rm, &c.Message); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["message"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("message is required")
+	}
+	return nil
+}
+
 type CreateElicitationRequestURL struct {
 	ElicitationURLMode
-	Mode string `json:"mode,omitempty"`
+	Meta    map[string]any `json:"-"`
+	Message *string        `json:"-"`
+}
+
+func (c CreateElicitationRequestURL) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	{
+		payload, err := json.Marshal(c.ElicitationURLMode)
+		if err != nil {
+			return nil, err
+		}
+		if len(payload) > 0 && string(payload) != "null" {
+			if err := json.Unmarshal(payload, &obj); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if c.Meta != nil {
+		b, err := json.Marshal(c.Meta)
+		if err != nil {
+			return nil, err
+		}
+		obj["_meta"] = b
+	}
+	{
+		b, err := json.Marshal(c.Message)
+		if err != nil {
+			return nil, err
+		}
+		obj["message"] = b
+	}
+	obj["mode"], _ = json.Marshal("url")
+	return json.Marshal(obj)
+}
+
+func (c *CreateElicitationRequestURL) UnmarshalJSON(data []byte) error {
+	*c = CreateElicitationRequestURL{}
+	if err := json.Unmarshal(data, &c.ElicitationURLMode); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["_meta"]; ok {
+		if err := json.Unmarshal(rm, &c.Meta); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["message"]; ok {
+		if err := json.Unmarshal(rm, &c.Message); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["message"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("message is required")
+	}
+	return nil
 }
 
 // **UNSTABLE**
@@ -774,66 +886,105 @@ type CreateElicitationRequestURL struct {
 // either via a form or by directing them to a URL.
 // Elicitations are tied to a session (optionally a tool call) or a request.
 type CreateElicitationRequest struct {
-	// Form-based elicitation where the client renders a form from the provided schema.
 	Form *CreateElicitationRequestForm `json:"-"`
-	// URL-based elicitation where the client directs the user to a URL.
-	URL *CreateElicitationRequestURL `json:"-"`
+	URL  *CreateElicitationRequestURL  `json:"-"`
 }
 
 func (c CreateElicitationRequest) MarshalJSON() ([]byte, error) {
+	set := 0
 	if c.Form != nil {
-		data, err := json.Marshal(*c.Form)
-		if err != nil {
-			return nil, err
-		}
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(data, &obj); err != nil {
-			return nil, err
-		}
-		obj["mode"], _ = json.Marshal("form")
-		return json.Marshal(obj)
+		set++
 	}
 	if c.URL != nil {
-		data, err := json.Marshal(*c.URL)
-		if err != nil {
-			return nil, err
-		}
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(data, &obj); err != nil {
-			return nil, err
-		}
-		obj["mode"], _ = json.Marshal("url")
-		return json.Marshal(obj)
+		set++
+	}
+	if set != 1 {
+		return nil, fmt.Errorf("CreateElicitationRequest: exactly one variant must be set, got %d", set)
+	}
+	if c.Form != nil {
+		return json.Marshal(c.Form)
+	}
+	if c.URL != nil {
+		return json.Marshal(c.URL)
 	}
 	return nil, fmt.Errorf("no variant is set for CreateElicitationRequest")
 }
+
 func (c *CreateElicitationRequest) UnmarshalJSON(data []byte) error {
 	*c = CreateElicitationRequest{}
 	var disc struct {
-		Mode string `json:"mode"`
+		Mode *string `json:"mode"`
 	}
 	if err := json.Unmarshal(data, &disc); err != nil {
 		return err
 	}
-	switch disc.Mode {
-	case "form":
-		var v CreateElicitationRequestForm
-		if err := json.Unmarshal(data, &v); err != nil {
-			return err
+	if disc.Mode != nil {
+		switch *disc.Mode {
+		case "form":
+			var val CreateElicitationRequestForm
+			if err := json.Unmarshal(data, &val); err != nil {
+				return err
+			}
+			c.Form = &val
+			return nil
+		case "url":
+			var val CreateElicitationRequestURL
+			if err := json.Unmarshal(data, &val); err != nil {
+				return err
+			}
+			c.URL = &val
+			return nil
+		default:
+			return fmt.Errorf("unknown discriminator value: %s", *disc.Mode)
 		}
-		c.Form = &v
-		return nil
-	case "url":
-		var v CreateElicitationRequestURL
-		if err := json.Unmarshal(data, &v); err != nil {
-			return err
-		}
-		c.URL = &v
-		return nil
-	default:
-		return fmt.Errorf("unknown discriminator value: %s", disc.Mode)
 	}
+	return fmt.Errorf("CreateElicitationRequest: missing discriminator mode")
 }
+
+func (c *CreateElicitationRequest) Validate() error {
+	set := 0
+	if c.Form != nil {
+		set++
+	}
+	if c.URL != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("CreateElicitationRequest: exactly one variant must be set, got %d", set)
+	}
+	if c.Form != nil {
+		return c.Form.Validate()
+	}
+	if c.URL != nil {
+		return c.URL.Validate()
+	}
+	return nil
+}
+
+func (c *CreateElicitationRequestForm) Validate() error {
+	if c.Message == nil {
+		return fmt.Errorf("message is required")
+	}
+	if validator, ok := any(&c.ElicitationFormMode).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *CreateElicitationRequestURL) Validate() error {
+	if c.Message == nil {
+		return fmt.Errorf("message is required")
+	}
+	if validator, ok := any(&c.ElicitationURLMode).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *CreateElicitationRequest) AsForm() (CreateElicitationRequestForm, bool) {
 	if c.Form == nil {
 		var zero CreateElicitationRequestForm
@@ -841,6 +992,7 @@ func (c *CreateElicitationRequest) AsForm() (CreateElicitationRequestForm, bool)
 	}
 	return *c.Form, true
 }
+
 func (c *CreateElicitationRequest) AsURL() (CreateElicitationRequestURL, bool) {
 	if c.URL == nil {
 		var zero CreateElicitationRequestURL
@@ -850,37 +1002,121 @@ func (c *CreateElicitationRequest) AsURL() (CreateElicitationRequestURL, bool) {
 }
 
 // NewCreateElicitationRequestForm creates a CreateElicitationRequest holding a Form variant.
-func NewCreateElicitationRequestForm(v ElicitationFormMode) CreateElicitationRequest {
-	w := CreateElicitationRequestForm{
-		ElicitationFormMode: v,
-		Mode:                "form",
-	}
-	return CreateElicitationRequest{Form: &w}
+func NewCreateElicitationRequestForm(v CreateElicitationRequestForm) CreateElicitationRequest {
+	return CreateElicitationRequest{Form: &v}
 }
 
 // NewCreateElicitationRequestURL creates a CreateElicitationRequest holding a URL variant.
-func NewCreateElicitationRequestURL(v ElicitationURLMode) CreateElicitationRequest {
-	w := CreateElicitationRequestURL{
-		ElicitationURLMode: v,
-		Mode:               "url",
-	}
-	return CreateElicitationRequest{URL: &w}
+func NewCreateElicitationRequestURL(v CreateElicitationRequestURL) CreateElicitationRequest {
+	return CreateElicitationRequest{URL: &v}
 }
 
-// The user accepted and provided content.
 type CreateElicitationResponseAccept struct {
 	ElicitationAcceptAction
-	Action string `json:"action,omitempty"`
+	Meta map[string]any `json:"-"`
 }
 
-// The user declined the elicitation.
+func (c CreateElicitationResponseAccept) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	{
+		payload, err := json.Marshal(c.ElicitationAcceptAction)
+		if err != nil {
+			return nil, err
+		}
+		if len(payload) > 0 && string(payload) != "null" {
+			if err := json.Unmarshal(payload, &obj); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if c.Meta != nil {
+		b, err := json.Marshal(c.Meta)
+		if err != nil {
+			return nil, err
+		}
+		obj["_meta"] = b
+	}
+	obj["action"], _ = json.Marshal("accept")
+	return json.Marshal(obj)
+}
+
+func (c *CreateElicitationResponseAccept) UnmarshalJSON(data []byte) error {
+	*c = CreateElicitationResponseAccept{}
+	if err := json.Unmarshal(data, &c.ElicitationAcceptAction); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["_meta"]; ok {
+		if err := json.Unmarshal(rm, &c.Meta); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type CreateElicitationResponseDecline struct {
-	Action string `json:"action,omitempty"`
+	Meta map[string]any `json:"-"`
 }
 
-// The elicitation was cancelled.
+func (c CreateElicitationResponseDecline) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	if c.Meta != nil {
+		b, err := json.Marshal(c.Meta)
+		if err != nil {
+			return nil, err
+		}
+		obj["_meta"] = b
+	}
+	obj["action"], _ = json.Marshal("decline")
+	return json.Marshal(obj)
+}
+
+func (c *CreateElicitationResponseDecline) UnmarshalJSON(data []byte) error {
+	*c = CreateElicitationResponseDecline{}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["_meta"]; ok {
+		if err := json.Unmarshal(rm, &c.Meta); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type CreateElicitationResponseCancel struct {
-	Action string `json:"action,omitempty"`
+	Meta map[string]any `json:"-"`
+}
+
+func (c CreateElicitationResponseCancel) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	if c.Meta != nil {
+		b, err := json.Marshal(c.Meta)
+		if err != nil {
+			return nil, err
+		}
+		obj["_meta"] = b
+	}
+	obj["action"], _ = json.Marshal("cancel")
+	return json.Marshal(obj)
+}
+
+func (c *CreateElicitationResponseCancel) UnmarshalJSON(data []byte) error {
+	*c = CreateElicitationResponseCancel{}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["_meta"]; ok {
+		if err := json.Unmarshal(rm, &c.Meta); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // **UNSTABLE**
@@ -889,87 +1125,118 @@ type CreateElicitationResponseCancel struct {
 //
 // Response from the client to an elicitation request.
 type CreateElicitationResponse struct {
-	// The user accepted and provided content.
-	Accept *CreateElicitationResponseAccept `json:"-"`
-	// The user declined the elicitation.
+	Accept  *CreateElicitationResponseAccept  `json:"-"`
 	Decline *CreateElicitationResponseDecline `json:"-"`
-	// The elicitation was cancelled.
-	Cancel *CreateElicitationResponseCancel `json:"-"`
+	Cancel  *CreateElicitationResponseCancel  `json:"-"`
 }
 
 func (c CreateElicitationResponse) MarshalJSON() ([]byte, error) {
+	set := 0
 	if c.Accept != nil {
-		data, err := json.Marshal(*c.Accept)
-		if err != nil {
-			return nil, err
-		}
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(data, &obj); err != nil {
-			return nil, err
-		}
-		obj["action"], _ = json.Marshal("accept")
-		return json.Marshal(obj)
+		set++
 	}
 	if c.Decline != nil {
-		data, err := json.Marshal(*c.Decline)
-		if err != nil {
-			return nil, err
-		}
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(data, &obj); err != nil {
-			return nil, err
-		}
-		obj["action"], _ = json.Marshal("decline")
-		return json.Marshal(obj)
+		set++
 	}
 	if c.Cancel != nil {
-		data, err := json.Marshal(*c.Cancel)
-		if err != nil {
-			return nil, err
-		}
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(data, &obj); err != nil {
-			return nil, err
-		}
-		obj["action"], _ = json.Marshal("cancel")
-		return json.Marshal(obj)
+		set++
+	}
+	if set != 1 {
+		return nil, fmt.Errorf("CreateElicitationResponse: exactly one variant must be set, got %d", set)
+	}
+	if c.Accept != nil {
+		return json.Marshal(c.Accept)
+	}
+	if c.Decline != nil {
+		return json.Marshal(c.Decline)
+	}
+	if c.Cancel != nil {
+		return json.Marshal(c.Cancel)
 	}
 	return nil, fmt.Errorf("no variant is set for CreateElicitationResponse")
 }
+
 func (c *CreateElicitationResponse) UnmarshalJSON(data []byte) error {
 	*c = CreateElicitationResponse{}
 	var disc struct {
-		Action string `json:"action"`
+		Action *string `json:"action"`
 	}
 	if err := json.Unmarshal(data, &disc); err != nil {
 		return err
 	}
-	switch disc.Action {
-	case "accept":
-		var v CreateElicitationResponseAccept
-		if err := json.Unmarshal(data, &v); err != nil {
-			return err
+	if disc.Action != nil {
+		switch *disc.Action {
+		case "accept":
+			var val CreateElicitationResponseAccept
+			if err := json.Unmarshal(data, &val); err != nil {
+				return err
+			}
+			c.Accept = &val
+			return nil
+		case "decline":
+			var val CreateElicitationResponseDecline
+			if err := json.Unmarshal(data, &val); err != nil {
+				return err
+			}
+			c.Decline = &val
+			return nil
+		case "cancel":
+			var val CreateElicitationResponseCancel
+			if err := json.Unmarshal(data, &val); err != nil {
+				return err
+			}
+			c.Cancel = &val
+			return nil
+		default:
+			return fmt.Errorf("unknown discriminator value: %s", *disc.Action)
 		}
-		c.Accept = &v
-		return nil
-	case "decline":
-		var v CreateElicitationResponseDecline
-		if err := json.Unmarshal(data, &v); err != nil {
-			return err
-		}
-		c.Decline = &v
-		return nil
-	case "cancel":
-		var v CreateElicitationResponseCancel
-		if err := json.Unmarshal(data, &v); err != nil {
-			return err
-		}
-		c.Cancel = &v
-		return nil
-	default:
-		return fmt.Errorf("unknown discriminator value: %s", disc.Action)
 	}
+	return fmt.Errorf("CreateElicitationResponse: missing discriminator action")
 }
+
+func (c *CreateElicitationResponse) Validate() error {
+	set := 0
+	if c.Accept != nil {
+		set++
+	}
+	if c.Decline != nil {
+		set++
+	}
+	if c.Cancel != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("CreateElicitationResponse: exactly one variant must be set, got %d", set)
+	}
+	if c.Accept != nil {
+		return c.Accept.Validate()
+	}
+	if c.Decline != nil {
+		return c.Decline.Validate()
+	}
+	if c.Cancel != nil {
+		return c.Cancel.Validate()
+	}
+	return nil
+}
+
+func (c *CreateElicitationResponseAccept) Validate() error {
+	if validator, ok := any(&c.ElicitationAcceptAction).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *CreateElicitationResponseDecline) Validate() error {
+	return nil
+}
+
+func (c *CreateElicitationResponseCancel) Validate() error {
+	return nil
+}
+
 func (c *CreateElicitationResponse) AsAccept() (CreateElicitationResponseAccept, bool) {
 	if c.Accept == nil {
 		var zero CreateElicitationResponseAccept
@@ -977,6 +1244,7 @@ func (c *CreateElicitationResponse) AsAccept() (CreateElicitationResponseAccept,
 	}
 	return *c.Accept, true
 }
+
 func (c *CreateElicitationResponse) AsDecline() (CreateElicitationResponseDecline, bool) {
 	if c.Decline == nil {
 		var zero CreateElicitationResponseDecline
@@ -984,6 +1252,7 @@ func (c *CreateElicitationResponse) AsDecline() (CreateElicitationResponseDeclin
 	}
 	return *c.Decline, true
 }
+
 func (c *CreateElicitationResponse) AsCancel() (CreateElicitationResponseCancel, bool) {
 	if c.Cancel == nil {
 		var zero CreateElicitationResponseCancel
@@ -993,23 +1262,17 @@ func (c *CreateElicitationResponse) AsCancel() (CreateElicitationResponseCancel,
 }
 
 // NewCreateElicitationResponseAccept creates a CreateElicitationResponse holding a Accept variant.
-func NewCreateElicitationResponseAccept(v ElicitationAcceptAction) CreateElicitationResponse {
-	w := CreateElicitationResponseAccept{
-		ElicitationAcceptAction: v,
-		Action:                  "accept",
-	}
-	return CreateElicitationResponse{Accept: &w}
+func NewCreateElicitationResponseAccept(v CreateElicitationResponseAccept) CreateElicitationResponse {
+	return CreateElicitationResponse{Accept: &v}
 }
 
 // NewCreateElicitationResponseDecline creates a CreateElicitationResponse holding a Decline variant.
 func NewCreateElicitationResponseDecline(v CreateElicitationResponseDecline) CreateElicitationResponse {
-	v.Action = "decline"
 	return CreateElicitationResponse{Decline: &v}
 }
 
 // NewCreateElicitationResponseCancel creates a CreateElicitationResponse holding a Cancel variant.
 func NewCreateElicitationResponseCancel(v CreateElicitationResponseCancel) CreateElicitationResponse {
-	v.Action = "cancel"
 	return CreateElicitationResponse{Cancel: &v}
 }
 
@@ -1717,88 +1980,321 @@ func NewRequestPermissionOutcomeSelected(v SelectedPermissionOutcome) RequestPer
 	return RequestPermissionOutcome{Selected: &w}
 }
 
-// Single-value selector (dropdown).
 type SessionConfigOptionSelect struct {
 	SessionConfigSelect
-	Type string `json:"type,omitempty"`
+	Meta        map[string]any               `json:"-"`
+	Category    *SessionConfigOptionCategory `json:"-"`
+	Description string                       `json:"-"`
+	ID          *SessionConfigID             `json:"-"`
+	Name        *string                      `json:"-"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
-// Boolean on/off toggle.
+func (s SessionConfigOptionSelect) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	{
+		payload, err := json.Marshal(s.SessionConfigSelect)
+		if err != nil {
+			return nil, err
+		}
+		if len(payload) > 0 && string(payload) != "null" {
+			if err := json.Unmarshal(payload, &obj); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if s.Meta != nil {
+		b, err := json.Marshal(s.Meta)
+		if err != nil {
+			return nil, err
+		}
+		obj["_meta"] = b
+	}
+	if s.Category != nil {
+		b, err := json.Marshal(s.Category)
+		if err != nil {
+			return nil, err
+		}
+		obj["category"] = b
+	}
+	if s.Description != "" {
+		b, err := json.Marshal(s.Description)
+		if err != nil {
+			return nil, err
+		}
+		obj["description"] = b
+	}
+	{
+		b, err := json.Marshal(s.ID)
+		if err != nil {
+			return nil, err
+		}
+		obj["id"] = b
+	}
+	{
+		b, err := json.Marshal(s.Name)
+		if err != nil {
+			return nil, err
+		}
+		obj["name"] = b
+	}
+	obj["type"], _ = json.Marshal("select")
+	return json.Marshal(obj)
+}
+
+func (s *SessionConfigOptionSelect) UnmarshalJSON(data []byte) error {
+	*s = SessionConfigOptionSelect{}
+	if err := json.Unmarshal(data, &s.SessionConfigSelect); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["_meta"]; ok {
+		if err := json.Unmarshal(rm, &s.Meta); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["category"]; ok {
+		if err := json.Unmarshal(rm, &s.Category); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["description"]; ok {
+		if err := json.Unmarshal(rm, &s.Description); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["id"]; ok {
+		if err := json.Unmarshal(rm, &s.ID); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["name"]; ok {
+		if err := json.Unmarshal(rm, &s.Name); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["id"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("id is required")
+	}
+	if rm, ok := raw["name"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("name is required")
+	}
+	return nil
+}
+
 type SessionConfigOptionBoolean struct {
 	SessionConfigBoolean
-	Type string `json:"type,omitempty"`
+	Meta        map[string]any               `json:"-"`
+	Category    *SessionConfigOptionCategory `json:"-"`
+	Description string                       `json:"-"`
+	ID          *SessionConfigID             `json:"-"`
+	Name        *string                      `json:"-"`
+}
+
+func (s SessionConfigOptionBoolean) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	{
+		payload, err := json.Marshal(s.SessionConfigBoolean)
+		if err != nil {
+			return nil, err
+		}
+		if len(payload) > 0 && string(payload) != "null" {
+			if err := json.Unmarshal(payload, &obj); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if s.Meta != nil {
+		b, err := json.Marshal(s.Meta)
+		if err != nil {
+			return nil, err
+		}
+		obj["_meta"] = b
+	}
+	if s.Category != nil {
+		b, err := json.Marshal(s.Category)
+		if err != nil {
+			return nil, err
+		}
+		obj["category"] = b
+	}
+	if s.Description != "" {
+		b, err := json.Marshal(s.Description)
+		if err != nil {
+			return nil, err
+		}
+		obj["description"] = b
+	}
+	{
+		b, err := json.Marshal(s.ID)
+		if err != nil {
+			return nil, err
+		}
+		obj["id"] = b
+	}
+	{
+		b, err := json.Marshal(s.Name)
+		if err != nil {
+			return nil, err
+		}
+		obj["name"] = b
+	}
+	obj["type"], _ = json.Marshal("boolean")
+	return json.Marshal(obj)
+}
+
+func (s *SessionConfigOptionBoolean) UnmarshalJSON(data []byte) error {
+	*s = SessionConfigOptionBoolean{}
+	if err := json.Unmarshal(data, &s.SessionConfigBoolean); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["_meta"]; ok {
+		if err := json.Unmarshal(rm, &s.Meta); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["category"]; ok {
+		if err := json.Unmarshal(rm, &s.Category); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["description"]; ok {
+		if err := json.Unmarshal(rm, &s.Description); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["id"]; ok {
+		if err := json.Unmarshal(rm, &s.ID); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["name"]; ok {
+		if err := json.Unmarshal(rm, &s.Name); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["id"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("id is required")
+	}
+	if rm, ok := raw["name"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("name is required")
+	}
+	return nil
 }
 
 // A session configuration option selector and its current state.
 type SessionConfigOption struct {
-	// Single-value selector (dropdown).
-	Select *SessionConfigOptionSelect `json:"-"`
-	// **UNSTABLE**
-	//
-	// This capability is not part of the spec yet, and may be removed or changed at any point.
-	//
-	// Boolean on/off toggle.
+	Select  *SessionConfigOptionSelect  `json:"-"`
 	Boolean *SessionConfigOptionBoolean `json:"-"`
 }
 
 func (s SessionConfigOption) MarshalJSON() ([]byte, error) {
+	set := 0
 	if s.Select != nil {
-		data, err := json.Marshal(*s.Select)
-		if err != nil {
-			return nil, err
-		}
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(data, &obj); err != nil {
-			return nil, err
-		}
-		obj["type"], _ = json.Marshal("select")
-		return json.Marshal(obj)
+		set++
 	}
 	if s.Boolean != nil {
-		data, err := json.Marshal(*s.Boolean)
-		if err != nil {
-			return nil, err
-		}
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(data, &obj); err != nil {
-			return nil, err
-		}
-		obj["type"], _ = json.Marshal("boolean")
-		return json.Marshal(obj)
+		set++
+	}
+	if set != 1 {
+		return nil, fmt.Errorf("SessionConfigOption: exactly one variant must be set, got %d", set)
+	}
+	if s.Select != nil {
+		return json.Marshal(s.Select)
+	}
+	if s.Boolean != nil {
+		return json.Marshal(s.Boolean)
 	}
 	return nil, fmt.Errorf("no variant is set for SessionConfigOption")
 }
+
 func (s *SessionConfigOption) UnmarshalJSON(data []byte) error {
 	*s = SessionConfigOption{}
 	var disc struct {
-		Type string `json:"type"`
+		Type *string `json:"type"`
 	}
 	if err := json.Unmarshal(data, &disc); err != nil {
 		return err
 	}
-	switch disc.Type {
-	case "select":
-		var v SessionConfigOptionSelect
-		if err := json.Unmarshal(data, &v); err != nil {
-			return err
+	if disc.Type != nil {
+		switch *disc.Type {
+		case "select":
+			var val SessionConfigOptionSelect
+			if err := json.Unmarshal(data, &val); err != nil {
+				return err
+			}
+			s.Select = &val
+			return nil
+		case "boolean":
+			var val SessionConfigOptionBoolean
+			if err := json.Unmarshal(data, &val); err != nil {
+				return err
+			}
+			s.Boolean = &val
+			return nil
+		default:
+			return fmt.Errorf("unknown discriminator value: %s", *disc.Type)
 		}
-		s.Select = &v
-		return nil
-	case "boolean":
-		var v SessionConfigOptionBoolean
-		if err := json.Unmarshal(data, &v); err != nil {
-			return err
-		}
-		s.Boolean = &v
-		return nil
-	default:
-		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
+	return fmt.Errorf("SessionConfigOption: missing discriminator type")
 }
+
+func (s *SessionConfigOption) Validate() error {
+	set := 0
+	if s.Select != nil {
+		set++
+	}
+	if s.Boolean != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("SessionConfigOption: exactly one variant must be set, got %d", set)
+	}
+	if s.Select != nil {
+		return s.Select.Validate()
+	}
+	if s.Boolean != nil {
+		return s.Boolean.Validate()
+	}
+	return nil
+}
+
+func (s *SessionConfigOptionSelect) Validate() error {
+	if s.ID == nil {
+		return fmt.Errorf("id is required")
+	}
+	if s.Name == nil {
+		return fmt.Errorf("name is required")
+	}
+	if validator, ok := any(&s.SessionConfigSelect).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SessionConfigOptionBoolean) Validate() error {
+	if s.ID == nil {
+		return fmt.Errorf("id is required")
+	}
+	if s.Name == nil {
+		return fmt.Errorf("name is required")
+	}
+	if validator, ok := any(&s.SessionConfigBoolean).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *SessionConfigOption) AsSelect() (SessionConfigOptionSelect, bool) {
 	if s.Select == nil {
 		var zero SessionConfigOptionSelect
@@ -1806,6 +2302,7 @@ func (s *SessionConfigOption) AsSelect() (SessionConfigOptionSelect, bool) {
 	}
 	return *s.Select, true
 }
+
 func (s *SessionConfigOption) AsBoolean() (SessionConfigOptionBoolean, bool) {
 	if s.Boolean == nil {
 		var zero SessionConfigOptionBoolean
@@ -1815,21 +2312,13 @@ func (s *SessionConfigOption) AsBoolean() (SessionConfigOptionBoolean, bool) {
 }
 
 // NewSessionConfigOptionSelect creates a SessionConfigOption holding a Select variant.
-func NewSessionConfigOptionSelect(v SessionConfigSelect) SessionConfigOption {
-	w := SessionConfigOptionSelect{
-		SessionConfigSelect: v,
-		Type:                "select",
-	}
-	return SessionConfigOption{Select: &w}
+func NewSessionConfigOptionSelect(v SessionConfigOptionSelect) SessionConfigOption {
+	return SessionConfigOption{Select: &v}
 }
 
 // NewSessionConfigOptionBoolean creates a SessionConfigOption holding a Boolean variant.
-func NewSessionConfigOptionBoolean(v SessionConfigBoolean) SessionConfigOption {
-	w := SessionConfigOptionBoolean{
-		SessionConfigBoolean: v,
-		Type:                 "boolean",
-	}
-	return SessionConfigOption{Boolean: &w}
+func NewSessionConfigOptionBoolean(v SessionConfigOptionBoolean) SessionConfigOption {
+	return SessionConfigOption{Boolean: &v}
 }
 
 // A chunk of the user's message being streamed.
@@ -2344,53 +2833,269 @@ func NewSessionUpdateUsageUpdate(v UsageUpdate) SessionUpdate {
 	return SessionUpdate{UsageUpdate: &w}
 }
 
-// A boolean value (`type: "boolean"`).
 type SetSessionConfigOptionRequestBoolean struct {
-	Type  string `json:"type,omitempty"`
-	Value bool   `json:"value"`
+	Meta      map[string]any   `json:"-"`
+	ConfigID  *SessionConfigID `json:"-"`
+	SessionID *SessionID       `json:"-"`
+	Value     *bool            `json:"-"`
+}
+
+func (s SetSessionConfigOptionRequestBoolean) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	if s.Meta != nil {
+		b, err := json.Marshal(s.Meta)
+		if err != nil {
+			return nil, err
+		}
+		obj["_meta"] = b
+	}
+	{
+		b, err := json.Marshal(s.ConfigID)
+		if err != nil {
+			return nil, err
+		}
+		obj["configId"] = b
+	}
+	{
+		b, err := json.Marshal(s.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		obj["sessionId"] = b
+	}
+	{
+		b, err := json.Marshal(s.Value)
+		if err != nil {
+			return nil, err
+		}
+		obj["value"] = b
+	}
+	obj["type"], _ = json.Marshal("boolean")
+	return json.Marshal(obj)
+}
+
+func (s *SetSessionConfigOptionRequestBoolean) UnmarshalJSON(data []byte) error {
+	*s = SetSessionConfigOptionRequestBoolean{}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["_meta"]; ok {
+		if err := json.Unmarshal(rm, &s.Meta); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["configId"]; ok {
+		if err := json.Unmarshal(rm, &s.ConfigID); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["sessionId"]; ok {
+		if err := json.Unmarshal(rm, &s.SessionID); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["value"]; ok {
+		if err := json.Unmarshal(rm, &s.Value); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["configId"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("configId is required")
+	}
+	if rm, ok := raw["sessionId"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("sessionId is required")
+	}
+	if rm, ok := raw["value"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("value is required")
+	}
+	return nil
+}
+
+type SetSessionConfigOptionRequestValueID struct {
+	Meta      map[string]any        `json:"-"`
+	ConfigID  *SessionConfigID      `json:"-"`
+	SessionID *SessionID            `json:"-"`
+	Value     *SessionConfigValueID `json:"-"`
+}
+
+func (s SetSessionConfigOptionRequestValueID) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	if s.Meta != nil {
+		b, err := json.Marshal(s.Meta)
+		if err != nil {
+			return nil, err
+		}
+		obj["_meta"] = b
+	}
+	{
+		b, err := json.Marshal(s.ConfigID)
+		if err != nil {
+			return nil, err
+		}
+		obj["configId"] = b
+	}
+	{
+		b, err := json.Marshal(s.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		obj["sessionId"] = b
+	}
+	{
+		b, err := json.Marshal(s.Value)
+		if err != nil {
+			return nil, err
+		}
+		obj["value"] = b
+	}
+	return json.Marshal(obj)
+}
+
+func (s *SetSessionConfigOptionRequestValueID) UnmarshalJSON(data []byte) error {
+	*s = SetSessionConfigOptionRequestValueID{}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["_meta"]; ok {
+		if err := json.Unmarshal(rm, &s.Meta); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["configId"]; ok {
+		if err := json.Unmarshal(rm, &s.ConfigID); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["sessionId"]; ok {
+		if err := json.Unmarshal(rm, &s.SessionID); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["value"]; ok {
+		if err := json.Unmarshal(rm, &s.Value); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["configId"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("configId is required")
+	}
+	if rm, ok := raw["sessionId"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("sessionId is required")
+	}
+	if rm, ok := raw["value"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("value is required")
+	}
+	return nil
 }
 
 // Request parameters for setting a session configuration option.
 type SetSessionConfigOptionRequest struct {
-	// A boolean value (`type: "boolean"`).
 	Boolean *SetSessionConfigOptionRequestBoolean `json:"-"`
+	ValueID *SetSessionConfigOptionRequestValueID `json:"-"`
 }
 
 func (s SetSessionConfigOptionRequest) MarshalJSON() ([]byte, error) {
+	set := 0
 	if s.Boolean != nil {
-		data, err := json.Marshal(*s.Boolean)
-		if err != nil {
-			return nil, err
-		}
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(data, &obj); err != nil {
-			return nil, err
-		}
-		obj["type"], _ = json.Marshal("boolean")
-		return json.Marshal(obj)
+		set++
+	}
+	if s.ValueID != nil {
+		set++
+	}
+	if set != 1 {
+		return nil, fmt.Errorf("SetSessionConfigOptionRequest: exactly one variant must be set, got %d", set)
+	}
+	if s.Boolean != nil {
+		return json.Marshal(s.Boolean)
+	}
+	if s.ValueID != nil {
+		return json.Marshal(s.ValueID)
 	}
 	return nil, fmt.Errorf("no variant is set for SetSessionConfigOptionRequest")
 }
+
 func (s *SetSessionConfigOptionRequest) UnmarshalJSON(data []byte) error {
 	*s = SetSessionConfigOptionRequest{}
 	var disc struct {
-		Type string `json:"type"`
+		Type *string `json:"type"`
 	}
 	if err := json.Unmarshal(data, &disc); err != nil {
 		return err
 	}
-	switch disc.Type {
-	case "boolean":
-		var v SetSessionConfigOptionRequestBoolean
-		if err := json.Unmarshal(data, &v); err != nil {
-			return err
+	if disc.Type != nil {
+		switch *disc.Type {
+		case "boolean":
+			var val SetSessionConfigOptionRequestBoolean
+			if err := json.Unmarshal(data, &val); err != nil {
+				return err
+			}
+			s.Boolean = &val
+			return nil
+		default:
+			var val SetSessionConfigOptionRequestValueID
+			if err := json.Unmarshal(data, &val); err != nil {
+				return err
+			}
+			s.ValueID = &val
+			return nil
 		}
-		s.Boolean = &v
-		return nil
-	default:
-		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
+	var val SetSessionConfigOptionRequestValueID
+	if err := json.Unmarshal(data, &val); err != nil {
+		return err
+	}
+	s.ValueID = &val
+	return nil
 }
+
+func (s *SetSessionConfigOptionRequest) Validate() error {
+	set := 0
+	if s.Boolean != nil {
+		set++
+	}
+	if s.ValueID != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("SetSessionConfigOptionRequest: exactly one variant must be set, got %d", set)
+	}
+	if s.Boolean != nil {
+		return s.Boolean.Validate()
+	}
+	if s.ValueID != nil {
+		return s.ValueID.Validate()
+	}
+	return nil
+}
+
+func (s *SetSessionConfigOptionRequestBoolean) Validate() error {
+	if s.ConfigID == nil {
+		return fmt.Errorf("configId is required")
+	}
+	if s.SessionID == nil {
+		return fmt.Errorf("sessionId is required")
+	}
+	if s.Value == nil {
+		return fmt.Errorf("value is required")
+	}
+	return nil
+}
+
+func (s *SetSessionConfigOptionRequestValueID) Validate() error {
+	if s.ConfigID == nil {
+		return fmt.Errorf("configId is required")
+	}
+	if s.SessionID == nil {
+		return fmt.Errorf("sessionId is required")
+	}
+	if s.Value == nil {
+		return fmt.Errorf("value is required")
+	}
+	return nil
+}
+
 func (s *SetSessionConfigOptionRequest) AsBoolean() (SetSessionConfigOptionRequestBoolean, bool) {
 	if s.Boolean == nil {
 		var zero SetSessionConfigOptionRequestBoolean
@@ -2399,10 +3104,22 @@ func (s *SetSessionConfigOptionRequest) AsBoolean() (SetSessionConfigOptionReque
 	return *s.Boolean, true
 }
 
+func (s *SetSessionConfigOptionRequest) AsValueID() (SetSessionConfigOptionRequestValueID, bool) {
+	if s.ValueID == nil {
+		var zero SetSessionConfigOptionRequestValueID
+		return zero, false
+	}
+	return *s.ValueID, true
+}
+
 // NewSetSessionConfigOptionRequestBoolean creates a SetSessionConfigOptionRequest holding a Boolean variant.
 func NewSetSessionConfigOptionRequestBoolean(v SetSessionConfigOptionRequestBoolean) SetSessionConfigOptionRequest {
-	v.Type = "boolean"
 	return SetSessionConfigOptionRequest{Boolean: &v}
+}
+
+// NewSetSessionConfigOptionRequestValueID creates a SetSessionConfigOptionRequest holding a ValueID variant.
+func NewSetSessionConfigOptionRequestValueID(v SetSessionConfigOptionRequestValueID) SetSessionConfigOptionRequest {
+	return SetSessionConfigOptionRequest{ValueID: &v}
 }
 
 // Standard content block (text, images, resources).
@@ -4623,87 +5340,233 @@ func (v ElicitationContentValue) AsStringArray() ([]string, bool) {
 	return []string(*v.StringArray), true
 }
 
+type ElicitationFormModeElicitationSessionScope struct {
+	ElicitationSessionScope
+	RequestedSchema ElicitationSchema `json:"-"`
+}
+
+func (e ElicitationFormModeElicitationSessionScope) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	{
+		payload, err := json.Marshal(e.ElicitationSessionScope)
+		if err != nil {
+			return nil, err
+		}
+		if len(payload) > 0 && string(payload) != "null" {
+			if err := json.Unmarshal(payload, &obj); err != nil {
+				return nil, err
+			}
+		}
+	}
+	{
+		b, err := json.Marshal(e.RequestedSchema)
+		if err != nil {
+			return nil, err
+		}
+		obj["requestedSchema"] = b
+	}
+	return json.Marshal(obj)
+}
+
+func (e *ElicitationFormModeElicitationSessionScope) UnmarshalJSON(data []byte) error {
+	*e = ElicitationFormModeElicitationSessionScope{}
+	if err := json.Unmarshal(data, &e.ElicitationSessionScope); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["requestedSchema"]; ok {
+		if err := json.Unmarshal(rm, &e.RequestedSchema); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["requestedSchema"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("requestedSchema is required")
+	}
+	return nil
+}
+
+type ElicitationFormModeElicitationRequestScope struct {
+	ElicitationRequestScope
+	RequestedSchema ElicitationSchema `json:"-"`
+}
+
+func (e ElicitationFormModeElicitationRequestScope) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	{
+		payload, err := json.Marshal(e.ElicitationRequestScope)
+		if err != nil {
+			return nil, err
+		}
+		if len(payload) > 0 && string(payload) != "null" {
+			if err := json.Unmarshal(payload, &obj); err != nil {
+				return nil, err
+			}
+		}
+	}
+	{
+		b, err := json.Marshal(e.RequestedSchema)
+		if err != nil {
+			return nil, err
+		}
+		obj["requestedSchema"] = b
+	}
+	return json.Marshal(obj)
+}
+
+func (e *ElicitationFormModeElicitationRequestScope) UnmarshalJSON(data []byte) error {
+	*e = ElicitationFormModeElicitationRequestScope{}
+	if err := json.Unmarshal(data, &e.ElicitationRequestScope); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["requestedSchema"]; ok {
+		if err := json.Unmarshal(rm, &e.RequestedSchema); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["requestedSchema"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("requestedSchema is required")
+	}
+	return nil
+}
+
 // **UNSTABLE**
 //
 // This capability is not part of the spec yet, and may be removed or changed at any point.
 //
 // Form-based elicitation mode where the client renders a form from the provided schema.
 type ElicitationFormMode struct {
-	ElicitationSessionScope *ElicitationSessionScope `json:"-"`
-	ElicitationRequestScope *ElicitationRequestScope `json:"-"`
+	ElicitationSessionScope *ElicitationFormModeElicitationSessionScope `json:"-"`
+	ElicitationRequestScope *ElicitationFormModeElicitationRequestScope `json:"-"`
 }
 
 func (e ElicitationFormMode) MarshalJSON() ([]byte, error) {
+	set := 0
 	if e.ElicitationSessionScope != nil {
-		return json.Marshal(*e.ElicitationSessionScope)
+		set++
 	}
 	if e.ElicitationRequestScope != nil {
-		return json.Marshal(*e.ElicitationRequestScope)
+		set++
+	}
+	if set != 1 {
+		return nil, fmt.Errorf("ElicitationFormMode: exactly one variant must be set, got %d", set)
+	}
+	if e.ElicitationSessionScope != nil {
+		return json.Marshal(e.ElicitationSessionScope)
+	}
+	if e.ElicitationRequestScope != nil {
+		return json.Marshal(e.ElicitationRequestScope)
 	}
 	return nil, fmt.Errorf("no variant is set for ElicitationFormMode")
 }
+
 func (e *ElicitationFormMode) UnmarshalJSON(data []byte) error {
 	*e = ElicitationFormMode{}
-	var keys map[string]json.RawMessage
-	if err := json.Unmarshal(data, &keys); err == nil {
-		if _, ok := keys["sessionId"]; ok {
-			var v0 ElicitationSessionScope
-			if err := json.Unmarshal(data, &v0); err != nil {
-				return err
-			}
-			e.ElicitationSessionScope = &v0
-			return nil
-		}
-		if _, ok := keys["requestId"]; ok {
-			var v1 ElicitationRequestScope
-			if err := json.Unmarshal(data, &v1); err != nil {
-				return err
-			}
-			e.ElicitationRequestScope = &v1
-			return nil
-		}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
 	}
-	{
-		var vf0 ElicitationSessionScope
-		if err := json.Unmarshal(data, &vf0); err == nil {
-			e.ElicitationSessionScope = &vf0
-			return nil
-		}
+	matched := -1
+	count := 0
+	if hasKey(raw, "sessionId") {
+		matched = 0
+		count++
 	}
-	{
-		var vf1 ElicitationRequestScope
-		if err := json.Unmarshal(data, &vf1); err == nil {
-			e.ElicitationRequestScope = &vf1
-			return nil
-		}
+	if hasKey(raw, "requestId") {
+		matched = 1
+		count++
 	}
-	return fmt.Errorf("data does not match any variant of ElicitationFormMode")
+	if count == 0 {
+		return fmt.Errorf("ElicitationFormMode: data does not match any variant")
+	}
+	if count > 1 {
+		return fmt.Errorf("ElicitationFormMode: ambiguous union, data matches multiple variants")
+	}
+	switch matched {
+	case 0:
+		var val ElicitationFormModeElicitationSessionScope
+		if err := json.Unmarshal(data, &val); err != nil {
+			return err
+		}
+		e.ElicitationSessionScope = &val
+	case 1:
+		var val ElicitationFormModeElicitationRequestScope
+		if err := json.Unmarshal(data, &val); err != nil {
+			return err
+		}
+		e.ElicitationRequestScope = &val
+	}
+	return nil
 }
-func (e *ElicitationFormMode) AsElicitationSessionScope() (ElicitationSessionScope, bool) {
+
+func (e *ElicitationFormMode) Validate() error {
+	set := 0
+	if e.ElicitationSessionScope != nil {
+		set++
+	}
+	if e.ElicitationRequestScope != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("ElicitationFormMode: exactly one variant must be set, got %d", set)
+	}
+	if e.ElicitationSessionScope != nil {
+		return e.ElicitationSessionScope.Validate()
+	}
+	if e.ElicitationRequestScope != nil {
+		return e.ElicitationRequestScope.Validate()
+	}
+	return nil
+}
+
+func (e *ElicitationFormModeElicitationSessionScope) Validate() error {
+	if validator, ok := any(&e.ElicitationSessionScope).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *ElicitationFormModeElicitationRequestScope) Validate() error {
+	if validator, ok := any(&e.ElicitationRequestScope).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *ElicitationFormMode) AsElicitationSessionScope() (ElicitationFormModeElicitationSessionScope, bool) {
 	if e.ElicitationSessionScope == nil {
-		var zero ElicitationSessionScope
+		var zero ElicitationFormModeElicitationSessionScope
 		return zero, false
 	}
-	return ElicitationSessionScope(*e.ElicitationSessionScope), true
+	return *e.ElicitationSessionScope, true
 }
-func (e *ElicitationFormMode) AsElicitationRequestScope() (ElicitationRequestScope, bool) {
+
+func (e *ElicitationFormMode) AsElicitationRequestScope() (ElicitationFormModeElicitationRequestScope, bool) {
 	if e.ElicitationRequestScope == nil {
-		var zero ElicitationRequestScope
+		var zero ElicitationFormModeElicitationRequestScope
 		return zero, false
 	}
-	return ElicitationRequestScope(*e.ElicitationRequestScope), true
+	return *e.ElicitationRequestScope, true
 }
 
 // NewElicitationFormModeElicitationSessionScope creates a ElicitationFormMode holding a ElicitationSessionScope variant.
-func NewElicitationFormModeElicitationSessionScope(v ElicitationSessionScope) ElicitationFormMode {
-	vv := ElicitationSessionScope(v)
-	return ElicitationFormMode{ElicitationSessionScope: &vv}
+func NewElicitationFormModeElicitationSessionScope(v ElicitationFormModeElicitationSessionScope) ElicitationFormMode {
+	return ElicitationFormMode{ElicitationSessionScope: &v}
 }
 
 // NewElicitationFormModeElicitationRequestScope creates a ElicitationFormMode holding a ElicitationRequestScope variant.
-func NewElicitationFormModeElicitationRequestScope(v ElicitationRequestScope) ElicitationFormMode {
-	vv := ElicitationRequestScope(v)
-	return ElicitationFormMode{ElicitationRequestScope: &vv}
+func NewElicitationFormModeElicitationRequestScope(v ElicitationFormModeElicitationRequestScope) ElicitationFormMode {
+	return ElicitationFormMode{ElicitationRequestScope: &v}
 }
 
 // **UNSTABLE**
@@ -4713,87 +5576,277 @@ func NewElicitationFormModeElicitationRequestScope(v ElicitationRequestScope) El
 // Unique identifier for an elicitation.
 type ElicitationID string
 
+type ElicitationURLModeElicitationSessionScope struct {
+	ElicitationSessionScope
+	ElicitationID *ElicitationID `json:"-"`
+	URL           *string        `json:"-"`
+}
+
+func (e ElicitationURLModeElicitationSessionScope) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	{
+		payload, err := json.Marshal(e.ElicitationSessionScope)
+		if err != nil {
+			return nil, err
+		}
+		if len(payload) > 0 && string(payload) != "null" {
+			if err := json.Unmarshal(payload, &obj); err != nil {
+				return nil, err
+			}
+		}
+	}
+	{
+		b, err := json.Marshal(e.ElicitationID)
+		if err != nil {
+			return nil, err
+		}
+		obj["elicitationId"] = b
+	}
+	{
+		b, err := json.Marshal(e.URL)
+		if err != nil {
+			return nil, err
+		}
+		obj["url"] = b
+	}
+	return json.Marshal(obj)
+}
+
+func (e *ElicitationURLModeElicitationSessionScope) UnmarshalJSON(data []byte) error {
+	*e = ElicitationURLModeElicitationSessionScope{}
+	if err := json.Unmarshal(data, &e.ElicitationSessionScope); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["elicitationId"]; ok {
+		if err := json.Unmarshal(rm, &e.ElicitationID); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["url"]; ok {
+		if err := json.Unmarshal(rm, &e.URL); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["elicitationId"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("elicitationId is required")
+	}
+	if rm, ok := raw["url"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("url is required")
+	}
+	return nil
+}
+
+type ElicitationURLModeElicitationRequestScope struct {
+	ElicitationRequestScope
+	ElicitationID *ElicitationID `json:"-"`
+	URL           *string        `json:"-"`
+}
+
+func (e ElicitationURLModeElicitationRequestScope) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	{
+		payload, err := json.Marshal(e.ElicitationRequestScope)
+		if err != nil {
+			return nil, err
+		}
+		if len(payload) > 0 && string(payload) != "null" {
+			if err := json.Unmarshal(payload, &obj); err != nil {
+				return nil, err
+			}
+		}
+	}
+	{
+		b, err := json.Marshal(e.ElicitationID)
+		if err != nil {
+			return nil, err
+		}
+		obj["elicitationId"] = b
+	}
+	{
+		b, err := json.Marshal(e.URL)
+		if err != nil {
+			return nil, err
+		}
+		obj["url"] = b
+	}
+	return json.Marshal(obj)
+}
+
+func (e *ElicitationURLModeElicitationRequestScope) UnmarshalJSON(data []byte) error {
+	*e = ElicitationURLModeElicitationRequestScope{}
+	if err := json.Unmarshal(data, &e.ElicitationRequestScope); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["elicitationId"]; ok {
+		if err := json.Unmarshal(rm, &e.ElicitationID); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["url"]; ok {
+		if err := json.Unmarshal(rm, &e.URL); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["elicitationId"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("elicitationId is required")
+	}
+	if rm, ok := raw["url"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("url is required")
+	}
+	return nil
+}
+
 // **UNSTABLE**
 //
 // This capability is not part of the spec yet, and may be removed or changed at any point.
 //
 // URL-based elicitation mode where the client directs the user to a URL.
 type ElicitationURLMode struct {
-	ElicitationSessionScope *ElicitationSessionScope `json:"-"`
-	ElicitationRequestScope *ElicitationRequestScope `json:"-"`
+	ElicitationSessionScope *ElicitationURLModeElicitationSessionScope `json:"-"`
+	ElicitationRequestScope *ElicitationURLModeElicitationRequestScope `json:"-"`
 }
 
 func (e ElicitationURLMode) MarshalJSON() ([]byte, error) {
+	set := 0
 	if e.ElicitationSessionScope != nil {
-		return json.Marshal(*e.ElicitationSessionScope)
+		set++
 	}
 	if e.ElicitationRequestScope != nil {
-		return json.Marshal(*e.ElicitationRequestScope)
+		set++
+	}
+	if set != 1 {
+		return nil, fmt.Errorf("ElicitationURLMode: exactly one variant must be set, got %d", set)
+	}
+	if e.ElicitationSessionScope != nil {
+		return json.Marshal(e.ElicitationSessionScope)
+	}
+	if e.ElicitationRequestScope != nil {
+		return json.Marshal(e.ElicitationRequestScope)
 	}
 	return nil, fmt.Errorf("no variant is set for ElicitationURLMode")
 }
+
 func (e *ElicitationURLMode) UnmarshalJSON(data []byte) error {
 	*e = ElicitationURLMode{}
-	var keys map[string]json.RawMessage
-	if err := json.Unmarshal(data, &keys); err == nil {
-		if _, ok := keys["sessionId"]; ok {
-			var v0 ElicitationSessionScope
-			if err := json.Unmarshal(data, &v0); err != nil {
-				return err
-			}
-			e.ElicitationSessionScope = &v0
-			return nil
-		}
-		if _, ok := keys["requestId"]; ok {
-			var v1 ElicitationRequestScope
-			if err := json.Unmarshal(data, &v1); err != nil {
-				return err
-			}
-			e.ElicitationRequestScope = &v1
-			return nil
-		}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
 	}
-	{
-		var vf0 ElicitationSessionScope
-		if err := json.Unmarshal(data, &vf0); err == nil {
-			e.ElicitationSessionScope = &vf0
-			return nil
-		}
+	matched := -1
+	count := 0
+	if hasKey(raw, "sessionId") {
+		matched = 0
+		count++
 	}
-	{
-		var vf1 ElicitationRequestScope
-		if err := json.Unmarshal(data, &vf1); err == nil {
-			e.ElicitationRequestScope = &vf1
-			return nil
-		}
+	if hasKey(raw, "requestId") {
+		matched = 1
+		count++
 	}
-	return fmt.Errorf("data does not match any variant of ElicitationURLMode")
+	if count == 0 {
+		return fmt.Errorf("ElicitationURLMode: data does not match any variant")
+	}
+	if count > 1 {
+		return fmt.Errorf("ElicitationURLMode: ambiguous union, data matches multiple variants")
+	}
+	switch matched {
+	case 0:
+		var val ElicitationURLModeElicitationSessionScope
+		if err := json.Unmarshal(data, &val); err != nil {
+			return err
+		}
+		e.ElicitationSessionScope = &val
+	case 1:
+		var val ElicitationURLModeElicitationRequestScope
+		if err := json.Unmarshal(data, &val); err != nil {
+			return err
+		}
+		e.ElicitationRequestScope = &val
+	}
+	return nil
 }
-func (e *ElicitationURLMode) AsElicitationSessionScope() (ElicitationSessionScope, bool) {
+
+func (e *ElicitationURLMode) Validate() error {
+	set := 0
+	if e.ElicitationSessionScope != nil {
+		set++
+	}
+	if e.ElicitationRequestScope != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("ElicitationURLMode: exactly one variant must be set, got %d", set)
+	}
+	if e.ElicitationSessionScope != nil {
+		return e.ElicitationSessionScope.Validate()
+	}
+	if e.ElicitationRequestScope != nil {
+		return e.ElicitationRequestScope.Validate()
+	}
+	return nil
+}
+
+func (e *ElicitationURLModeElicitationSessionScope) Validate() error {
+	if e.ElicitationID == nil {
+		return fmt.Errorf("elicitationId is required")
+	}
+	if e.URL == nil {
+		return fmt.Errorf("url is required")
+	}
+	if validator, ok := any(&e.ElicitationSessionScope).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *ElicitationURLModeElicitationRequestScope) Validate() error {
+	if e.ElicitationID == nil {
+		return fmt.Errorf("elicitationId is required")
+	}
+	if e.URL == nil {
+		return fmt.Errorf("url is required")
+	}
+	if validator, ok := any(&e.ElicitationRequestScope).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *ElicitationURLMode) AsElicitationSessionScope() (ElicitationURLModeElicitationSessionScope, bool) {
 	if e.ElicitationSessionScope == nil {
-		var zero ElicitationSessionScope
+		var zero ElicitationURLModeElicitationSessionScope
 		return zero, false
 	}
-	return ElicitationSessionScope(*e.ElicitationSessionScope), true
+	return *e.ElicitationSessionScope, true
 }
-func (e *ElicitationURLMode) AsElicitationRequestScope() (ElicitationRequestScope, bool) {
+
+func (e *ElicitationURLMode) AsElicitationRequestScope() (ElicitationURLModeElicitationRequestScope, bool) {
 	if e.ElicitationRequestScope == nil {
-		var zero ElicitationRequestScope
+		var zero ElicitationURLModeElicitationRequestScope
 		return zero, false
 	}
-	return ElicitationRequestScope(*e.ElicitationRequestScope), true
+	return *e.ElicitationRequestScope, true
 }
 
 // NewElicitationURLModeElicitationSessionScope creates a ElicitationURLMode holding a ElicitationSessionScope variant.
-func NewElicitationURLModeElicitationSessionScope(v ElicitationSessionScope) ElicitationURLMode {
-	vv := ElicitationSessionScope(v)
-	return ElicitationURLMode{ElicitationSessionScope: &vv}
+func NewElicitationURLModeElicitationSessionScope(v ElicitationURLModeElicitationSessionScope) ElicitationURLMode {
+	return ElicitationURLMode{ElicitationSessionScope: &v}
 }
 
 // NewElicitationURLModeElicitationRequestScope creates a ElicitationURLMode holding a ElicitationRequestScope variant.
-func NewElicitationURLModeElicitationRequestScope(v ElicitationRequestScope) ElicitationURLMode {
-	vv := ElicitationRequestScope(v)
-	return ElicitationURLMode{ElicitationRequestScope: &vv}
+func NewElicitationURLModeElicitationRequestScope(v ElicitationURLModeElicitationRequestScope) ElicitationURLMode {
+	return ElicitationURLMode{ElicitationRequestScope: &v}
 }
 
 // Resource content that can be embedded in a message.
@@ -6081,6 +7134,13 @@ func (v *WriteTextFileRequest) Validate() error {
 
 func (v *WriteTextFileResponse) Validate() error {
 	return nil
+}
+
+// hasKey reports whether a decoded JSON object contains a key with a
+// non-null value, used to distinguish presence from explicit null.
+func hasKey(raw map[string]json.RawMessage, key string) bool {
+	rm, ok := raw[key]
+	return ok && string(rm) != "null"
 }
 
 func (v *AgentCapabilities) UnmarshalJSON(data []byte) error {
