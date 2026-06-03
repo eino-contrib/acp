@@ -70,11 +70,11 @@ type variantField struct {
 
 // mergedField is a final wrapper struct field after merging parent + payload.
 type mergedField struct {
-	jsonName  string
-	goName    string
-	goType    string
-	required  bool
-	nullable  bool
+	jsonName   string
+	goName     string
+	goType     string
+	required   bool
+	nullable   bool
 	fromParent bool
 }
 
@@ -114,7 +114,7 @@ func (g *Generator) mergedFields(plan *objectUnionPlan, v *objectUnionVariant) [
 	for _, pf := range plan.parentFields {
 		parentNames[pf.jsonName] = true
 		if other, ok := payloadByName[pf.jsonName]; ok {
-			if !g.parentPayloadCompatible(plan, v, pf, other) {
+			if !g.parentPayloadCompatible(v, pf, other) {
 				g.fail("union %s variant %s: parent field %q conflicts with payload field of incompatible schema",
 					plan.goName, v.goTypeName, pf.jsonName)
 			}
@@ -145,13 +145,9 @@ func (g *Generator) mergedFields(plan *objectUnionPlan, v *objectUnionVariant) [
 	return fields
 }
 
-func (g *Generator) parentPayloadCompatible(plan *objectUnionPlan, v *objectUnionVariant, pf parentField, vf variantField) bool {
+func (g *Generator) parentPayloadCompatible(v *objectUnionVariant, pf parentField, vf variantField) bool {
 	parentSchema := pf.schema
-	var payloadSchema *Schema
-	if plan.schema != nil {
-		// payload field schema is looked up from the variant's own source schema
-		payloadSchema = g.variantPayloadFieldSchema(v, vf.jsonName)
-	}
+	payloadSchema := g.variantPayloadFieldSchema(v, vf.jsonName)
 	if parentSchema == nil || payloadSchema == nil {
 		return false
 	}
@@ -411,8 +407,11 @@ func (g *Generator) emitDiscriminatedUnmarshalJSON(plan *objectUnionPlan) {
 }
 
 // emitStructuralUnmarshalJSON decodes a non-discriminator anyOf union by
-// required-field presence: exactly one variant whose required fields are all
-// present is selected; zero matches and multiple matches are errors.
+// required-field presence: the variant whose required fields are all present is
+// selected, then decoded. Variant selection happens purely on the raw key set
+// before any variant is decoded, so a decode error of the selected variant is
+// never confused with "no match" or "ambiguous", and a non-selected variant's
+// shape never preempts selection.
 func (g *Generator) emitStructuralUnmarshalJSON(plan *objectUnionPlan) {
 	g.needHasKey = true
 	recv := receiverName(plan.goName)
@@ -422,7 +421,8 @@ func (g *Generator) emitStructuralUnmarshalJSON(plan *objectUnionPlan) {
 	fmt.Fprintf(&g.buf, "\tif err := json.Unmarshal(data, &raw); err != nil {\n")
 	fmt.Fprintf(&g.buf, "\t\treturn err\n")
 	fmt.Fprintf(&g.buf, "\t}\n")
-	fmt.Fprintf(&g.buf, "\tmatched := 0\n")
+	fmt.Fprintf(&g.buf, "\tmatched := -1\n")
+	fmt.Fprintf(&g.buf, "\tcount := 0\n")
 
 	for i := range plan.variants {
 		v := &plan.variants[i]
@@ -437,21 +437,27 @@ func (g *Generator) emitStructuralUnmarshalJSON(plan *objectUnionPlan) {
 			conds = append(conds, fmt.Sprintf("hasKey(raw, %q)", name))
 		}
 		fmt.Fprintf(&g.buf, "\tif %s {\n", strings.Join(conds, " && "))
+		fmt.Fprintf(&g.buf, "\t\tmatched = %d\n", i)
+		fmt.Fprintf(&g.buf, "\t\tcount++\n")
+		fmt.Fprintf(&g.buf, "\t}\n")
+	}
+
+	fmt.Fprintf(&g.buf, "\tif count == 0 {\n")
+	fmt.Fprintf(&g.buf, "\t\treturn fmt.Errorf(\"%s: data does not match any variant\")\n", plan.goName)
+	fmt.Fprintf(&g.buf, "\t}\n")
+	fmt.Fprintf(&g.buf, "\tif count > 1 {\n")
+	fmt.Fprintf(&g.buf, "\t\treturn fmt.Errorf(\"%s: ambiguous union, data matches multiple variants\")\n", plan.goName)
+	fmt.Fprintf(&g.buf, "\t}\n")
+	fmt.Fprintf(&g.buf, "\tswitch matched {\n")
+	for i := range plan.variants {
+		v := &plan.variants[i]
+		fmt.Fprintf(&g.buf, "\tcase %d:\n", i)
 		fmt.Fprintf(&g.buf, "\t\tvar val %s\n", v.goTypeName)
 		fmt.Fprintf(&g.buf, "\t\tif err := json.Unmarshal(data, &val); err != nil {\n")
 		fmt.Fprintf(&g.buf, "\t\t\treturn err\n")
 		fmt.Fprintf(&g.buf, "\t\t}\n")
 		fmt.Fprintf(&g.buf, "\t\t%s.%s = &val\n", recv, v.shortName)
-		fmt.Fprintf(&g.buf, "\t\tmatched++\n")
-		fmt.Fprintf(&g.buf, "\t}\n")
 	}
-
-	fmt.Fprintf(&g.buf, "\tif matched == 0 {\n")
-	fmt.Fprintf(&g.buf, "\t\treturn fmt.Errorf(\"%s: data does not match any variant\")\n", plan.goName)
-	fmt.Fprintf(&g.buf, "\t}\n")
-	fmt.Fprintf(&g.buf, "\tif matched > 1 {\n")
-	fmt.Fprintf(&g.buf, "\t\t*%s = %s{}\n", recv, plan.goName)
-	fmt.Fprintf(&g.buf, "\t\treturn fmt.Errorf(\"%s: ambiguous union, data matches multiple variants\")\n", plan.goName)
 	fmt.Fprintf(&g.buf, "\t}\n")
 	fmt.Fprintf(&g.buf, "\treturn nil\n")
 	fmt.Fprintf(&g.buf, "}\n\n")

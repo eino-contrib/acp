@@ -5472,29 +5472,35 @@ func (e *ElicitationFormMode) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	matched := 0
+	matched := -1
+	count := 0
 	if hasKey(raw, "sessionId") {
+		matched = 0
+		count++
+	}
+	if hasKey(raw, "requestId") {
+		matched = 1
+		count++
+	}
+	if count == 0 {
+		return fmt.Errorf("ElicitationFormMode: data does not match any variant")
+	}
+	if count > 1 {
+		return fmt.Errorf("ElicitationFormMode: ambiguous union, data matches multiple variants")
+	}
+	switch matched {
+	case 0:
 		var val ElicitationFormModeElicitationSessionScope
 		if err := json.Unmarshal(data, &val); err != nil {
 			return err
 		}
 		e.ElicitationSessionScope = &val
-		matched++
-	}
-	if hasKey(raw, "requestId") {
+	case 1:
 		var val ElicitationFormModeElicitationRequestScope
 		if err := json.Unmarshal(data, &val); err != nil {
 			return err
 		}
 		e.ElicitationRequestScope = &val
-		matched++
-	}
-	if matched == 0 {
-		return fmt.Errorf("ElicitationFormMode: data does not match any variant")
-	}
-	if matched > 1 {
-		*e = ElicitationFormMode{}
-		return fmt.Errorf("ElicitationFormMode: ambiguous union, data matches multiple variants")
 	}
 	return nil
 }
@@ -5734,29 +5740,35 @@ func (e *ElicitationURLMode) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	matched := 0
+	matched := -1
+	count := 0
 	if hasKey(raw, "sessionId") {
+		matched = 0
+		count++
+	}
+	if hasKey(raw, "requestId") {
+		matched = 1
+		count++
+	}
+	if count == 0 {
+		return fmt.Errorf("ElicitationURLMode: data does not match any variant")
+	}
+	if count > 1 {
+		return fmt.Errorf("ElicitationURLMode: ambiguous union, data matches multiple variants")
+	}
+	switch matched {
+	case 0:
 		var val ElicitationURLModeElicitationSessionScope
 		if err := json.Unmarshal(data, &val); err != nil {
 			return err
 		}
 		e.ElicitationSessionScope = &val
-		matched++
-	}
-	if hasKey(raw, "requestId") {
+	case 1:
 		var val ElicitationURLModeElicitationRequestScope
 		if err := json.Unmarshal(data, &val); err != nil {
 			return err
 		}
 		e.ElicitationRequestScope = &val
-		matched++
-	}
-	if matched == 0 {
-		return fmt.Errorf("ElicitationURLMode: data does not match any variant")
-	}
-	if matched > 1 {
-		*e = ElicitationURLMode{}
-		return fmt.Errorf("ElicitationURLMode: ambiguous union, data matches multiple variants")
 	}
 	return nil
 }

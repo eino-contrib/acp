@@ -407,9 +407,15 @@ func detectDiscriminator(variants []*Schema) string {
 		}
 	}
 
-	// A discriminator must appear in most variants
-	for name, count := range candidates {
-		if count >= len(variants)-1 { // allow one default variant
+	// A discriminator must appear in most variants. Sort candidate names so the
+	// selection is deterministic when more than one field qualifies.
+	names := make([]string, 0, len(candidates))
+	for name := range candidates {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if candidates[name] >= len(variants)-1 { // allow one default variant
 			return name
 		}
 	}

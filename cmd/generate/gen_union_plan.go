@@ -212,6 +212,15 @@ func (g *Generator) validateAllowlist(defName string, plan *objectUnionPlan) {
 		g.fail("union %s: allowlist default variant %q does not match resolved default %q", plan.goName, want, got)
 		return
 	}
+	// Unknown-discriminator fallback decodes an arbitrary payload into the default
+	// variant, so safety depends on that variant rejecting a mismatched payload.
+	// Require the default variant to carry at least one required payload field:
+	// its UnmarshalJSON then enforces presence (and, for non-nullable scalars,
+	// type) instead of silently absorbing any object.
+	if len(plan.variants[plan.defaultIdx].payloadReq) == 0 {
+		g.fail("union %s: allowlisted for unknown-discriminator fallback but default variant %q has no required payload field to reject a mismatched payload", plan.goName, want)
+		return
+	}
 	plan.unknownFallbk = true
 }
 
