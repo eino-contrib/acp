@@ -325,6 +325,62 @@ func TestElicitationUrlModeRequiredFields(t *testing.T) {
 	}
 }
 
+func TestElicitationURLModeRoundTrip(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		distinguisher string
+		in            string
+		wantSession   bool
+	}{
+		{"session", "sessionId", `{"sessionId":"s1","elicitationId":"e1","url":"https://example.com"}`, true},
+		{"request", "requestId", `{"requestId":"r1","elicitationId":"e1","url":"https://example.com"}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var m ElicitationURLMode
+			if err := json.Unmarshal([]byte(tc.in), &m); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if tc.wantSession != (m.ElicitationSessionScope != nil) {
+				t.Fatalf("variant mismatch: %+v", m)
+			}
+			if tc.wantSession == (m.ElicitationRequestScope != nil) {
+				t.Fatalf("variant mismatch: %+v", m)
+			}
+			data, err := json.Marshal(m)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var obj map[string]any
+			if err := json.Unmarshal(data, &obj); err != nil {
+				t.Fatalf("re-decode: %v", err)
+			}
+			for _, k := range []string{"elicitationId", "url", tc.distinguisher} {
+				if _, ok := obj[k]; !ok {
+					t.Fatalf("missing %q: %s", k, data)
+				}
+			}
+			var back ElicitationURLMode
+			if err := json.Unmarshal(data, &back); err != nil {
+				t.Fatalf("round-trip unmarshal: %v", err)
+			}
+		})
+	}
+}
+
+func TestElicitationURLModeMissingParentRequiredFails(t *testing.T) {
+	cases := map[string]string{
+		"missing elicitationId": `{"url":"https://example.com","sessionId":"s1"}`,
+		"missing url":           `{"elicitationId":"e1","sessionId":"s1"}`,
+		"no distinguisher":      `{"elicitationId":"e1","url":"https://example.com"}`,
+	}
+	for name, in := range cases {
+		var m ElicitationURLMode
+		if err := json.Unmarshal([]byte(in), &m); err == nil {
+			t.Fatalf("%s: expected failure", name)
+		}
+	}
+}
+
 // --- SessionConfigOption: ref payload + full parent fields ---
 
 func TestSessionConfigOptionSelectRoundTrip(t *testing.T) {
