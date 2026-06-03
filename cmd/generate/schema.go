@@ -421,3 +421,203 @@ func resolveRef(ref string) string {
 	parts := strings.Split(ref, "/")
 	return parts[len(parts)-1]
 }
+
+// unknownDiscriminatorFallback maps a definition name to its default variant Go
+// name for unions that should fall back to the default variant when the wire
+// discriminator is missing OR unknown (as opposed to only when missing). The
+// value is the title-cased default variant short name and is cross-checked
+// against the actual default variant at generation time. Adding an entry
+// deliberately widens the union's decode semantics, so it stays an explicit,
+// auditable allowlist rather than an inferred behavior.
+var unknownDiscriminatorFallback = map[string]string{
+	"SetSessionConfigOptionRequest": "ValueID",
+}
+
+// unionVariants returns the oneOf/anyOf variant list for a union schema,
+// preferring oneOf.
+func unionVariants(s *Schema) []*Schema {
+	if len(s.OneOf) > 0 {
+		return s.OneOf
+	}
+	return s.AnyOf
+}
+
+// parentSharedFieldNames returns the parent-level property names of a union
+// schema, excluding the discriminator field. These are fields declared on the
+// union object itself (alongside oneOf/anyOf) that every variant must carry.
+func parentSharedFieldNames(s *Schema, discField string) []string {
+	if s.Properties == nil {
+		return nil
+	}
+	names := make([]string, 0, len(s.Properties))
+	for name := range s.Properties {
+		if name == discField {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// unionHasParentSharedFields reports whether a union carries parent-level shared
+// fields (properties declared on the union object beyond the discriminator).
+// Only unions with parent shared fields go through the extended generation path;
+// unions without them keep their existing byte-for-byte output.
+func unionHasParentSharedFields(s *Schema, discField string) bool {
+	return len(parentSharedFieldNames(s, discField)) > 0
+}
+
+// resolveSingleRef returns the $ref target of a property schema, resolving a
+// single-element allOf wrapper. Returns "" if the schema is not a plain ref.
+func resolveSingleRef(s *Schema) string {
+	if s == nil {
+		return ""
+	}
+	if s.Ref != "" {
+		return s.Ref
+	}
+	if len(s.AllOf) == 1 && s.AllOf[0].Ref != "" {
+		return s.AllOf[0].Ref
+	}
+	return ""
+}
+
+// fieldSchemasEquivalent reports whether two property schemas have the same
+// wire/validation semantics, ignoring descriptive metadata (title, description,
+// x-*). A single-level $ref / allOf-ref is resolved against defs before
+// comparison. Used to decide whether a parent field and a payload field with the
+// same name may safely share a single struct field.
+func fieldSchemasEquivalent(defs map[string]*Schema, a, b *Schema) bool {
+	a = resolveForCompare(defs, a)
+	b = resolveForCompare(defs, b)
+	if a == nil || b == nil {
+		return a == b
+	}
+	if !sameStringSet(a.Type, b.Type) {
+		return false
+	}
+	if !sameRawJSON(constRaw(a.Const), constRaw(b.Const)) {
+		return false
+	}
+	if !sameRawJSONSlice(a.Enum, b.Enum) {
+		return false
+	}
+	if !sameRawJSON(a.Default, b.Default) {
+		return false
+	}
+	if !sameStringSlice(a.Required, b.Required) {
+		return false
+	}
+	if !sameUnionList(defs, a.OneOf, b.OneOf) {
+		return false
+	}
+	if !sameUnionList(defs, a.AnyOf, b.AnyOf) {
+		return false
+	}
+	if !sameUnionList(defs, a.AllOf, b.AllOf) {
+		return false
+	}
+	if !fieldSchemasEquivalent(defs, a.Items, b.Items) {
+		return false
+	}
+	if !samePropertyMap(defs, a.Properties, b.Properties) {
+		return false
+	}
+	if !sameAdditionalProps(defs, a.AdditionalProperties, b.AdditionalProperties) {
+		return false
+	}
+	return true
+}
+
+// resolveForCompare resolves a single-level $ref / allOf-ref against defs so two
+// fields that reference the same alias compare equal.
+func resolveForCompare(defs map[string]*Schema, s *Schema) *Schema {
+	if s == nil {
+		return nil
+	}
+	if ref := resolveSingleRef(s); ref != "" && defs != nil {
+		if target, ok := defs[resolveRef(ref)]; ok {
+			return target
+		}
+	}
+	return s
+}
+
+func constRaw(c *ConstValue) json.RawMessage {
+	if c == nil {
+		return nil
+	}
+	return c.Value
+}
+
+func sameRawJSON(a, b json.RawMessage) bool {
+	return string(a) == string(b)
+}
+
+func sameRawJSONSlice(a, b []json.RawMessage) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if string(a[i]) != string(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	am := make(map[string]int, len(a))
+	for _, v := range a {
+		am[v]++
+	}
+	for _, v := range b {
+		am[v]--
+		if am[v] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func sameUnionList(defs map[string]*Schema, a, b []*Schema) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !fieldSchemasEquivalent(defs, a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func samePropertyMap(defs map[string]*Schema, a, b map[string]*Schema) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, va := range a {
+		vb, ok := b[k]
+		if !ok || !fieldSchemasEquivalent(defs, va, vb) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameAdditionalProps(defs map[string]*Schema, a, b *AdditionalProps) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if (a.Bool == nil) != (b.Bool == nil) {
+		return false
+	}
+	if a.Bool != nil && *a.Bool != *b.Bool {
+		return false
+	}
+	return fieldSchemasEquivalent(defs, a.Schema, b.Schema)
+}
