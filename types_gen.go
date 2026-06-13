@@ -335,6 +335,9 @@ type AuthMethodTerminalVariant struct {
 	Type string `json:"type,omitempty"`
 }
 
+// Agent handles authentication itself.
+//
+// The `type` discriminator value is `agent`.
 type AuthMethodAgentVariant struct {
 	AuthMethodAgent
 	Type string `json:"type,omitempty"`
@@ -343,7 +346,6 @@ type AuthMethodAgentVariant struct {
 // Describes an available authentication method.
 //
 // The `type` field acts as the discriminator in the serialized JSON form.
-// When no `type` is present, the method is treated as `agent`.
 type AuthMethod struct {
 	// **UNSTABLE**
 	//
@@ -357,7 +359,10 @@ type AuthMethod struct {
 	//
 	// Client runs an interactive terminal for the user to authenticate via a TUI.
 	TerminalVariant *AuthMethodTerminalVariant `json:"-"`
-	AgentVariant    *AuthMethodAgentVariant    `json:"-"`
+	// Agent handles authentication itself.
+	//
+	// The `type` discriminator value is `agent`.
+	AgentVariant *AuthMethodAgentVariant `json:"-"`
 }
 
 func (a AuthMethod) MarshalJSON() ([]byte, error) {
@@ -390,7 +395,12 @@ func (a AuthMethod) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		return data, nil
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("agent")
+		return json.Marshal(obj)
 	}
 	return nil, fmt.Errorf("no variant is set for AuthMethod")
 }
@@ -417,16 +427,15 @@ func (a *AuthMethod) UnmarshalJSON(data []byte) error {
 		}
 		a.TerminalVariant = &v
 		return nil
-	default:
-		if disc.Type != "" {
-			return fmt.Errorf("unknown discriminator value: %s", disc.Type)
-		}
+	case "agent":
 		var v AuthMethodAgentVariant
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
 		a.AgentVariant = &v
 		return nil
+	default:
+		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
 }
 func (a *AuthMethod) AsEnvVarVariant() (AuthMethodEnvVarVariant, bool) {
@@ -473,6 +482,7 @@ func NewAuthMethodTerminalVariant(v AuthMethodTerminal) AuthMethod {
 func NewAuthMethodAgentVariant(v AuthMethodAgent) AuthMethod {
 	w := AuthMethodAgentVariant{
 		AuthMethodAgent: v,
+		Type:            "agent",
 	}
 	return AuthMethod{AgentVariant: &w}
 }
@@ -527,7 +537,8 @@ type ContentBlockResource struct {
 //
 // Content blocks appear in:
 // - User prompts sent via `session/prompt`
-// - Language model output streamed through `session/update` notifications
+// - Language model output reported through `session/update` notifications as
+// message updates or streamed chunks
 // - Progress updates and results from tool calls
 //
 // This structure is compatible with the Model Context Protocol (MCP), enabling
@@ -1518,20 +1529,28 @@ func NewElicitationPropertySchemaArray(v MultiSelectPropertySchema) ElicitationP
 
 // HTTP transport configuration
 //
-// Only available when the Agent capabilities indicate `mcp_capabilities.http` is `true`.
+// Only available when the Agent capabilities include `session.mcp.http`.
 type MCPServerHTTPVariant struct {
 	MCPServerHTTP
 	Type string `json:"type,omitempty"`
 }
 
-// SSE transport configuration
+// **UNSTABLE**
 //
-// Only available when the Agent capabilities indicate `mcp_capabilities.sse` is `true`.
-type MCPServerSSEVariant struct {
-	MCPServerSSE
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// # ACP transport configuration
+//
+// Only available when the Agent capabilities include `session.mcp.acp`.
+// The MCP server is provided by an ACP component and communicates over the ACP channel.
+type MCPServerAcpVariant struct {
+	MCPServerAcp
 	Type string `json:"type,omitempty"`
 }
 
+// Stdio transport configuration
+//
+// Only available when the Agent capabilities include `session.mcp.stdio`.
 type MCPServerStdioVariant struct {
 	MCPServerStdio
 	Type string `json:"type,omitempty"`
@@ -1546,12 +1565,20 @@ type MCPServerStdioVariant struct {
 type MCPServer struct {
 	// HTTP transport configuration
 	//
-	// Only available when the Agent capabilities indicate `mcp_capabilities.http` is `true`.
+	// Only available when the Agent capabilities include `session.mcp.http`.
 	HTTPVariant *MCPServerHTTPVariant `json:"-"`
-	// SSE transport configuration
+	// **UNSTABLE**
 	//
-	// Only available when the Agent capabilities indicate `mcp_capabilities.sse` is `true`.
-	SSEVariant   *MCPServerSSEVariant   `json:"-"`
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// ACP transport configuration
+	//
+	// Only available when the Agent capabilities include `session.mcp.acp`.
+	// The MCP server is provided by an ACP component and communicates over the ACP channel.
+	AcpVariant *MCPServerAcpVariant `json:"-"`
+	// Stdio transport configuration
+	//
+	// Only available when the Agent capabilities include `session.mcp.stdio`.
 	StdioVariant *MCPServerStdioVariant `json:"-"`
 }
 
@@ -1568,8 +1595,8 @@ func (m MCPServer) MarshalJSON() ([]byte, error) {
 		obj["type"], _ = json.Marshal("http")
 		return json.Marshal(obj)
 	}
-	if m.SSEVariant != nil {
-		data, err := json.Marshal(*m.SSEVariant)
+	if m.AcpVariant != nil {
+		data, err := json.Marshal(*m.AcpVariant)
 		if err != nil {
 			return nil, err
 		}
@@ -1577,7 +1604,7 @@ func (m MCPServer) MarshalJSON() ([]byte, error) {
 		if err := json.Unmarshal(data, &obj); err != nil {
 			return nil, err
 		}
-		obj["type"], _ = json.Marshal("sse")
+		obj["type"], _ = json.Marshal("acp")
 		return json.Marshal(obj)
 	}
 	if m.StdioVariant != nil {
@@ -1585,7 +1612,12 @@ func (m MCPServer) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		return data, nil
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("stdio")
+		return json.Marshal(obj)
 	}
 	return nil, fmt.Errorf("no variant is set for MCPServer")
 }
@@ -1605,23 +1637,22 @@ func (m *MCPServer) UnmarshalJSON(data []byte) error {
 		}
 		m.HTTPVariant = &v
 		return nil
-	case "sse":
-		var v MCPServerSSEVariant
+	case "acp":
+		var v MCPServerAcpVariant
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		m.SSEVariant = &v
+		m.AcpVariant = &v
 		return nil
-	default:
-		if disc.Type != "" {
-			return fmt.Errorf("unknown discriminator value: %s", disc.Type)
-		}
+	case "stdio":
 		var v MCPServerStdioVariant
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
 		m.StdioVariant = &v
 		return nil
+	default:
+		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
 }
 func (m *MCPServer) AsHTTPVariant() (MCPServerHTTPVariant, bool) {
@@ -1631,12 +1662,12 @@ func (m *MCPServer) AsHTTPVariant() (MCPServerHTTPVariant, bool) {
 	}
 	return *m.HTTPVariant, true
 }
-func (m *MCPServer) AsSSEVariant() (MCPServerSSEVariant, bool) {
-	if m.SSEVariant == nil {
-		var zero MCPServerSSEVariant
+func (m *MCPServer) AsAcpVariant() (MCPServerAcpVariant, bool) {
+	if m.AcpVariant == nil {
+		var zero MCPServerAcpVariant
 		return zero, false
 	}
-	return *m.SSEVariant, true
+	return *m.AcpVariant, true
 }
 func (m *MCPServer) AsStdioVariant() (MCPServerStdioVariant, bool) {
 	if m.StdioVariant == nil {
@@ -1655,19 +1686,20 @@ func NewMCPServerHTTPVariant(v MCPServerHTTP) MCPServer {
 	return MCPServer{HTTPVariant: &w}
 }
 
-// NewMCPServerSSEVariant creates a MCPServer holding a SSEVariant variant.
-func NewMCPServerSSEVariant(v MCPServerSSE) MCPServer {
-	w := MCPServerSSEVariant{
-		MCPServerSSE: v,
-		Type:         "sse",
+// NewMCPServerAcpVariant creates a MCPServer holding a AcpVariant variant.
+func NewMCPServerAcpVariant(v MCPServerAcp) MCPServer {
+	w := MCPServerAcpVariant{
+		MCPServerAcp: v,
+		Type:         "acp",
 	}
-	return MCPServer{SSEVariant: &w}
+	return MCPServer{AcpVariant: &w}
 }
 
 // NewMCPServerStdioVariant creates a MCPServer holding a StdioVariant variant.
 func NewMCPServerStdioVariant(v MCPServerStdio) MCPServer {
 	w := MCPServerStdioVariant{
 		MCPServerStdio: v,
+		Type:           "stdio",
 	}
 	return MCPServer{StdioVariant: &w}
 }
@@ -1863,6 +1895,172 @@ func NewNesSuggestionSearchAndReplace(v NesSearchAndReplaceSuggestion) NesSugges
 		Kind:                          "searchAndReplace",
 	}
 	return NesSuggestion{SearchAndReplace: &w}
+}
+
+// Structured plan entries.
+type PlanUpdateContentItems struct {
+	PlanItems
+	Type string `json:"type,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// A URI pointing to a file containing the plan.
+type PlanUpdateContentFile struct {
+	PlanFile
+	Type string `json:"type,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Raw markdown content for the plan.
+type PlanUpdateContentMarkdown struct {
+	PlanMarkdown
+	Type string `json:"type,omitempty"`
+}
+
+// Updated content for a plan.
+type PlanUpdateContent struct {
+	// Structured plan entries.
+	Items *PlanUpdateContentItems `json:"-"`
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// A URI pointing to a file containing the plan.
+	File *PlanUpdateContentFile `json:"-"`
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Raw markdown content for the plan.
+	Markdown *PlanUpdateContentMarkdown `json:"-"`
+}
+
+func (p PlanUpdateContent) MarshalJSON() ([]byte, error) {
+	if p.Items != nil {
+		data, err := json.Marshal(*p.Items)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("items")
+		return json.Marshal(obj)
+	}
+	if p.File != nil {
+		data, err := json.Marshal(*p.File)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("file")
+		return json.Marshal(obj)
+	}
+	if p.Markdown != nil {
+		data, err := json.Marshal(*p.Markdown)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("markdown")
+		return json.Marshal(obj)
+	}
+	return nil, fmt.Errorf("no variant is set for PlanUpdateContent")
+}
+func (p *PlanUpdateContent) UnmarshalJSON(data []byte) error {
+	*p = PlanUpdateContent{}
+	var disc struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &disc); err != nil {
+		return err
+	}
+	switch disc.Type {
+	case "items":
+		var v PlanUpdateContentItems
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		p.Items = &v
+		return nil
+	case "file":
+		var v PlanUpdateContentFile
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		p.File = &v
+		return nil
+	case "markdown":
+		var v PlanUpdateContentMarkdown
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		p.Markdown = &v
+		return nil
+	default:
+		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
+	}
+}
+func (p *PlanUpdateContent) AsItems() (PlanUpdateContentItems, bool) {
+	if p.Items == nil {
+		var zero PlanUpdateContentItems
+		return zero, false
+	}
+	return *p.Items, true
+}
+func (p *PlanUpdateContent) AsFile() (PlanUpdateContentFile, bool) {
+	if p.File == nil {
+		var zero PlanUpdateContentFile
+		return zero, false
+	}
+	return *p.File, true
+}
+func (p *PlanUpdateContent) AsMarkdown() (PlanUpdateContentMarkdown, bool) {
+	if p.Markdown == nil {
+		var zero PlanUpdateContentMarkdown
+		return zero, false
+	}
+	return *p.Markdown, true
+}
+
+// NewPlanUpdateContentItems creates a PlanUpdateContent holding a Items variant.
+func NewPlanUpdateContentItems(v PlanItems) PlanUpdateContent {
+	w := PlanUpdateContentItems{
+		PlanItems: v,
+		Type:      "items",
+	}
+	return PlanUpdateContent{Items: &w}
+}
+
+// NewPlanUpdateContentFile creates a PlanUpdateContent holding a File variant.
+func NewPlanUpdateContentFile(v PlanFile) PlanUpdateContent {
+	w := PlanUpdateContentFile{
+		PlanFile: v,
+		Type:     "file",
+	}
+	return PlanUpdateContent{File: &w}
+}
+
+// NewPlanUpdateContentMarkdown creates a PlanUpdateContent holding a Markdown variant.
+func NewPlanUpdateContentMarkdown(v PlanMarkdown) PlanUpdateContent {
+	w := PlanUpdateContentMarkdown{
+		PlanMarkdown: v,
+		Type:         "markdown",
+	}
+	return PlanUpdateContent{Markdown: &w}
 }
 
 // The prompt turn was cancelled before the user responded.
@@ -2188,10 +2386,99 @@ func (s *SessionConfigOptionBoolean) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type SessionConfigOptionOther struct {
+	Meta        map[string]any               `json:"-"`
+	Category    *SessionConfigOptionCategory `json:"-"`
+	Description string                       `json:"-"`
+	ID          *SessionConfigID             `json:"-"`
+	Name        *string                      `json:"-"`
+}
+
+func (s SessionConfigOptionOther) MarshalJSON() ([]byte, error) {
+	obj := map[string]json.RawMessage{}
+	if s.Meta != nil {
+		b, err := json.Marshal(s.Meta)
+		if err != nil {
+			return nil, err
+		}
+		obj["_meta"] = b
+	}
+	if s.Category != nil {
+		b, err := json.Marshal(s.Category)
+		if err != nil {
+			return nil, err
+		}
+		obj["category"] = b
+	}
+	if s.Description != "" {
+		b, err := json.Marshal(s.Description)
+		if err != nil {
+			return nil, err
+		}
+		obj["description"] = b
+	}
+	{
+		b, err := json.Marshal(s.ID)
+		if err != nil {
+			return nil, err
+		}
+		obj["id"] = b
+	}
+	{
+		b, err := json.Marshal(s.Name)
+		if err != nil {
+			return nil, err
+		}
+		obj["name"] = b
+	}
+	return json.Marshal(obj)
+}
+
+func (s *SessionConfigOptionOther) UnmarshalJSON(data []byte) error {
+	*s = SessionConfigOptionOther{}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rm, ok := raw["_meta"]; ok {
+		if err := json.Unmarshal(rm, &s.Meta); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["category"]; ok {
+		if err := json.Unmarshal(rm, &s.Category); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["description"]; ok {
+		if err := json.Unmarshal(rm, &s.Description); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["id"]; ok {
+		if err := json.Unmarshal(rm, &s.ID); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["name"]; ok {
+		if err := json.Unmarshal(rm, &s.Name); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["id"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("id is required")
+	}
+	if rm, ok := raw["name"]; !ok || string(rm) == "null" {
+		return fmt.Errorf("name is required")
+	}
+	return nil
+}
+
 // A session configuration option selector and its current state.
 type SessionConfigOption struct {
 	Select  *SessionConfigOptionSelect  `json:"-"`
 	Boolean *SessionConfigOptionBoolean `json:"-"`
+	Other   *SessionConfigOptionOther   `json:"-"`
 }
 
 func (s SessionConfigOption) MarshalJSON() ([]byte, error) {
@@ -2202,6 +2489,9 @@ func (s SessionConfigOption) MarshalJSON() ([]byte, error) {
 	if s.Boolean != nil {
 		set++
 	}
+	if s.Other != nil {
+		set++
+	}
 	if set != 1 {
 		return nil, fmt.Errorf("SessionConfigOption: exactly one variant must be set, got %d", set)
 	}
@@ -2210,6 +2500,9 @@ func (s SessionConfigOption) MarshalJSON() ([]byte, error) {
 	}
 	if s.Boolean != nil {
 		return json.Marshal(s.Boolean)
+	}
+	if s.Other != nil {
+		return json.Marshal(s.Other)
 	}
 	return nil, fmt.Errorf("no variant is set for SessionConfigOption")
 }
@@ -2242,7 +2535,12 @@ func (s *SessionConfigOption) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("unknown discriminator value: %s", *disc.Type)
 		}
 	}
-	return fmt.Errorf("SessionConfigOption: missing discriminator type")
+	var val SessionConfigOptionOther
+	if err := json.Unmarshal(data, &val); err != nil {
+		return err
+	}
+	s.Other = &val
+	return nil
 }
 
 func (s *SessionConfigOption) Validate() error {
@@ -2253,6 +2551,9 @@ func (s *SessionConfigOption) Validate() error {
 	if s.Boolean != nil {
 		set++
 	}
+	if s.Other != nil {
+		set++
+	}
 	if set != 1 {
 		return fmt.Errorf("SessionConfigOption: exactly one variant must be set, got %d", set)
 	}
@@ -2261,6 +2562,9 @@ func (s *SessionConfigOption) Validate() error {
 	}
 	if s.Boolean != nil {
 		return s.Boolean.Validate()
+	}
+	if s.Other != nil {
+		return s.Other.Validate()
 	}
 	return nil
 }
@@ -2295,6 +2599,16 @@ func (s *SessionConfigOptionBoolean) Validate() error {
 	return nil
 }
 
+func (s *SessionConfigOptionOther) Validate() error {
+	if s.ID == nil {
+		return fmt.Errorf("id is required")
+	}
+	if s.Name == nil {
+		return fmt.Errorf("name is required")
+	}
+	return nil
+}
+
 func (s *SessionConfigOption) AsSelect() (SessionConfigOptionSelect, bool) {
 	if s.Select == nil {
 		var zero SessionConfigOptionSelect
@@ -2311,6 +2625,14 @@ func (s *SessionConfigOption) AsBoolean() (SessionConfigOptionBoolean, bool) {
 	return *s.Boolean, true
 }
 
+func (s *SessionConfigOption) AsOther() (SessionConfigOptionOther, bool) {
+	if s.Other == nil {
+		var zero SessionConfigOptionOther
+		return zero, false
+	}
+	return *s.Other, true
+}
+
 // NewSessionConfigOptionSelect creates a SessionConfigOption holding a Select variant.
 func NewSessionConfigOptionSelect(v SessionConfigOptionSelect) SessionConfigOption {
 	return SessionConfigOption{Select: &v}
@@ -2321,9 +2643,24 @@ func NewSessionConfigOptionBoolean(v SessionConfigOptionBoolean) SessionConfigOp
 	return SessionConfigOption{Boolean: &v}
 }
 
+// NewSessionConfigOptionOther creates a SessionConfigOption holding a Other variant.
+func NewSessionConfigOptionOther(v SessionConfigOptionOther) SessionConfigOption {
+	return SessionConfigOption{Other: &v}
+}
+
 // A chunk of the user's message being streamed.
 type SessionUpdateUserMessageChunk struct {
 	ContentChunk
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
+}
+
+// A user message has been created or updated.
+//
+// Agents can send this when they accept or replay a user message. When a
+// client receives another `user_message` update with the same `messageId`,
+// fields in the new update patch the previous fields for that message.
+type SessionUpdateUserMessage struct {
+	UserMessage
 	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
@@ -2333,42 +2670,64 @@ type SessionUpdateAgentMessageChunk struct {
 	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
+// An agent message has been created or updated.
+//
+// Agents can send this in addition to streamed chunks. When a client
+// receives another `agent_message` update with the same `messageId`,
+// fields in the new update patch the previous fields for that message.
+type SessionUpdateAgentMessage struct {
+	AgentMessage
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
+}
+
 // A chunk of the agent's internal reasoning being streamed.
 type SessionUpdateAgentThoughtChunk struct {
 	ContentChunk
 	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
-// Notification that a new tool call has been initiated.
-type SessionUpdateToolCall struct {
-	ToolCall
+// An agent thought or reasoning message has been created or updated.
+//
+// Agents can send this in addition to streamed chunks. When a client
+// receives another `agent_thought` update with the same `messageId`,
+// fields in the new update patch the previous fields for that message.
+type SessionUpdateAgentThought struct {
+	AgentThought
 	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
-// Update on the status or results of a tool call.
+// A chunk of tool-call content being streamed.
+type SessionUpdateToolCallContentChunk struct {
+	ToolCallContentChunk
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
+}
+
+// A tool call has been created or updated.
 type SessionUpdateToolCallUpdate struct {
 	ToolCallUpdate
 	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
-// The agent's execution plan for complex tasks.
+// A content update for a plan identified by ID.
 // See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
-type SessionUpdatePlan struct {
-	Plan
+type SessionUpdatePlanUpdate struct {
+	PlanUpdate
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Removal notice for a plan identified by ID.
+type SessionUpdatePlanRemoved struct {
+	PlanRemoved
 	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
 // Available commands are ready or have changed
 type SessionUpdateAvailableCommandsUpdate struct {
 	AvailableCommandsUpdate
-	SessionUpdate string `json:"sessionUpdate,omitempty"`
-}
-
-// The current mode of the session has changed
-//
-// See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
-type SessionUpdateCurrentModeUpdate struct {
-	CurrentModeUpdate
 	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
@@ -2384,10 +2743,6 @@ type SessionUpdateSessionInfoUpdate struct {
 	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Context window and cost update for the session.
 type SessionUpdateUsageUpdate struct {
 	UsageUpdate
@@ -2402,31 +2757,47 @@ type SessionUpdateUsageUpdate struct {
 type SessionUpdate struct {
 	// A chunk of the user's message being streamed.
 	UserMessageChunk *SessionUpdateUserMessageChunk `json:"-"`
+	// A user message has been created or updated.
+	//
+	// Agents can send this when they accept or replay a user message. When a
+	// client receives another `user_message` update with the same `messageId`,
+	// fields in the new update patch the previous fields for that message.
+	UserMessage *SessionUpdateUserMessage `json:"-"`
 	// A chunk of the agent's response being streamed.
 	AgentMessageChunk *SessionUpdateAgentMessageChunk `json:"-"`
+	// An agent message has been created or updated.
+	//
+	// Agents can send this in addition to streamed chunks. When a client
+	// receives another `agent_message` update with the same `messageId`,
+	// fields in the new update patch the previous fields for that message.
+	AgentMessage *SessionUpdateAgentMessage `json:"-"`
 	// A chunk of the agent's internal reasoning being streamed.
 	AgentThoughtChunk *SessionUpdateAgentThoughtChunk `json:"-"`
-	// Notification that a new tool call has been initiated.
-	ToolCall *SessionUpdateToolCall `json:"-"`
-	// Update on the status or results of a tool call.
-	ToolCallUpdate *SessionUpdateToolCallUpdate `json:"-"`
-	// The agent's execution plan for complex tasks.
-	// See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
-	Plan *SessionUpdatePlan `json:"-"`
-	// Available commands are ready or have changed
-	AvailableCommandsUpdate *SessionUpdateAvailableCommandsUpdate `json:"-"`
-	// The current mode of the session has changed
+	// An agent thought or reasoning message has been created or updated.
 	//
-	// See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
-	CurrentModeUpdate *SessionUpdateCurrentModeUpdate `json:"-"`
-	// Session configuration options have been updated.
-	ConfigOptionUpdate *SessionUpdateConfigOptionUpdate `json:"-"`
-	// Session metadata has been updated (title, timestamps, custom metadata)
-	SessionInfoUpdate *SessionUpdateSessionInfoUpdate `json:"-"`
+	// Agents can send this in addition to streamed chunks. When a client
+	// receives another `agent_thought` update with the same `messageId`,
+	// fields in the new update patch the previous fields for that message.
+	AgentThought *SessionUpdateAgentThought `json:"-"`
+	// A chunk of tool-call content being streamed.
+	ToolCallContentChunk *SessionUpdateToolCallContentChunk `json:"-"`
+	// A tool call has been created or updated.
+	ToolCallUpdate *SessionUpdateToolCallUpdate `json:"-"`
+	// A content update for a plan identified by ID.
+	// See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
+	PlanUpdate *SessionUpdatePlanUpdate `json:"-"`
 	// **UNSTABLE**
 	//
 	// This capability is not part of the spec yet, and may be removed or changed at any point.
 	//
+	// Removal notice for a plan identified by ID.
+	PlanRemoved *SessionUpdatePlanRemoved `json:"-"`
+	// Available commands are ready or have changed
+	AvailableCommandsUpdate *SessionUpdateAvailableCommandsUpdate `json:"-"`
+	// Session configuration options have been updated.
+	ConfigOptionUpdate *SessionUpdateConfigOptionUpdate `json:"-"`
+	// Session metadata has been updated (title, timestamps, custom metadata)
+	SessionInfoUpdate *SessionUpdateSessionInfoUpdate `json:"-"`
 	// Context window and cost update for the session.
 	UsageUpdate *SessionUpdateUsageUpdate `json:"-"`
 }
@@ -2444,6 +2815,18 @@ func (s SessionUpdate) MarshalJSON() ([]byte, error) {
 		obj["sessionUpdate"], _ = json.Marshal("user_message_chunk")
 		return json.Marshal(obj)
 	}
+	if s.UserMessage != nil {
+		data, err := json.Marshal(*s.UserMessage)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("user_message")
+		return json.Marshal(obj)
+	}
 	if s.AgentMessageChunk != nil {
 		data, err := json.Marshal(*s.AgentMessageChunk)
 		if err != nil {
@@ -2454,6 +2837,18 @@ func (s SessionUpdate) MarshalJSON() ([]byte, error) {
 			return nil, err
 		}
 		obj["sessionUpdate"], _ = json.Marshal("agent_message_chunk")
+		return json.Marshal(obj)
+	}
+	if s.AgentMessage != nil {
+		data, err := json.Marshal(*s.AgentMessage)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("agent_message")
 		return json.Marshal(obj)
 	}
 	if s.AgentThoughtChunk != nil {
@@ -2468,8 +2863,8 @@ func (s SessionUpdate) MarshalJSON() ([]byte, error) {
 		obj["sessionUpdate"], _ = json.Marshal("agent_thought_chunk")
 		return json.Marshal(obj)
 	}
-	if s.ToolCall != nil {
-		data, err := json.Marshal(*s.ToolCall)
+	if s.AgentThought != nil {
+		data, err := json.Marshal(*s.AgentThought)
 		if err != nil {
 			return nil, err
 		}
@@ -2477,7 +2872,19 @@ func (s SessionUpdate) MarshalJSON() ([]byte, error) {
 		if err := json.Unmarshal(data, &obj); err != nil {
 			return nil, err
 		}
-		obj["sessionUpdate"], _ = json.Marshal("tool_call")
+		obj["sessionUpdate"], _ = json.Marshal("agent_thought")
+		return json.Marshal(obj)
+	}
+	if s.ToolCallContentChunk != nil {
+		data, err := json.Marshal(*s.ToolCallContentChunk)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("tool_call_content_chunk")
 		return json.Marshal(obj)
 	}
 	if s.ToolCallUpdate != nil {
@@ -2492,8 +2899,8 @@ func (s SessionUpdate) MarshalJSON() ([]byte, error) {
 		obj["sessionUpdate"], _ = json.Marshal("tool_call_update")
 		return json.Marshal(obj)
 	}
-	if s.Plan != nil {
-		data, err := json.Marshal(*s.Plan)
+	if s.PlanUpdate != nil {
+		data, err := json.Marshal(*s.PlanUpdate)
 		if err != nil {
 			return nil, err
 		}
@@ -2501,7 +2908,19 @@ func (s SessionUpdate) MarshalJSON() ([]byte, error) {
 		if err := json.Unmarshal(data, &obj); err != nil {
 			return nil, err
 		}
-		obj["sessionUpdate"], _ = json.Marshal("plan")
+		obj["sessionUpdate"], _ = json.Marshal("plan_update")
+		return json.Marshal(obj)
+	}
+	if s.PlanRemoved != nil {
+		data, err := json.Marshal(*s.PlanRemoved)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("plan_removed")
 		return json.Marshal(obj)
 	}
 	if s.AvailableCommandsUpdate != nil {
@@ -2514,18 +2933,6 @@ func (s SessionUpdate) MarshalJSON() ([]byte, error) {
 			return nil, err
 		}
 		obj["sessionUpdate"], _ = json.Marshal("available_commands_update")
-		return json.Marshal(obj)
-	}
-	if s.CurrentModeUpdate != nil {
-		data, err := json.Marshal(*s.CurrentModeUpdate)
-		if err != nil {
-			return nil, err
-		}
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(data, &obj); err != nil {
-			return nil, err
-		}
-		obj["sessionUpdate"], _ = json.Marshal("current_mode_update")
 		return json.Marshal(obj)
 	}
 	if s.ConfigOptionUpdate != nil {
@@ -2582,12 +2989,26 @@ func (s *SessionUpdate) UnmarshalJSON(data []byte) error {
 		}
 		s.UserMessageChunk = &v
 		return nil
+	case "user_message":
+		var v SessionUpdateUserMessage
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		s.UserMessage = &v
+		return nil
 	case "agent_message_chunk":
 		var v SessionUpdateAgentMessageChunk
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
 		s.AgentMessageChunk = &v
+		return nil
+	case "agent_message":
+		var v SessionUpdateAgentMessage
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		s.AgentMessage = &v
 		return nil
 	case "agent_thought_chunk":
 		var v SessionUpdateAgentThoughtChunk
@@ -2596,12 +3017,19 @@ func (s *SessionUpdate) UnmarshalJSON(data []byte) error {
 		}
 		s.AgentThoughtChunk = &v
 		return nil
-	case "tool_call":
-		var v SessionUpdateToolCall
+	case "agent_thought":
+		var v SessionUpdateAgentThought
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		s.ToolCall = &v
+		s.AgentThought = &v
+		return nil
+	case "tool_call_content_chunk":
+		var v SessionUpdateToolCallContentChunk
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		s.ToolCallContentChunk = &v
 		return nil
 	case "tool_call_update":
 		var v SessionUpdateToolCallUpdate
@@ -2610,12 +3038,19 @@ func (s *SessionUpdate) UnmarshalJSON(data []byte) error {
 		}
 		s.ToolCallUpdate = &v
 		return nil
-	case "plan":
-		var v SessionUpdatePlan
+	case "plan_update":
+		var v SessionUpdatePlanUpdate
 		if err := json.Unmarshal(data, &v); err != nil {
 			return err
 		}
-		s.Plan = &v
+		s.PlanUpdate = &v
+		return nil
+	case "plan_removed":
+		var v SessionUpdatePlanRemoved
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		s.PlanRemoved = &v
 		return nil
 	case "available_commands_update":
 		var v SessionUpdateAvailableCommandsUpdate
@@ -2623,13 +3058,6 @@ func (s *SessionUpdate) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		s.AvailableCommandsUpdate = &v
-		return nil
-	case "current_mode_update":
-		var v SessionUpdateCurrentModeUpdate
-		if err := json.Unmarshal(data, &v); err != nil {
-			return err
-		}
-		s.CurrentModeUpdate = &v
 		return nil
 	case "config_option_update":
 		var v SessionUpdateConfigOptionUpdate
@@ -2663,12 +3091,26 @@ func (s *SessionUpdate) AsUserMessageChunk() (SessionUpdateUserMessageChunk, boo
 	}
 	return *s.UserMessageChunk, true
 }
+func (s *SessionUpdate) AsUserMessage() (SessionUpdateUserMessage, bool) {
+	if s.UserMessage == nil {
+		var zero SessionUpdateUserMessage
+		return zero, false
+	}
+	return *s.UserMessage, true
+}
 func (s *SessionUpdate) AsAgentMessageChunk() (SessionUpdateAgentMessageChunk, bool) {
 	if s.AgentMessageChunk == nil {
 		var zero SessionUpdateAgentMessageChunk
 		return zero, false
 	}
 	return *s.AgentMessageChunk, true
+}
+func (s *SessionUpdate) AsAgentMessage() (SessionUpdateAgentMessage, bool) {
+	if s.AgentMessage == nil {
+		var zero SessionUpdateAgentMessage
+		return zero, false
+	}
+	return *s.AgentMessage, true
 }
 func (s *SessionUpdate) AsAgentThoughtChunk() (SessionUpdateAgentThoughtChunk, bool) {
 	if s.AgentThoughtChunk == nil {
@@ -2677,12 +3119,19 @@ func (s *SessionUpdate) AsAgentThoughtChunk() (SessionUpdateAgentThoughtChunk, b
 	}
 	return *s.AgentThoughtChunk, true
 }
-func (s *SessionUpdate) AsToolCall() (SessionUpdateToolCall, bool) {
-	if s.ToolCall == nil {
-		var zero SessionUpdateToolCall
+func (s *SessionUpdate) AsAgentThought() (SessionUpdateAgentThought, bool) {
+	if s.AgentThought == nil {
+		var zero SessionUpdateAgentThought
 		return zero, false
 	}
-	return *s.ToolCall, true
+	return *s.AgentThought, true
+}
+func (s *SessionUpdate) AsToolCallContentChunk() (SessionUpdateToolCallContentChunk, bool) {
+	if s.ToolCallContentChunk == nil {
+		var zero SessionUpdateToolCallContentChunk
+		return zero, false
+	}
+	return *s.ToolCallContentChunk, true
 }
 func (s *SessionUpdate) AsToolCallUpdate() (SessionUpdateToolCallUpdate, bool) {
 	if s.ToolCallUpdate == nil {
@@ -2691,12 +3140,19 @@ func (s *SessionUpdate) AsToolCallUpdate() (SessionUpdateToolCallUpdate, bool) {
 	}
 	return *s.ToolCallUpdate, true
 }
-func (s *SessionUpdate) AsPlan() (SessionUpdatePlan, bool) {
-	if s.Plan == nil {
-		var zero SessionUpdatePlan
+func (s *SessionUpdate) AsPlanUpdate() (SessionUpdatePlanUpdate, bool) {
+	if s.PlanUpdate == nil {
+		var zero SessionUpdatePlanUpdate
 		return zero, false
 	}
-	return *s.Plan, true
+	return *s.PlanUpdate, true
+}
+func (s *SessionUpdate) AsPlanRemoved() (SessionUpdatePlanRemoved, bool) {
+	if s.PlanRemoved == nil {
+		var zero SessionUpdatePlanRemoved
+		return zero, false
+	}
+	return *s.PlanRemoved, true
 }
 func (s *SessionUpdate) AsAvailableCommandsUpdate() (SessionUpdateAvailableCommandsUpdate, bool) {
 	if s.AvailableCommandsUpdate == nil {
@@ -2704,13 +3160,6 @@ func (s *SessionUpdate) AsAvailableCommandsUpdate() (SessionUpdateAvailableComma
 		return zero, false
 	}
 	return *s.AvailableCommandsUpdate, true
-}
-func (s *SessionUpdate) AsCurrentModeUpdate() (SessionUpdateCurrentModeUpdate, bool) {
-	if s.CurrentModeUpdate == nil {
-		var zero SessionUpdateCurrentModeUpdate
-		return zero, false
-	}
-	return *s.CurrentModeUpdate, true
 }
 func (s *SessionUpdate) AsConfigOptionUpdate() (SessionUpdateConfigOptionUpdate, bool) {
 	if s.ConfigOptionUpdate == nil {
@@ -2743,6 +3192,15 @@ func NewSessionUpdateUserMessageChunk(v ContentChunk) SessionUpdate {
 	return SessionUpdate{UserMessageChunk: &w}
 }
 
+// NewSessionUpdateUserMessage creates a SessionUpdate holding a UserMessage variant.
+func NewSessionUpdateUserMessage(v UserMessage) SessionUpdate {
+	w := SessionUpdateUserMessage{
+		UserMessage:   v,
+		SessionUpdate: "user_message",
+	}
+	return SessionUpdate{UserMessage: &w}
+}
+
 // NewSessionUpdateAgentMessageChunk creates a SessionUpdate holding a AgentMessageChunk variant.
 func NewSessionUpdateAgentMessageChunk(v ContentChunk) SessionUpdate {
 	w := SessionUpdateAgentMessageChunk{
@@ -2750,6 +3208,15 @@ func NewSessionUpdateAgentMessageChunk(v ContentChunk) SessionUpdate {
 		SessionUpdate: "agent_message_chunk",
 	}
 	return SessionUpdate{AgentMessageChunk: &w}
+}
+
+// NewSessionUpdateAgentMessage creates a SessionUpdate holding a AgentMessage variant.
+func NewSessionUpdateAgentMessage(v AgentMessage) SessionUpdate {
+	w := SessionUpdateAgentMessage{
+		AgentMessage:  v,
+		SessionUpdate: "agent_message",
+	}
+	return SessionUpdate{AgentMessage: &w}
 }
 
 // NewSessionUpdateAgentThoughtChunk creates a SessionUpdate holding a AgentThoughtChunk variant.
@@ -2761,13 +3228,22 @@ func NewSessionUpdateAgentThoughtChunk(v ContentChunk) SessionUpdate {
 	return SessionUpdate{AgentThoughtChunk: &w}
 }
 
-// NewSessionUpdateToolCall creates a SessionUpdate holding a ToolCall variant.
-func NewSessionUpdateToolCall(v ToolCall) SessionUpdate {
-	w := SessionUpdateToolCall{
-		ToolCall:      v,
-		SessionUpdate: "tool_call",
+// NewSessionUpdateAgentThought creates a SessionUpdate holding a AgentThought variant.
+func NewSessionUpdateAgentThought(v AgentThought) SessionUpdate {
+	w := SessionUpdateAgentThought{
+		AgentThought:  v,
+		SessionUpdate: "agent_thought",
 	}
-	return SessionUpdate{ToolCall: &w}
+	return SessionUpdate{AgentThought: &w}
+}
+
+// NewSessionUpdateToolCallContentChunk creates a SessionUpdate holding a ToolCallContentChunk variant.
+func NewSessionUpdateToolCallContentChunk(v ToolCallContentChunk) SessionUpdate {
+	w := SessionUpdateToolCallContentChunk{
+		ToolCallContentChunk: v,
+		SessionUpdate:        "tool_call_content_chunk",
+	}
+	return SessionUpdate{ToolCallContentChunk: &w}
 }
 
 // NewSessionUpdateToolCallUpdate creates a SessionUpdate holding a ToolCallUpdate variant.
@@ -2779,13 +3255,22 @@ func NewSessionUpdateToolCallUpdate(v ToolCallUpdate) SessionUpdate {
 	return SessionUpdate{ToolCallUpdate: &w}
 }
 
-// NewSessionUpdatePlan creates a SessionUpdate holding a Plan variant.
-func NewSessionUpdatePlan(v Plan) SessionUpdate {
-	w := SessionUpdatePlan{
-		Plan:          v,
-		SessionUpdate: "plan",
+// NewSessionUpdatePlanUpdate creates a SessionUpdate holding a PlanUpdate variant.
+func NewSessionUpdatePlanUpdate(v PlanUpdate) SessionUpdate {
+	w := SessionUpdatePlanUpdate{
+		PlanUpdate:    v,
+		SessionUpdate: "plan_update",
 	}
-	return SessionUpdate{Plan: &w}
+	return SessionUpdate{PlanUpdate: &w}
+}
+
+// NewSessionUpdatePlanRemoved creates a SessionUpdate holding a PlanRemoved variant.
+func NewSessionUpdatePlanRemoved(v PlanRemoved) SessionUpdate {
+	w := SessionUpdatePlanRemoved{
+		PlanRemoved:   v,
+		SessionUpdate: "plan_removed",
+	}
+	return SessionUpdate{PlanRemoved: &w}
 }
 
 // NewSessionUpdateAvailableCommandsUpdate creates a SessionUpdate holding a AvailableCommandsUpdate variant.
@@ -2795,15 +3280,6 @@ func NewSessionUpdateAvailableCommandsUpdate(v AvailableCommandsUpdate) SessionU
 		SessionUpdate:           "available_commands_update",
 	}
 	return SessionUpdate{AvailableCommandsUpdate: &w}
-}
-
-// NewSessionUpdateCurrentModeUpdate creates a SessionUpdate holding a CurrentModeUpdate variant.
-func NewSessionUpdateCurrentModeUpdate(v CurrentModeUpdate) SessionUpdate {
-	w := SessionUpdateCurrentModeUpdate{
-		CurrentModeUpdate: v,
-		SessionUpdate:     "current_mode_update",
-	}
-	return SessionUpdate{CurrentModeUpdate: &w}
 }
 
 // NewSessionUpdateConfigOptionUpdate creates a SessionUpdate holding a ConfigOptionUpdate variant.
@@ -3134,16 +3610,6 @@ type ToolCallContentDiff struct {
 	Type string `json:"type,omitempty"`
 }
 
-// Embed a terminal created with `terminal/create` by its id.
-//
-// The terminal must be added before calling `terminal/release`.
-//
-// See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)
-type ToolCallContentTerminal struct {
-	Terminal
-	Type string `json:"type,omitempty"`
-}
-
 // Content produced by a tool call.
 //
 // Tool calls can produce different types of content including
@@ -3155,12 +3621,6 @@ type ToolCallContent struct {
 	Content *ToolCallContentContent `json:"-"`
 	// File modification shown as a diff.
 	Diff *ToolCallContentDiff `json:"-"`
-	// Embed a terminal created with `terminal/create` by its id.
-	//
-	// The terminal must be added before calling `terminal/release`.
-	//
-	// See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)
-	Terminal *ToolCallContentTerminal `json:"-"`
 }
 
 func (t ToolCallContent) MarshalJSON() ([]byte, error) {
@@ -3188,18 +3648,6 @@ func (t ToolCallContent) MarshalJSON() ([]byte, error) {
 		obj["type"], _ = json.Marshal("diff")
 		return json.Marshal(obj)
 	}
-	if t.Terminal != nil {
-		data, err := json.Marshal(*t.Terminal)
-		if err != nil {
-			return nil, err
-		}
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(data, &obj); err != nil {
-			return nil, err
-		}
-		obj["type"], _ = json.Marshal("terminal")
-		return json.Marshal(obj)
-	}
 	return nil, fmt.Errorf("no variant is set for ToolCallContent")
 }
 func (t *ToolCallContent) UnmarshalJSON(data []byte) error {
@@ -3225,13 +3673,6 @@ func (t *ToolCallContent) UnmarshalJSON(data []byte) error {
 		}
 		t.Diff = &v
 		return nil
-	case "terminal":
-		var v ToolCallContentTerminal
-		if err := json.Unmarshal(data, &v); err != nil {
-			return err
-		}
-		t.Terminal = &v
-		return nil
 	default:
 		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
@@ -3249,13 +3690,6 @@ func (t *ToolCallContent) AsDiff() (ToolCallContentDiff, bool) {
 		return zero, false
 	}
 	return *t.Diff, true
-}
-func (t *ToolCallContent) AsTerminal() (ToolCallContentTerminal, bool) {
-	if t.Terminal == nil {
-		var zero ToolCallContentTerminal
-		return zero, false
-	}
-	return *t.Terminal, true
 }
 
 // NewToolCallContentContent creates a ToolCallContent holding a Content variant.
@@ -3276,15 +3710,6 @@ func NewToolCallContentDiff(v Diff) ToolCallContent {
 	return ToolCallContent{Diff: &w}
 }
 
-// NewToolCallContentTerminal creates a ToolCallContent holding a Terminal variant.
-func NewToolCallContentTerminal(v Terminal) ToolCallContent {
-	w := ToolCallContentTerminal{
-		Terminal: v,
-		Type:     "terminal",
-	}
-	return ToolCallContent{Terminal: &w}
-}
-
 // Notification sent when a suggestion is accepted.
 type AcceptNesNotification struct {
 	Meta      map[string]any `json:"_meta,omitempty"`
@@ -3294,10 +3719,6 @@ type AcceptNesNotification struct {
 
 func (x AcceptNesNotification) GetSessionID() string { return string(x.SessionID) }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Authentication-related capabilities supported by the agent.
 type AgentAuthCapabilities struct {
 	Meta   map[string]any      `json:"_meta,omitempty"`
@@ -3311,15 +3732,50 @@ type AgentAuthCapabilities struct {
 //
 // See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/initialization#agent-capabilities)
 type AgentCapabilities struct {
-	Meta                map[string]any         `json:"_meta,omitempty"`
-	Auth                *AgentAuthCapabilities `json:"auth,omitempty"`
-	LoadSession         bool                   `json:"loadSession,omitempty"`
-	MCPCapabilities     *MCPCapabilities       `json:"mcpCapabilities,omitempty"`
-	Nes                 *NesCapabilities       `json:"nes,omitempty"`
-	PositionEncoding    *PositionEncodingKind  `json:"positionEncoding,omitempty"`
-	PromptCapabilities  *PromptCapabilities    `json:"promptCapabilities,omitempty"`
-	Providers           *ProvidersCapabilities `json:"providers,omitempty"`
-	SessionCapabilities *SessionCapabilities   `json:"sessionCapabilities,omitempty"`
+	Meta             map[string]any         `json:"_meta,omitempty"`
+	Auth             *AgentAuthCapabilities `json:"auth,omitempty"`
+	Nes              *NesCapabilities       `json:"nes,omitempty"`
+	PositionEncoding *PositionEncodingKind  `json:"positionEncoding,omitempty"`
+	Providers        *ProvidersCapabilities `json:"providers,omitempty"`
+	Session          *SessionCapabilities   `json:"session,omitempty"`
+}
+
+// An agent message upsert.
+//
+// Only [`AgentMessage::message_id`] is required. Other fields have patch
+// semantics: omitted fields leave the existing message value unchanged, `null`
+// clears or unsets the value, and concrete values replace the previous value.
+// For a new `messageId`, omitted fields use client defaults. `content` is
+// replaced as a whole array; send `[]` or `null` to clear it.
+//
+// Message updates and chunks are applied in the order they are received. When
+// an `agent_message` update includes `content`, that array replaces any
+// content previously accumulated for the message, including content from
+// earlier chunks. Later chunks with the same `messageId` append to the current
+// content.
+type AgentMessage struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	Content   []ContentBlock `json:"content,omitempty"`
+	MessageID MessageID      `json:"messageId"`
+}
+
+// An agent thought or reasoning message upsert.
+//
+// Only [`AgentThought::message_id`] is required. Other fields have patch
+// semantics: omitted fields leave the existing thought value unchanged, `null`
+// clears or unsets the value, and concrete values replace the previous value.
+// For a new `messageId`, omitted fields use client defaults. `content` is
+// replaced as a whole array; send `[]` or `null` to clear it.
+//
+// Message updates and chunks are applied in the order they are received. When
+// an `agent_thought` update includes `content`, that array replaces any
+// content previously accumulated for the thought, including content from
+// earlier chunks. Later chunks with the same `messageId` append to the current
+// content.
+type AgentThought struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	Content   []ContentBlock `json:"content,omitempty"`
+	MessageID MessageID      `json:"messageId"`
 }
 
 // Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
@@ -3348,8 +3804,8 @@ type AudioContent struct {
 // method types the client can handle. This governs opt-in types that require
 // additional client-side support.
 type AuthCapabilities struct {
-	Meta     map[string]any `json:"_meta,omitempty"`
-	Terminal bool           `json:"terminal,omitempty"`
+	Meta     map[string]any            `json:"_meta,omitempty"`
+	Terminal *TerminalAuthCapabilities `json:"terminal,omitempty"`
 }
 
 // **UNSTABLE**
@@ -3367,7 +3823,7 @@ type AuthEnvVar struct {
 
 // Agent handles authentication itself.
 //
-// This is the default authentication method type.
+// The `type` discriminator value is `agent`.
 type AuthMethodAgent struct {
 	Meta        map[string]any `json:"_meta,omitempty"`
 	Description string         `json:"description,omitempty"`
@@ -3481,10 +3937,8 @@ type ClientCapabilities struct {
 	Meta              map[string]any           `json:"_meta,omitempty"`
 	Auth              *AuthCapabilities        `json:"auth,omitempty"`
 	Elicitation       *ElicitationCapabilities `json:"elicitation,omitempty"`
-	FS                *FileSystemCapabilities  `json:"fs,omitempty"`
 	Nes               *ClientNesCapabilities   `json:"nes,omitempty"`
 	PositionEncodings []PositionEncodingKind   `json:"positionEncodings,omitempty"`
-	Terminal          bool                     `json:"terminal,omitempty"`
 }
 
 // NES capabilities advertised by the client during initialization.
@@ -3511,17 +3965,13 @@ type CloseNesResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Request parameters for closing an active session.
 //
 // If supported, the agent **must** cancel any ongoing work related to the session
 // (treat it as if `session/cancel` was called) and then free up any resources
 // associated with the session.
 //
-// Only available if the Agent supports the `sessionCapabilities.close` capability.
+// Only available if the Agent supports the `session.close` capability.
 type CloseSessionRequest struct {
 	Meta      map[string]any `json:"_meta,omitempty"`
 	SessionID SessionID      `json:"sessionId"`
@@ -3529,10 +3979,6 @@ type CloseSessionRequest struct {
 
 func (x CloseSessionRequest) GetSessionID() string { return string(x.SessionID) }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Response from closing a session.
 type CloseSessionResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
@@ -3554,6 +4000,26 @@ type ConfigOptionUpdate struct {
 	ConfigOptions []SessionConfigOption `json:"configOptions"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for `mcp/connect`.
+type ConnectMCPRequest struct {
+	Meta  map[string]any `json:"_meta,omitempty"`
+	AcpID MCPServerAcpID `json:"acpId"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response to `mcp/connect`.
+type ConnectMCPResponse struct {
+	Meta         map[string]any  `json:"_meta,omitempty"`
+	ConnectionID MCPConnectionID `json:"connectionId"`
+}
+
 // Standard content block (text, images, resources).
 type Content struct {
 	Meta    map[string]any `json:"_meta,omitempty"`
@@ -3564,44 +4030,28 @@ type Content struct {
 type ContentChunk struct {
 	Meta      map[string]any `json:"_meta,omitempty"`
 	Content   ContentBlock   `json:"content"`
-	MessageID string         `json:"messageId,omitempty"`
+	MessageID MessageID      `json:"messageId"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Cost information for a session.
 type Cost struct {
 	Amount   float64 `json:"amount"`
 	Currency string  `json:"currency"`
 }
 
-// Request to create a new terminal and execute a command.
-type CreateTerminalRequest struct {
-	Meta            map[string]any `json:"_meta,omitempty"`
-	Args            []string       `json:"args,omitempty"`
-	Command         string         `json:"command"`
-	Cwd             string         `json:"cwd,omitempty"`
-	Env             []EnvVariable  `json:"env,omitempty"`
-	OutputByteLimit *int64         `json:"outputByteLimit,omitempty"`
-	SessionID       SessionID      `json:"sessionId"`
-}
-
-func (x CreateTerminalRequest) GetSessionID() string { return string(x.SessionID) }
-
-// Response containing the ID of the created terminal.
-type CreateTerminalResponse struct {
-	Meta       map[string]any `json:"_meta,omitempty"`
-	TerminalID string         `json:"terminalId"`
-}
-
-// The current mode of the session has changed
+// Request parameters for deleting an existing session from `session/list`.
 //
-// See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
-type CurrentModeUpdate struct {
-	Meta          map[string]any `json:"_meta,omitempty"`
-	CurrentModeID SessionModeID  `json:"currentModeId"`
+// Only available if the Agent supports the `session.delete` capability.
+type DeleteSessionRequest struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	SessionID SessionID      `json:"sessionId"`
+}
+
+func (x DeleteSessionRequest) GetSessionID() string { return string(x.SessionID) }
+
+// Response from deleting a session.
+type DeleteSessionResponse struct {
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // Notification sent when a file is edited.
@@ -3674,7 +4124,7 @@ type Diff struct {
 // This capability is not part of the spec yet, and may be removed or changed at any point.
 //
 // Request parameters for `providers/disable`.
-type DisableProvidersRequest struct {
+type DisableProviderRequest struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 	ID   string         `json:"id"`
 }
@@ -3684,7 +4134,26 @@ type DisableProvidersRequest struct {
 // This capability is not part of the spec yet, and may be removed or changed at any point.
 //
 // Response to `providers/disable`.
-type DisableProvidersResponse struct {
+type DisableProviderResponse struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for `mcp/disconnect`.
+type DisconnectMCPRequest struct {
+	Meta         map[string]any  `json:"_meta,omitempty"`
+	ConnectionID MCPConnectionID `json:"connectionId"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response to `mcp/disconnect`.
+type DisconnectMCPResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
@@ -3796,15 +4265,6 @@ type Error struct {
 	Message string          `json:"message"`
 }
 
-// File system capabilities that a client may support.
-//
-// See protocol docs: [FileSystem](https://agentclientprotocol.com/protocol/initialization#filesystem)
-type FileSystemCapabilities struct {
-	Meta          map[string]any `json:"_meta,omitempty"`
-	ReadTextFile  bool           `json:"readTextFile,omitempty"`
-	WriteTextFile bool           `json:"writeTextFile,omitempty"`
-}
-
 // **UNSTABLE**
 //
 // This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -3833,8 +4293,6 @@ func (x ForkSessionRequest) GetSessionID() string { return string(x.SessionID) }
 type ForkSessionResponse struct {
 	Meta          map[string]any        `json:"_meta,omitempty"`
 	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
-	Models        *SessionModelState    `json:"models,omitempty"`
-	Modes         *SessionModeState     `json:"modes,omitempty"`
 	SessionID     SessionID             `json:"sessionId"`
 }
 
@@ -3872,10 +4330,10 @@ type Implementation struct {
 //
 // See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
 type InitializeRequest struct {
-	Meta               map[string]any      `json:"_meta,omitempty"`
-	ClientCapabilities *ClientCapabilities `json:"clientCapabilities,omitempty"`
-	ClientInfo         *Implementation     `json:"clientInfo,omitempty"`
-	ProtocolVersion    ProtocolVersion     `json:"protocolVersion"`
+	Meta            map[string]any      `json:"_meta,omitempty"`
+	Capabilities    *ClientCapabilities `json:"capabilities,omitempty"`
+	ClientInfo      *Implementation     `json:"clientInfo,omitempty"`
+	ProtocolVersion ProtocolVersion     `json:"protocolVersion"`
 }
 
 func (x InitializeRequest) GetProtocolVersion() ProtocolVersion { return x.ProtocolVersion }
@@ -3886,11 +4344,11 @@ func (x InitializeRequest) GetProtocolVersion() ProtocolVersion { return x.Proto
 //
 // See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
 type InitializeResponse struct {
-	Meta              map[string]any     `json:"_meta,omitempty"`
-	AgentCapabilities *AgentCapabilities `json:"agentCapabilities,omitempty"`
-	AgentInfo         *Implementation    `json:"agentInfo,omitempty"`
-	AuthMethods       []AuthMethod       `json:"authMethods,omitempty"`
-	ProtocolVersion   ProtocolVersion    `json:"protocolVersion"`
+	Meta            map[string]any     `json:"_meta,omitempty"`
+	AgentInfo       *Implementation    `json:"agentInfo,omitempty"`
+	AuthMethods     []AuthMethod       `json:"authMethods,omitempty"`
+	Capabilities    *AgentCapabilities `json:"capabilities,omitempty"`
+	ProtocolVersion ProtocolVersion    `json:"protocolVersion"`
 }
 
 func (x InitializeResponse) GetProtocolVersion() ProtocolVersion { return x.ProtocolVersion }
@@ -3902,20 +4360,6 @@ type IntegerPropertySchema struct {
 	Maximum     *int64 `json:"maximum,omitempty"`
 	Minimum     *int64 `json:"minimum,omitempty"`
 	Title       string `json:"title,omitempty"`
-}
-
-// Request to kill a terminal without releasing it.
-type KillTerminalRequest struct {
-	Meta       map[string]any `json:"_meta,omitempty"`
-	SessionID  SessionID      `json:"sessionId"`
-	TerminalID string         `json:"terminalId"`
-}
-
-func (x KillTerminalRequest) GetSessionID() string { return string(x.SessionID) }
-
-// Response to `terminal/kill` method
-type KillTerminalResponse struct {
-	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // **UNSTABLE**
@@ -3939,12 +4383,11 @@ type ListProvidersResponse struct {
 
 // Request parameters for listing existing sessions.
 //
-// Only available if the Agent supports the `sessionCapabilities.list` capability.
+// Only available if the Agent supports the `session.list` capability.
 type ListSessionsRequest struct {
-	Meta                  map[string]any `json:"_meta,omitempty"`
-	AdditionalDirectories []string       `json:"additionalDirectories,omitempty"`
-	Cursor                string         `json:"cursor,omitempty"`
-	Cwd                   string         `json:"cwd,omitempty"`
+	Meta   map[string]any `json:"_meta,omitempty"`
+	Cursor string         `json:"cursor,omitempty"`
+	Cwd    string         `json:"cwd,omitempty"`
 }
 
 // Response from listing sessions.
@@ -3956,7 +4399,7 @@ type ListSessionsResponse struct {
 
 // Request parameters for loading an existing session.
 //
-// Only available if the Agent supports the `loadSession` capability.
+// Only available if the Agent supports the `session.load` capability.
 //
 // See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
 type LoadSessionRequest struct {
@@ -3973,14 +4416,8 @@ func (x LoadSessionRequest) GetSessionID() string { return string(x.SessionID) }
 type LoadSessionResponse struct {
 	Meta          map[string]any        `json:"_meta,omitempty"`
 	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
-	Models        *SessionModelState    `json:"models,omitempty"`
-	Modes         *SessionModeState     `json:"modes,omitempty"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Logout capabilities supported by the agent.
 //
 // By supplying `{}` it means that the agent supports the logout method.
@@ -3988,10 +4425,6 @@ type LogoutCapabilities struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Request parameters for the logout method.
 //
 // Terminates the current authenticated session.
@@ -3999,32 +4432,53 @@ type LogoutRequest struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Response to the `logout` method.
 type LogoutResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
-// MCP capabilities supported by the agent
-type MCPCapabilities struct {
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Capabilities for ACP MCP server transports.
+//
+// Supplying `{}` means the agent supports ACP MCP server transports.
+type MCPAcpCapabilities struct {
 	Meta map[string]any `json:"_meta,omitempty"`
-	HTTP bool           `json:"http,omitempty"`
-	SSE  bool           `json:"sse,omitempty"`
+}
+
+// MCP capabilities supported by the agent for session lifecycle requests.
+type MCPCapabilities struct {
+	Meta  map[string]any        `json:"_meta,omitempty"`
+	Acp   *MCPAcpCapabilities   `json:"acp,omitempty"`
+	HTTP  *MCPHTTPCapabilities  `json:"http,omitempty"`
+	Stdio *MCPStdioCapabilities `json:"stdio,omitempty"`
+}
+
+// Capabilities for HTTP MCP server transports.
+//
+// Supplying `{}` means the agent supports HTTP MCP server transports.
+type MCPHTTPCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// ACP transport configuration for MCP.
+//
+// The MCP server is provided by an ACP component and communicates over the ACP channel
+// using `mcp/connect`, `mcp/message`, and `mcp/disconnect`.
+type MCPServerAcp struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+	ID   MCPServerAcpID `json:"id"`
+	Name string         `json:"name"`
 }
 
 // HTTP transport configuration for MCP.
 type MCPServerHTTP struct {
-	Meta    map[string]any `json:"_meta,omitempty"`
-	Headers []HTTPHeader   `json:"headers"`
-	Name    string         `json:"name"`
-	URL     string         `json:"url"`
-}
-
-// SSE transport configuration for MCP.
-type MCPServerSSE struct {
 	Meta    map[string]any `json:"_meta,omitempty"`
 	Headers []HTTPHeader   `json:"headers"`
 	Name    string         `json:"name"`
@@ -4040,16 +4494,38 @@ type MCPServerStdio struct {
 	Name    string         `json:"name"`
 }
 
+// Capabilities for stdio MCP server transports.
+//
+// Supplying `{}` means the agent supports stdio MCP server transports.
+type MCPStdioCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
 // **UNSTABLE**
 //
 // This capability is not part of the spec yet, and may be removed or changed at any point.
 //
-// Information about a selectable model.
-type ModelInfo struct {
-	Meta        map[string]any `json:"_meta,omitempty"`
-	Description string         `json:"description,omitempty"`
-	ModelID     ModelID        `json:"modelId"`
-	Name        string         `json:"name"`
+// Notification parameters for `mcp/message`.
+//
+// This is used when the wrapped MCP message is a notification and the outer JSON-RPC
+// envelope has no `id`.
+type MessageMCPNotification struct {
+	Meta         map[string]any  `json:"_meta,omitempty"`
+	ConnectionID MCPConnectionID `json:"connectionId"`
+	Method       string          `json:"method"`
+	Params       map[string]any  `json:"params,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for `mcp/message`.
+type MessageMCPRequest struct {
+	Meta         map[string]any  `json:"_meta,omitempty"`
+	ConnectionID MCPConnectionID `json:"connectionId"`
+	Method       string          `json:"method"`
+	Params       map[string]any  `json:"params,omitempty"`
 }
 
 // Schema for multi-select (array) properties in an elicitation form.
@@ -4063,6 +4539,9 @@ type MultiSelectPropertySchema struct {
 }
 
 // NES capabilities advertised by the agent during initialization.
+//
+// Supplying `{}` means the agent supports the NES method surface. Omitted or
+// `null` both mean the agent does not advertise support for `nes/*` methods.
 type NesCapabilities struct {
 	Meta    map[string]any          `json:"_meta,omitempty"`
 	Context *NesContextCapabilities `json:"context,omitempty"`
@@ -4292,8 +4771,6 @@ type NewSessionRequest struct {
 type NewSessionResponse struct {
 	Meta          map[string]any        `json:"_meta,omitempty"`
 	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
-	Models        *SessionModelState    `json:"models,omitempty"`
-	Modes         *SessionModeState     `json:"modes,omitempty"`
 	SessionID     SessionID             `json:"sessionId"`
 }
 
@@ -4316,18 +4793,6 @@ type PermissionOption struct {
 	OptionID PermissionOptionID   `json:"optionId"`
 }
 
-// An execution plan for accomplishing complex tasks.
-//
-// Plans consist of multiple entries representing individual tasks or goals.
-// Agents report plans to clients to provide visibility into their execution strategy.
-// Plans can evolve during execution as the agent discovers new requirements or completes tasks.
-//
-// See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
-type Plan struct {
-	Meta    map[string]any `json:"_meta,omitempty"`
-	Entries []PlanEntry    `json:"entries"`
-}
-
 // A single entry in the execution plan.
 //
 // Represents a task or goal that the assistant intends to accomplish
@@ -4340,12 +4805,64 @@ type PlanEntry struct {
 	Status   PlanEntryStatus   `json:"status"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// A plan represented by a file URI.
+type PlanFile struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+	ID   PlanID         `json:"id"`
+	URI  string         `json:"uri"`
+}
+
+// A plan represented as structured entries.
+type PlanItems struct {
+	Meta    map[string]any `json:"_meta,omitempty"`
+	Entries []PlanEntry    `json:"entries"`
+	ID      PlanID         `json:"id"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// A plan represented as raw markdown content.
+type PlanMarkdown struct {
+	Meta    map[string]any `json:"_meta,omitempty"`
+	Content string         `json:"content"`
+	ID      PlanID         `json:"id"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Removal notice for a plan identified by ID.
+type PlanRemoved struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+	ID   PlanID         `json:"id"`
+}
+
+// A content update for a plan identified by ID.
+type PlanUpdate struct {
+	Meta map[string]any    `json:"_meta,omitempty"`
+	Plan PlanUpdateContent `json:"plan"`
+}
+
 // A zero-based position in a text document.
 //
 // The meaning of `character` depends on the negotiated position encoding.
 type Position struct {
 	Character int64 `json:"character"`
 	Line      int64 `json:"line"`
+}
+
+// Capabilities for audio content in prompt requests.
+//
+// Supplying `{}` means the agent supports audio content in prompts.
+type PromptAudioCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // Prompt capabilities supported by the agent in `session/prompt` requests.
@@ -4361,10 +4878,24 @@ type Position struct {
 //
 // See protocol docs: [Prompt Capabilities](https://agentclientprotocol.com/protocol/initialization#prompt-capabilities)
 type PromptCapabilities struct {
-	Meta            map[string]any `json:"_meta,omitempty"`
-	Audio           bool           `json:"audio,omitempty"`
-	EmbeddedContext bool           `json:"embeddedContext,omitempty"`
-	Image           bool           `json:"image,omitempty"`
+	Meta            map[string]any                     `json:"_meta,omitempty"`
+	Audio           *PromptAudioCapabilities           `json:"audio,omitempty"`
+	EmbeddedContext *PromptEmbeddedContextCapabilities `json:"embeddedContext,omitempty"`
+	Image           *PromptImageCapabilities           `json:"image,omitempty"`
+}
+
+// Capabilities for embedded context in prompt requests.
+//
+// Supplying `{}` means the agent supports embedded context in prompts.
+type PromptEmbeddedContextCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// Capabilities for image content in prompt requests.
+//
+// Supplying `{}` means the agent supports image content in prompts.
+type PromptImageCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // Request parameters for sending a user prompt to the agent.
@@ -4374,7 +4905,6 @@ type PromptCapabilities struct {
 // See protocol docs: [User Message](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message)
 type PromptRequest struct {
 	Meta      map[string]any `json:"_meta,omitempty"`
-	MessageID string         `json:"messageId,omitempty"`
 	Prompt    []ContentBlock `json:"prompt"`
 	SessionID SessionID      `json:"sessionId"`
 }
@@ -4385,10 +4915,14 @@ func (x PromptRequest) GetSessionID() string { return string(x.SessionID) }
 //
 // See protocol docs: [Check for Completion](https://agentclientprotocol.com/protocol/prompt-turn#4-check-for-completion)
 type PromptResponse struct {
-	Meta          map[string]any `json:"_meta,omitempty"`
-	StopReason    StopReason     `json:"stopReason"`
-	Usage         *Usage         `json:"usage,omitempty"`
-	UserMessageID string         `json:"userMessageId,omitempty"`
+	Meta       map[string]any `json:"_meta,omitempty"`
+	StopReason StopReason     `json:"stopReason"`
+	Usage      *Usage         `json:"usage,omitempty"`
+}
+
+type ProtocolLevelNotification struct {
+	Method string                     `json:"method"`
+	Params *CancelRequestNotification `json:"params,omitempty"`
 }
 
 // **UNSTABLE**
@@ -4407,11 +4941,11 @@ type ProviderCurrentConfig struct {
 //
 // Information about a configurable LLM provider.
 type ProviderInfo struct {
-	Meta      map[string]any        `json:"_meta,omitempty"`
-	Current   ProviderCurrentConfig `json:"current"`
-	ID        string                `json:"id"`
-	Required  bool                  `json:"required"`
-	Supported []LlmProtocol         `json:"supported"`
+	Meta      map[string]any         `json:"_meta,omitempty"`
+	Current   *ProviderCurrentConfig `json:"current,omitempty"`
+	ID        string                 `json:"id"`
+	Required  bool                   `json:"required"`
+	Supported []LlmProtocol          `json:"supported"`
 }
 
 // **UNSTABLE**
@@ -4431,25 +4965,6 @@ type Range struct {
 	Start Position `json:"start"`
 }
 
-// Request to read content from a text file.
-//
-// Only available if the client supports the `fs.readTextFile` capability.
-type ReadTextFileRequest struct {
-	Meta      map[string]any `json:"_meta,omitempty"`
-	Limit     *int64         `json:"limit,omitempty"`
-	Line      *int64         `json:"line,omitempty"`
-	Path      string         `json:"path"`
-	SessionID SessionID      `json:"sessionId"`
-}
-
-func (x ReadTextFileRequest) GetSessionID() string { return string(x.SessionID) }
-
-// Response containing the contents of a text file.
-type ReadTextFileResponse struct {
-	Meta    map[string]any `json:"_meta,omitempty"`
-	Content string         `json:"content"`
-}
-
 // Notification sent when a suggestion is rejected.
 type RejectNesNotification struct {
 	Meta      map[string]any   `json:"_meta,omitempty"`
@@ -4459,20 +4974,6 @@ type RejectNesNotification struct {
 }
 
 func (x RejectNesNotification) GetSessionID() string { return string(x.SessionID) }
-
-// Request to release a terminal and free its resources.
-type ReleaseTerminalRequest struct {
-	Meta       map[string]any `json:"_meta,omitempty"`
-	SessionID  SessionID      `json:"sessionId"`
-	TerminalID string         `json:"terminalId"`
-}
-
-func (x ReleaseTerminalRequest) GetSessionID() string { return string(x.SessionID) }
-
-// Response to terminal/release method
-type ReleaseTerminalResponse struct {
-	Meta map[string]any `json:"_meta,omitempty"`
-}
 
 // Request for user permission to execute a tool call.
 //
@@ -4506,16 +5007,12 @@ type ResourceLink struct {
 	URI         string         `json:"uri"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Request parameters for resuming an existing session.
 //
 // Resumes an existing session without returning previous messages (unlike `session/load`).
 // This is useful for agents that can resume sessions but don't implement full session loading.
 //
-// Only available if the Agent supports the `sessionCapabilities.resume` capability.
+// Only available if the Agent supports the `session.resume` capability.
 type ResumeSessionRequest struct {
 	Meta                  map[string]any `json:"_meta,omitempty"`
 	AdditionalDirectories []string       `json:"additionalDirectories,omitempty"`
@@ -4526,16 +5023,10 @@ type ResumeSessionRequest struct {
 
 func (x ResumeSessionRequest) GetSessionID() string { return string(x.SessionID) }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Response from resuming an existing session.
 type ResumeSessionResponse struct {
 	Meta          map[string]any        `json:"_meta,omitempty"`
 	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
-	Models        *SessionModelState    `json:"models,omitempty"`
-	Modes         *SessionModeState     `json:"modes,omitempty"`
 }
 
 // The user selected one of the provided options.
@@ -4544,40 +5035,39 @@ type SelectedPermissionOutcome struct {
 	OptionID PermissionOptionID `json:"optionId"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Capabilities for additional session directories support.
 //
-// By supplying `{}` it means that the agent supports the `additionalDirectories` field on
-// supported session lifecycle requests and `session/list`.
+// By supplying `{}` it means that the agent supports the `additionalDirectories`
+// field on supported session lifecycle requests. Agents that also support
+// `session/list` may return `SessionInfo.additionalDirectories` to report the
+// complete ordered additional-root list associated with a listed session.
 type SessionAdditionalDirectoriesCapabilities struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // Session capabilities supported by the agent.
 //
-// As a baseline, all Agents **MUST** support `session/new`, `session/prompt`, `session/cancel`, and `session/update`.
+// Supplying `{}` means the agent supports the baseline session methods:
+// `session/new`, `session/prompt`, `session/cancel`, and `session/update`.
 //
-// Optionally, they **MAY** support other session methods and notifications by specifying additional capabilities.
-//
-// Note: `session/load` is still handled by the top-level `load_session` capability. This will be unified in future versions of the protocol.
+// Agents that support sessions **MAY** support additional session methods,
+// prompt content types, and MCP transports by specifying additional
+// capabilities.
 //
 // See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/initialization#session-capabilities)
 type SessionCapabilities struct {
 	Meta                  map[string]any                            `json:"_meta,omitempty"`
 	AdditionalDirectories *SessionAdditionalDirectoriesCapabilities `json:"additionalDirectories,omitempty"`
 	Close                 *SessionCloseCapabilities                 `json:"close,omitempty"`
+	Delete                *SessionDeleteCapabilities                `json:"delete,omitempty"`
 	Fork                  *SessionForkCapabilities                  `json:"fork,omitempty"`
 	List                  *SessionListCapabilities                  `json:"list,omitempty"`
+	Load                  *SessionLoadCapabilities                  `json:"load,omitempty"`
+	MCP                   *MCPCapabilities                          `json:"mcp,omitempty"`
+	Prompt                *PromptCapabilities                       `json:"prompt,omitempty"`
 	Resume                *SessionResumeCapabilities                `json:"resume,omitempty"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Capabilities for the `session/close` method.
 //
 // By supplying `{}` it means that the agent supports closing of sessions.
@@ -4614,6 +5104,13 @@ type SessionConfigSelectOption struct {
 	Description string               `json:"description,omitempty"`
 	Name        string               `json:"name"`
 	Value       SessionConfigValueID `json:"value"`
+}
+
+// Capabilities for the `session/delete` method.
+//
+// Supplying `{}` means the agent supports deleting sessions from `session/list`.
+type SessionDeleteCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // **UNSTABLE**
@@ -4656,32 +5153,11 @@ type SessionListCapabilities struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
-// A mode the agent can operate in.
+// Capabilities for the `session/load` method.
 //
-// See protocol docs: [Session Modes](https://agentclientprotocol.com/protocol/session-modes)
-type SessionMode struct {
-	Meta        map[string]any `json:"_meta,omitempty"`
-	Description string         `json:"description,omitempty"`
-	ID          SessionModeID  `json:"id"`
-	Name        string         `json:"name"`
-}
-
-// The set of modes and the one currently active.
-type SessionModeState struct {
-	Meta           map[string]any `json:"_meta,omitempty"`
-	AvailableModes []SessionMode  `json:"availableModes"`
-	CurrentModeID  SessionModeID  `json:"currentModeId"`
-}
-
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
-// The set of models and the one currently active.
-type SessionModelState struct {
-	Meta            map[string]any `json:"_meta,omitempty"`
-	AvailableModels []ModelInfo    `json:"availableModels"`
-	CurrentModelID  ModelID        `json:"currentModelId"`
+// Supplying `{}` means the agent supports loading sessions.
+type SessionLoadCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // Notification containing a session update from the agent.
@@ -4697,10 +5173,6 @@ type SessionNotification struct {
 
 func (x SessionNotification) GetSessionID() string { return string(x.SessionID) }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Capabilities for the `session/resume` method.
 //
 // By supplying `{}` it means that the agent supports resuming of sessions.
@@ -4715,7 +5187,7 @@ type SessionResumeCapabilities struct {
 // Request parameters for `providers/set`.
 //
 // Replaces the full configuration for one provider id.
-type SetProvidersRequest struct {
+type SetProviderRequest struct {
 	Meta    map[string]any    `json:"_meta,omitempty"`
 	APIType LlmProtocol       `json:"apiType"`
 	BaseURL string            `json:"baseUrl"`
@@ -4728,7 +5200,7 @@ type SetProvidersRequest struct {
 // This capability is not part of the spec yet, and may be removed or changed at any point.
 //
 // Response to `providers/set`.
-type SetProvidersResponse struct {
+type SetProviderResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
@@ -4736,42 +5208,6 @@ type SetProvidersResponse struct {
 type SetSessionConfigOptionResponse struct {
 	Meta          map[string]any        `json:"_meta,omitempty"`
 	ConfigOptions []SessionConfigOption `json:"configOptions"`
-}
-
-// Request parameters for setting a session mode.
-type SetSessionModeRequest struct {
-	Meta      map[string]any `json:"_meta,omitempty"`
-	ModeID    SessionModeID  `json:"modeId"`
-	SessionID SessionID      `json:"sessionId"`
-}
-
-func (x SetSessionModeRequest) GetSessionID() string { return string(x.SessionID) }
-
-// Response to `session/set_mode` method.
-type SetSessionModeResponse struct {
-	Meta map[string]any `json:"_meta,omitempty"`
-}
-
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
-// Request parameters for setting a session model.
-type SetSessionModelRequest struct {
-	Meta      map[string]any `json:"_meta,omitempty"`
-	ModelID   ModelID        `json:"modelId"`
-	SessionID SessionID      `json:"sessionId"`
-}
-
-func (x SetSessionModelRequest) GetSessionID() string { return string(x.SessionID) }
-
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
-// Response to `session/set_model` method.
-type SetSessionModelResponse struct {
-	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // Request to start an NES session.
@@ -4826,38 +5262,15 @@ type SuggestNesResponse struct {
 	Suggestions []NesSuggestion `json:"suggestions"`
 }
 
-// Embed a terminal created with `terminal/create` by its id.
+// **UNSTABLE**
 //
-// The terminal must be added before calling `terminal/release`.
+// This capability is not part of the spec yet, and may be removed or changed at any point.
 //
-// See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)
-type Terminal struct {
-	Meta       map[string]any `json:"_meta,omitempty"`
-	TerminalID string         `json:"terminalId"`
-}
-
-// Exit status of a terminal command.
-type TerminalExitStatus struct {
-	Meta     map[string]any `json:"_meta,omitempty"`
-	ExitCode *int64         `json:"exitCode,omitempty"`
-	Signal   string         `json:"signal,omitempty"`
-}
-
-// Request to get the current output and status of a terminal.
-type TerminalOutputRequest struct {
-	Meta       map[string]any `json:"_meta,omitempty"`
-	SessionID  SessionID      `json:"sessionId"`
-	TerminalID string         `json:"terminalId"`
-}
-
-func (x TerminalOutputRequest) GetSessionID() string { return string(x.SessionID) }
-
-// Response containing the terminal output and exit status.
-type TerminalOutputResponse struct {
-	Meta       map[string]any      `json:"_meta,omitempty"`
-	ExitStatus *TerminalExitStatus `json:"exitStatus,omitempty"`
-	Output     string              `json:"output"`
-	Truncated  bool                `json:"truncated"`
+// Capabilities for terminal authentication methods.
+//
+// Supplying `{}` means the client supports terminal authentication methods.
+type TerminalAuthCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // Text provided to or from an LLM.
@@ -4889,22 +5302,16 @@ type TitledMultiSelectItems struct {
 	AnyOf []EnumOption `json:"anyOf"`
 }
 
-// Represents a tool call that the language model has requested.
+// A streamed item of tool-call content.
 //
-// Tool calls are actions that the agent executes on behalf of the language model,
-// such as reading files, executing code, or fetching data from external sources.
-//
-// See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/tool-calls)
-type ToolCall struct {
-	Meta       map[string]any     `json:"_meta,omitempty"`
-	Content    []ToolCallContent  `json:"content,omitempty"`
-	Kind       *ToolKind          `json:"kind,omitempty"`
-	Locations  []ToolCallLocation `json:"locations,omitempty"`
-	RawInput   json.RawMessage    `json:"rawInput,omitempty"`
-	RawOutput  json.RawMessage    `json:"rawOutput,omitempty"`
-	Status     *ToolCallStatus    `json:"status,omitempty"`
-	Title      string             `json:"title"`
-	ToolCallID ToolCallID         `json:"toolCallId"`
+// Tool-call content chunks append one [`ToolCallContent`] item to the current
+// content for the matching [`ToolCallId`]. Agents can use
+// [`ToolCallUpdate::content`] when they need to replace the whole content
+// collection instead.
+type ToolCallContentChunk struct {
+	Meta       map[string]any  `json:"_meta,omitempty"`
+	Content    ToolCallContent `json:"content"`
+	ToolCallID ToolCallID      `json:"toolCallId"`
 }
 
 // A file location being accessed or modified by a tool.
@@ -4919,12 +5326,19 @@ type ToolCallLocation struct {
 	Path string         `json:"path"`
 }
 
-// An update to an existing tool call.
+// Represents an upsert for a tool call that the language model has requested.
 //
-// Used to report progress and results as tools execute. All fields except
-// the tool call ID are optional - only changed fields need to be included.
+// Tool calls are actions that the agent executes on behalf of the language model,
+// such as reading files, executing code, or fetching data from external sources.
 //
-// See protocol docs: [Updating](https://agentclientprotocol.com/protocol/tool-calls#updating)
+// Only [`ToolCallUpdate::tool_call_id`] is required. Other fields have patch semantics:
+// omitted fields leave the existing tool call value unchanged, `null` clears or
+// unsets the value, and concrete values replace the previous value. For
+// collection fields, concrete arrays replace the previous collection, and both
+// `null` and `[]` clear the collection. When a client receives a tool call ID it
+// has not seen before, omitted fields use client defaults.
+//
+// See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/tool-calls)
 type ToolCallUpdate struct {
 	Meta       map[string]any     `json:"_meta,omitempty"`
 	Content    []ToolCallContent  `json:"content,omitempty"`
@@ -4963,10 +5377,6 @@ type Usage struct {
 	TotalTokens       int64  `json:"totalTokens"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Context window and cost update for a session.
 type UsageUpdate struct {
 	Meta map[string]any `json:"_meta,omitempty"`
@@ -4975,43 +5385,29 @@ type UsageUpdate struct {
 	Used int64          `json:"used"`
 }
 
-// Request to wait for a terminal command to exit.
-type WaitForTerminalExitRequest struct {
-	Meta       map[string]any `json:"_meta,omitempty"`
-	SessionID  SessionID      `json:"sessionId"`
-	TerminalID string         `json:"terminalId"`
-}
-
-func (x WaitForTerminalExitRequest) GetSessionID() string { return string(x.SessionID) }
-
-// Response containing the exit status of a terminal command.
-type WaitForTerminalExitResponse struct {
-	Meta     map[string]any `json:"_meta,omitempty"`
-	ExitCode *int64         `json:"exitCode,omitempty"`
-	Signal   string         `json:"signal,omitempty"`
+// A user message upsert.
+//
+// Only [`UserMessage::message_id`] is required. Other fields have patch
+// semantics: omitted fields leave the existing message value unchanged, `null`
+// clears or unsets the value, and concrete values replace the previous value.
+// For a new `messageId`, omitted fields use client defaults. `content` is
+// replaced as a whole array; send `[]` or `null` to clear it.
+//
+// Message updates and chunks are applied in the order they are received. When
+// a `user_message` update includes `content`, that array replaces any content
+// previously accumulated for the message, including content from earlier
+// chunks. Later chunks with the same `messageId` append to the current
+// content.
+type UserMessage struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	Content   []ContentBlock `json:"content,omitempty"`
+	MessageID MessageID      `json:"messageId"`
 }
 
 // A workspace folder.
 type WorkspaceFolder struct {
 	Name string `json:"name"`
 	URI  string `json:"uri"`
-}
-
-// Request to write content to a text file.
-//
-// Only available if the client supports the `fs.writeTextFile` capability.
-type WriteTextFileRequest struct {
-	Meta      map[string]any `json:"_meta,omitempty"`
-	Content   string         `json:"content"`
-	Path      string         `json:"path"`
-	SessionID SessionID      `json:"sessionId"`
-}
-
-func (x WriteTextFileRequest) GetSessionID() string { return string(x.SessionID) }
-
-// Response to `fs/write_text_file`
-type WriteTextFileResponse struct {
-	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 type AgentResponseResult struct {
@@ -5103,7 +5499,97 @@ func NewAgentResponseError(v AgentResponseError) AgentResponse {
 }
 
 // The input specification for a command.
-type AvailableCommandInput = UnstructuredCommandInput
+// Custom or future command input specification.
+//
+// Values beginning with `_` are reserved for implementation-specific
+// extensions. Unknown values that do not begin with `_` are reserved for
+// future ACP variants.
+//
+// Clients that do not understand this input type should preserve the raw
+// payload when storing, replaying, proxying, or forwarding command
+// metadata, and otherwise ignore the input specification or display the
+// command without structured input.
+type AvailableCommandInputOther struct {
+	Type string `json:"type"`
+}
+
+type AvailableCommandInput struct {
+	UnstructuredCommandInput *UnstructuredCommandInput   `json:"-"`
+	Other                    *AvailableCommandInputOther `json:"-"`
+}
+
+func (a AvailableCommandInput) MarshalJSON() ([]byte, error) {
+	if a.UnstructuredCommandInput != nil {
+		return json.Marshal(*a.UnstructuredCommandInput)
+	}
+	if a.Other != nil {
+		return json.Marshal(*a.Other)
+	}
+	return nil, fmt.Errorf("no variant is set for AvailableCommandInput")
+}
+func (a *AvailableCommandInput) UnmarshalJSON(data []byte) error {
+	*a = AvailableCommandInput{}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err == nil {
+		if _, ok := keys["hint"]; ok {
+			var v0 UnstructuredCommandInput
+			if err := json.Unmarshal(data, &v0); err != nil {
+				return err
+			}
+			a.UnstructuredCommandInput = &v0
+			return nil
+		}
+		if _, ok := keys["type"]; ok {
+			var v1 AvailableCommandInputOther
+			if err := json.Unmarshal(data, &v1); err != nil {
+				return err
+			}
+			a.Other = &v1
+			return nil
+		}
+	}
+	{
+		var vf0 UnstructuredCommandInput
+		if err := json.Unmarshal(data, &vf0); err == nil {
+			a.UnstructuredCommandInput = &vf0
+			return nil
+		}
+	}
+	{
+		var vf1 AvailableCommandInputOther
+		if err := json.Unmarshal(data, &vf1); err == nil {
+			a.Other = &vf1
+			return nil
+		}
+	}
+	return fmt.Errorf("data does not match any variant of AvailableCommandInput")
+}
+func (a *AvailableCommandInput) AsUnstructuredCommandInput() (UnstructuredCommandInput, bool) {
+	if a.UnstructuredCommandInput == nil {
+		var zero UnstructuredCommandInput
+		return zero, false
+	}
+	return UnstructuredCommandInput(*a.UnstructuredCommandInput), true
+}
+func (a *AvailableCommandInput) AsOther() (AvailableCommandInputOther, bool) {
+	if a.Other == nil {
+		var zero AvailableCommandInputOther
+		return zero, false
+	}
+	return AvailableCommandInputOther(*a.Other), true
+}
+
+// NewAvailableCommandInputUnstructuredCommandInput creates a AvailableCommandInput holding a UnstructuredCommandInput variant.
+func NewAvailableCommandInputUnstructuredCommandInput(v UnstructuredCommandInput) AvailableCommandInput {
+	vv := UnstructuredCommandInput(v)
+	return AvailableCommandInput{UnstructuredCommandInput: &vv}
+}
+
+// NewAvailableCommandInputOther creates a AvailableCommandInput holding a Other variant.
+func NewAvailableCommandInputOther(v AvailableCommandInputOther) AvailableCommandInput {
+	vv := AvailableCommandInputOther(v)
+	return AvailableCommandInput{Other: &vv}
+}
 
 type ClientResponseResult struct {
 	ID     RequestID       `json:"id"`
@@ -5932,8 +6418,22 @@ func NewEmbeddedResourceResourceBlobResourceContents(v BlobResourceContents) Emb
 //
 // This capability is not part of the spec yet, and may be removed or changed at any point.
 //
-// A unique identifier for a model.
-type ModelID string
+// A unique identifier for an active MCP-over-ACP connection.
+type MCPConnectionID string
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Unique identifier for an MCP server using the ACP transport.
+//
+// The value is opaque and generated by the ACP component providing the MCP server. It is
+// used by `mcp/connect` to route connection requests back to the component that declared the
+// server.
+type MCPServerAcpID string
+
+// Unique identifier for a message within a session.
+type MessageID string
 
 // Items for a multi-select (array) property schema.
 type MultiSelectItems struct {
@@ -6017,6 +6517,9 @@ func NewMultiSelectItemsTitledMultiSelectItems(v TitledMultiSelectItems) MultiSe
 // Unique identifier for a permission option.
 type PermissionOptionID string
 
+// Unique identifier for a plan within a session.
+type PlanID string
+
 // Protocol version identifier.
 //
 // This version is only bumped for breaking changes.
@@ -6025,13 +6528,13 @@ type ProtocolVersion int64
 
 // JSON RPC Request Id
 //
-// An identifier established by the Client that MUST contain a String, Number, or NULL value if included. If it is not included it is assumed to be a notification. The value SHOULD normally not be Null [1] and Numbers SHOULD NOT contain fractional parts [2]
+// An identifier established by the Client that MUST contain a String, Number, or NULL value if included. If it is not included it is assumed to be a notification. The value SHOULD normally not be Null \[1\] and Numbers SHOULD NOT contain fractional parts \[2\]
 //
 // The Server MUST reply with the same value in the Response object if included. This member is used to correlate the context between the two objects.
 //
-// [1] The use of Null as a value for the id member in a Request object is discouraged, because this specification uses a value of Null for Responses with an unknown id. Also, because JSON-RPC 1.0 uses an id value of Null for Notifications this could cause confusion in handling.
+// \[1\] The use of Null as a value for the id member in a Request object is discouraged, because this specification uses a value of Null for Responses with an unknown id. Also, because JSON-RPC 1.0 uses an id value of Null for Notifications this could cause confusion in handling.
 //
-// [2] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
+// \[2\] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
 type RequestID struct {
 	Null   *RequestIDNull   `json:"-"`
 	Int64  *RequestIDInt64  `json:"-"`
@@ -6221,9 +6724,6 @@ type SessionConfigValueID string
 // See protocol docs: [Session ID](https://agentclientprotocol.com/protocol/session-setup#session-id)
 type SessionID string
 
-// Unique identifier for a Session Mode.
-type SessionModeID string
-
 // Unique identifier for a tool call within a session.
 type ToolCallID string
 
@@ -6247,6 +6747,15 @@ type ExtRequest = json.RawMessage
 //
 // See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
 type ExtResponse = json.RawMessage
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response to `mcp/message`.
+//
+// This is the inner MCP response result payload. Any JSON value is valid.
+type MessageMCPResponse = json.RawMessage
 
 func (v *AcceptNesNotification) Validate() error {
 	if v.ID == "" {
@@ -6378,6 +6887,14 @@ func (v *ConfigOptionUpdate) Validate() error {
 	return nil
 }
 
+func (v *ConnectMCPRequest) Validate() error {
+	return nil
+}
+
+func (v *ConnectMCPResponse) Validate() error {
+	return nil
+}
+
 func (v *Cost) Validate() error {
 	if v.Currency == "" {
 		return fmt.Errorf("currency is required")
@@ -6385,17 +6902,11 @@ func (v *Cost) Validate() error {
 	return nil
 }
 
-func (v *CreateTerminalRequest) Validate() error {
-	if v.Command == "" {
-		return fmt.Errorf("command is required")
-	}
+func (v *DeleteSessionRequest) Validate() error {
 	return nil
 }
 
-func (v *CreateTerminalResponse) Validate() error {
-	if v.TerminalID == "" {
-		return fmt.Errorf("terminalId is required")
-	}
+func (v *DeleteSessionResponse) Validate() error {
 	return nil
 }
 
@@ -6453,14 +6964,22 @@ func (v *Diff) Validate() error {
 	return nil
 }
 
-func (v *DisableProvidersRequest) Validate() error {
+func (v *DisableProviderRequest) Validate() error {
 	if v.ID == "" {
 		return fmt.Errorf("id is required")
 	}
 	return nil
 }
 
-func (v *DisableProvidersResponse) Validate() error {
+func (v *DisableProviderResponse) Validate() error {
+	return nil
+}
+
+func (v *DisconnectMCPRequest) Validate() error {
+	return nil
+}
+
+func (v *DisconnectMCPResponse) Validate() error {
 	return nil
 }
 
@@ -6540,17 +7059,6 @@ func (v *InitializeResponse) Validate() error {
 	return nil
 }
 
-func (v *KillTerminalRequest) Validate() error {
-	if v.TerminalID == "" {
-		return fmt.Errorf("terminalId is required")
-	}
-	return nil
-}
-
-func (v *KillTerminalResponse) Validate() error {
-	return nil
-}
-
 func (v *ListProvidersRequest) Validate() error {
 	return nil
 }
@@ -6595,20 +7103,14 @@ func (v *LogoutResponse) Validate() error {
 	return nil
 }
 
-func (v *MCPServerHTTP) Validate() error {
-	if v.Headers == nil {
-		return fmt.Errorf("headers is required")
-	}
+func (v *MCPServerAcp) Validate() error {
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
-	}
-	if v.URL == "" {
-		return fmt.Errorf("url is required")
 	}
 	return nil
 }
 
-func (v *MCPServerSSE) Validate() error {
+func (v *MCPServerHTTP) Validate() error {
 	if v.Headers == nil {
 		return fmt.Errorf("headers is required")
 	}
@@ -6637,9 +7139,16 @@ func (v *MCPServerStdio) Validate() error {
 	return nil
 }
 
-func (v *ModelInfo) Validate() error {
-	if v.Name == "" {
-		return fmt.Errorf("name is required")
+func (v *MessageMCPNotification) Validate() error {
+	if v.Method == "" {
+		return fmt.Errorf("method is required")
+	}
+	return nil
+}
+
+func (v *MessageMCPRequest) Validate() error {
+	if v.Method == "" {
+		return fmt.Errorf("method is required")
 	}
 	return nil
 }
@@ -6807,14 +7316,28 @@ func (v *PermissionOption) Validate() error {
 	return nil
 }
 
-func (v *Plan) Validate() error {
+func (v *PlanEntry) Validate() error {
+	if v.Content == "" {
+		return fmt.Errorf("content is required")
+	}
+	return nil
+}
+
+func (v *PlanFile) Validate() error {
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *PlanItems) Validate() error {
 	if v.Entries == nil {
 		return fmt.Errorf("entries is required")
 	}
 	return nil
 }
 
-func (v *PlanEntry) Validate() error {
+func (v *PlanMarkdown) Validate() error {
 	if v.Content == "" {
 		return fmt.Errorf("content is required")
 	}
@@ -6829,6 +7352,13 @@ func (v *PromptRequest) Validate() error {
 }
 
 func (v *PromptResponse) Validate() error {
+	return nil
+}
+
+func (v *ProtocolLevelNotification) Validate() error {
+	if v.Method == "" {
+		return fmt.Errorf("method is required")
+	}
 	return nil
 }
 
@@ -6849,35 +7379,10 @@ func (v *ProviderInfo) Validate() error {
 	return nil
 }
 
-func (v *ReadTextFileRequest) Validate() error {
-	if v.Path == "" {
-		return fmt.Errorf("path is required")
-	}
-	return nil
-}
-
-func (v *ReadTextFileResponse) Validate() error {
-	if v.Content == "" {
-		return fmt.Errorf("content is required")
-	}
-	return nil
-}
-
 func (v *RejectNesNotification) Validate() error {
 	if v.ID == "" {
 		return fmt.Errorf("id is required")
 	}
-	return nil
-}
-
-func (v *ReleaseTerminalRequest) Validate() error {
-	if v.TerminalID == "" {
-		return fmt.Errorf("terminalId is required")
-	}
-	return nil
-}
-
-func (v *ReleaseTerminalResponse) Validate() error {
 	return nil
 }
 
@@ -6937,32 +7442,11 @@ func (v *SessionInfo) Validate() error {
 	return nil
 }
 
-func (v *SessionMode) Validate() error {
-	if v.Name == "" {
-		return fmt.Errorf("name is required")
-	}
-	return nil
-}
-
-func (v *SessionModeState) Validate() error {
-	if v.AvailableModes == nil {
-		return fmt.Errorf("availableModes is required")
-	}
-	return nil
-}
-
-func (v *SessionModelState) Validate() error {
-	if v.AvailableModels == nil {
-		return fmt.Errorf("availableModels is required")
-	}
-	return nil
-}
-
 func (v *SessionNotification) Validate() error {
 	return nil
 }
 
-func (v *SetProvidersRequest) Validate() error {
+func (v *SetProviderRequest) Validate() error {
 	if v.BaseURL == "" {
 		return fmt.Errorf("baseUrl is required")
 	}
@@ -6972,7 +7456,7 @@ func (v *SetProvidersRequest) Validate() error {
 	return nil
 }
 
-func (v *SetProvidersResponse) Validate() error {
+func (v *SetProviderResponse) Validate() error {
 	return nil
 }
 
@@ -6980,22 +7464,6 @@ func (v *SetSessionConfigOptionResponse) Validate() error {
 	if v.ConfigOptions == nil {
 		return fmt.Errorf("configOptions is required")
 	}
-	return nil
-}
-
-func (v *SetSessionModeRequest) Validate() error {
-	return nil
-}
-
-func (v *SetSessionModeResponse) Validate() error {
-	return nil
-}
-
-func (v *SetSessionModelRequest) Validate() error {
-	return nil
-}
-
-func (v *SetSessionModelResponse) Validate() error {
 	return nil
 }
 
@@ -7017,27 +7485,6 @@ func (v *SuggestNesRequest) Validate() error {
 func (v *SuggestNesResponse) Validate() error {
 	if v.Suggestions == nil {
 		return fmt.Errorf("suggestions is required")
-	}
-	return nil
-}
-
-func (v *Terminal) Validate() error {
-	if v.TerminalID == "" {
-		return fmt.Errorf("terminalId is required")
-	}
-	return nil
-}
-
-func (v *TerminalOutputRequest) Validate() error {
-	if v.TerminalID == "" {
-		return fmt.Errorf("terminalId is required")
-	}
-	return nil
-}
-
-func (v *TerminalOutputResponse) Validate() error {
-	if v.Output == "" {
-		return fmt.Errorf("output is required")
 	}
 	return nil
 }
@@ -7073,13 +7520,6 @@ func (v *TitledMultiSelectItems) Validate() error {
 	return nil
 }
 
-func (v *ToolCall) Validate() error {
-	if v.Title == "" {
-		return fmt.Errorf("title is required")
-	}
-	return nil
-}
-
 func (v *ToolCallLocation) Validate() error {
 	if v.Path == "" {
 		return fmt.Errorf("path is required")
@@ -7101,17 +7541,6 @@ func (v *UntitledMultiSelectItems) Validate() error {
 	return nil
 }
 
-func (v *WaitForTerminalExitRequest) Validate() error {
-	if v.TerminalID == "" {
-		return fmt.Errorf("terminalId is required")
-	}
-	return nil
-}
-
-func (v *WaitForTerminalExitResponse) Validate() error {
-	return nil
-}
-
 func (v *WorkspaceFolder) Validate() error {
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
@@ -7119,20 +7548,6 @@ func (v *WorkspaceFolder) Validate() error {
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
 	}
-	return nil
-}
-
-func (v *WriteTextFileRequest) Validate() error {
-	if v.Content == "" {
-		return fmt.Errorf("content is required")
-	}
-	if v.Path == "" {
-		return fmt.Errorf("path is required")
-	}
-	return nil
-}
-
-func (v *WriteTextFileResponse) Validate() error {
 	return nil
 }
 
@@ -7158,46 +7573,7 @@ func (v *AgentCapabilities) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("AgentCapabilities: apply default for auth: %w", err)
 		}
 	}
-	if rm, ok := raw["loadSession"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("false"), &a.LoadSession); err != nil {
-			return fmt.Errorf("AgentCapabilities: apply default for loadSession: %w", err)
-		}
-	}
-	if rm, ok := raw["mcpCapabilities"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("{\"http\":false,\"sse\":false}"), &a.MCPCapabilities); err != nil {
-			return fmt.Errorf("AgentCapabilities: apply default for mcpCapabilities: %w", err)
-		}
-	}
-	if rm, ok := raw["promptCapabilities"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("{\"audio\":false,\"embeddedContext\":false,\"image\":false}"), &a.PromptCapabilities); err != nil {
-			return fmt.Errorf("AgentCapabilities: apply default for promptCapabilities: %w", err)
-		}
-	}
-	if rm, ok := raw["sessionCapabilities"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("{}"), &a.SessionCapabilities); err != nil {
-			return fmt.Errorf("AgentCapabilities: apply default for sessionCapabilities: %w", err)
-		}
-	}
 	*v = AgentCapabilities(a)
-	return nil
-}
-
-func (v *AuthCapabilities) UnmarshalJSON(data []byte) error {
-	type Alias AuthCapabilities
-	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("AuthCapabilities: decode raw fields: %w", err)
-	}
-	if rm, ok := raw["terminal"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("false"), &a.Terminal); err != nil {
-			return fmt.Errorf("AuthCapabilities: apply default for terminal: %w", err)
-		}
-	}
-	*v = AuthCapabilities(a)
 	return nil
 }
 
@@ -7236,18 +7612,8 @@ func (v *ClientCapabilities) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("ClientCapabilities: decode raw fields: %w", err)
 	}
 	if rm, ok := raw["auth"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("{\"terminal\":false}"), &a.Auth); err != nil {
+		if err := json.Unmarshal([]byte("{}"), &a.Auth); err != nil {
 			return fmt.Errorf("ClientCapabilities: apply default for auth: %w", err)
-		}
-	}
-	if rm, ok := raw["fs"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("{\"readTextFile\":false,\"writeTextFile\":false}"), &a.FS); err != nil {
-			return fmt.Errorf("ClientCapabilities: apply default for fs: %w", err)
-		}
-	}
-	if rm, ok := raw["terminal"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("false"), &a.Terminal); err != nil {
-			return fmt.Errorf("ClientCapabilities: apply default for terminal: %w", err)
 		}
 	}
 	*v = ClientCapabilities(a)
@@ -7278,30 +7644,6 @@ func (v *ElicitationSchema) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (v *FileSystemCapabilities) UnmarshalJSON(data []byte) error {
-	type Alias FileSystemCapabilities
-	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("FileSystemCapabilities: decode raw fields: %w", err)
-	}
-	if rm, ok := raw["readTextFile"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("false"), &a.ReadTextFile); err != nil {
-			return fmt.Errorf("FileSystemCapabilities: apply default for readTextFile: %w", err)
-		}
-	}
-	if rm, ok := raw["writeTextFile"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("false"), &a.WriteTextFile); err != nil {
-			return fmt.Errorf("FileSystemCapabilities: apply default for writeTextFile: %w", err)
-		}
-	}
-	*v = FileSystemCapabilities(a)
-	return nil
-}
-
 func (v *InitializeRequest) UnmarshalJSON(data []byte) error {
 	type Alias InitializeRequest
 	var a Alias
@@ -7312,9 +7654,9 @@ func (v *InitializeRequest) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return fmt.Errorf("InitializeRequest: decode raw fields: %w", err)
 	}
-	if rm, ok := raw["clientCapabilities"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("{\"auth\":{\"terminal\":false},\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false}"), &a.ClientCapabilities); err != nil {
-			return fmt.Errorf("InitializeRequest: apply default for clientCapabilities: %w", err)
+	if rm, ok := raw["capabilities"]; !ok || string(rm) == "null" {
+		if err := json.Unmarshal([]byte("{\"auth\":{}}"), &a.Capabilities); err != nil {
+			return fmt.Errorf("InitializeRequest: apply default for capabilities: %w", err)
 		}
 	}
 	*v = InitializeRequest(a)
@@ -7331,76 +7673,23 @@ func (v *InitializeResponse) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return fmt.Errorf("InitializeResponse: decode raw fields: %w", err)
 	}
-	if rm, ok := raw["agentCapabilities"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("{\"auth\":{},\"loadSession\":false,\"mcpCapabilities\":{\"http\":false,\"sse\":false},\"promptCapabilities\":{\"audio\":false,\"embeddedContext\":false,\"image\":false},\"sessionCapabilities\":{}}"), &a.AgentCapabilities); err != nil {
-			return fmt.Errorf("InitializeResponse: apply default for agentCapabilities: %w", err)
-		}
-	}
 	if rm, ok := raw["authMethods"]; !ok || string(rm) == "null" {
 		if err := json.Unmarshal([]byte("[]"), &a.AuthMethods); err != nil {
 			return fmt.Errorf("InitializeResponse: apply default for authMethods: %w", err)
+		}
+	}
+	if rm, ok := raw["capabilities"]; !ok || string(rm) == "null" {
+		if err := json.Unmarshal([]byte("{\"auth\":{}}"), &a.Capabilities); err != nil {
+			return fmt.Errorf("InitializeResponse: apply default for capabilities: %w", err)
 		}
 	}
 	*v = InitializeResponse(a)
 	return nil
 }
 
-func (v *MCPCapabilities) UnmarshalJSON(data []byte) error {
-	type Alias MCPCapabilities
-	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("MCPCapabilities: decode raw fields: %w", err)
-	}
-	if rm, ok := raw["http"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("false"), &a.HTTP); err != nil {
-			return fmt.Errorf("MCPCapabilities: apply default for http: %w", err)
-		}
-	}
-	if rm, ok := raw["sse"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("false"), &a.SSE); err != nil {
-			return fmt.Errorf("MCPCapabilities: apply default for sse: %w", err)
-		}
-	}
-	*v = MCPCapabilities(a)
-	return nil
-}
-
-func (v *PromptCapabilities) UnmarshalJSON(data []byte) error {
-	type Alias PromptCapabilities
-	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("PromptCapabilities: decode raw fields: %w", err)
-	}
-	if rm, ok := raw["audio"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("false"), &a.Audio); err != nil {
-			return fmt.Errorf("PromptCapabilities: apply default for audio: %w", err)
-		}
-	}
-	if rm, ok := raw["embeddedContext"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("false"), &a.EmbeddedContext); err != nil {
-			return fmt.Errorf("PromptCapabilities: apply default for embeddedContext: %w", err)
-		}
-	}
-	if rm, ok := raw["image"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("false"), &a.Image); err != nil {
-			return fmt.Errorf("PromptCapabilities: apply default for image: %w", err)
-		}
-	}
-	*v = PromptCapabilities(a)
-	return nil
-}
-
 const (
 	// Current protocol version from metadata
-	CurrentProtocolVersion int = 1
+	CurrentProtocolVersion int = 2
 )
 
 // AgentMethods method names
@@ -7413,6 +7702,7 @@ var AgentMethods = struct {
 	DocumentDidSave        string
 	Initialize             string
 	Logout                 string
+	MCPMessage             string
 	NesAccept              string
 	NesClose               string
 	NesReject              string
@@ -7423,6 +7713,7 @@ var AgentMethods = struct {
 	ProvidersSet           string
 	SessionCancel          string
 	SessionClose           string
+	SessionDelete          string
 	SessionFork            string
 	SessionList            string
 	SessionLoad            string
@@ -7430,21 +7721,15 @@ var AgentMethods = struct {
 	SessionPrompt          string
 	SessionResume          string
 	SessionSetConfigOption string
-	SessionSetMode         string
-	SessionSetModel        string
-}{Authenticate: "authenticate", DocumentDidChange: "document/didChange", DocumentDidClose: "document/didClose", DocumentDidFocus: "document/didFocus", DocumentDidOpen: "document/didOpen", DocumentDidSave: "document/didSave", Initialize: "initialize", Logout: "logout", NesAccept: "nes/accept", NesClose: "nes/close", NesReject: "nes/reject", NesStart: "nes/start", NesSuggest: "nes/suggest", ProvidersDisable: "providers/disable", ProvidersList: "providers/list", ProvidersSet: "providers/set", SessionCancel: "session/cancel", SessionClose: "session/close", SessionFork: "session/fork", SessionList: "session/list", SessionLoad: "session/load", SessionNew: "session/new", SessionPrompt: "session/prompt", SessionResume: "session/resume", SessionSetConfigOption: "session/set_config_option", SessionSetMode: "session/set_mode", SessionSetModel: "session/set_model"}
+}{Authenticate: "authenticate", DocumentDidChange: "document/didChange", DocumentDidClose: "document/didClose", DocumentDidFocus: "document/didFocus", DocumentDidOpen: "document/didOpen", DocumentDidSave: "document/didSave", Initialize: "initialize", Logout: "logout", MCPMessage: "mcp/message", NesAccept: "nes/accept", NesClose: "nes/close", NesReject: "nes/reject", NesStart: "nes/start", NesSuggest: "nes/suggest", ProvidersDisable: "providers/disable", ProvidersList: "providers/list", ProvidersSet: "providers/set", SessionCancel: "session/cancel", SessionClose: "session/close", SessionDelete: "session/delete", SessionFork: "session/fork", SessionList: "session/list", SessionLoad: "session/load", SessionNew: "session/new", SessionPrompt: "session/prompt", SessionResume: "session/resume", SessionSetConfigOption: "session/set_config_option"}
 
 // ClientMethods method names
 var ClientMethods = struct {
 	ElicitationComplete      string
 	ElicitationCreate        string
-	FSReadTextFile           string
-	FSWriteTextFile          string
+	MCPConnect               string
+	MCPDisconnect            string
+	MCPMessage               string
 	SessionRequestPermission string
 	SessionUpdate            string
-	TerminalCreate           string
-	TerminalKill             string
-	TerminalOutput           string
-	TerminalRelease          string
-	TerminalWaitForExit      string
-}{ElicitationComplete: "elicitation/complete", ElicitationCreate: "elicitation/create", FSReadTextFile: "fs/read_text_file", FSWriteTextFile: "fs/write_text_file", SessionRequestPermission: "session/request_permission", SessionUpdate: "session/update", TerminalCreate: "terminal/create", TerminalKill: "terminal/kill", TerminalOutput: "terminal/output", TerminalRelease: "terminal/release", TerminalWaitForExit: "terminal/wait_for_exit"}
+}{ElicitationComplete: "elicitation/complete", ElicitationCreate: "elicitation/create", MCPConnect: "mcp/connect", MCPDisconnect: "mcp/disconnect", MCPMessage: "mcp/message", SessionRequestPermission: "session/request_permission", SessionUpdate: "session/update"}

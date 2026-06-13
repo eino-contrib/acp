@@ -51,8 +51,12 @@ func (BaseAgent) Initialize(context.Context, InitializeRequest) (InitializeRespo
 	return InitializeResponse{}, methodNotSupported(MethodAgentInitialize)
 }
 
-func (BaseAgent) UnstableLogout(context.Context, LogoutRequest) (LogoutResponse, error) {
-	return LogoutResponse{}, methodNotSupported(MethodAgentUnstableLogout)
+func (BaseAgent) Logout(context.Context, LogoutRequest) (LogoutResponse, error) {
+	return LogoutResponse{}, methodNotSupported(MethodAgentLogout)
+}
+
+func (BaseAgent) UnstableMCPMessage(context.Context, MessageMCPNotification) error {
+	return notificationNotImplemented(MethodAgentUnstableMCPMessage)
 }
 
 func (BaseAgent) NesAccept(context.Context, AcceptNesNotification) error {
@@ -75,24 +79,28 @@ func (BaseAgent) SuggestNes(context.Context, SuggestNesRequest) (SuggestNesRespo
 	return SuggestNesResponse{}, methodNotSupported(MethodAgentSuggestNes)
 }
 
-func (BaseAgent) UnstableDisableProviders(context.Context, DisableProvidersRequest) (DisableProvidersResponse, error) {
-	return DisableProvidersResponse{}, methodNotSupported(MethodAgentUnstableDisableProviders)
+func (BaseAgent) UnstableDisableProvider(context.Context, DisableProviderRequest) (DisableProviderResponse, error) {
+	return DisableProviderResponse{}, methodNotSupported(MethodAgentUnstableDisableProvider)
 }
 
 func (BaseAgent) UnstableListProviders(context.Context, ListProvidersRequest) (ListProvidersResponse, error) {
 	return ListProvidersResponse{}, methodNotSupported(MethodAgentUnstableListProviders)
 }
 
-func (BaseAgent) UnstableSetProviders(context.Context, SetProvidersRequest) (SetProvidersResponse, error) {
-	return SetProvidersResponse{}, methodNotSupported(MethodAgentUnstableSetProviders)
+func (BaseAgent) UnstableSetProvider(context.Context, SetProviderRequest) (SetProviderResponse, error) {
+	return SetProviderResponse{}, methodNotSupported(MethodAgentUnstableSetProvider)
 }
 
 func (BaseAgent) SessionCancel(context.Context, CancelNotification) error {
 	return notificationNotImplemented(MethodAgentSessionCancel)
 }
 
-func (BaseAgent) UnstableCloseSession(context.Context, CloseSessionRequest) (CloseSessionResponse, error) {
-	return CloseSessionResponse{}, methodNotSupported(MethodAgentUnstableCloseSession)
+func (BaseAgent) CloseSession(context.Context, CloseSessionRequest) (CloseSessionResponse, error) {
+	return CloseSessionResponse{}, methodNotSupported(MethodAgentCloseSession)
+}
+
+func (BaseAgent) DeleteSession(context.Context, DeleteSessionRequest) (DeleteSessionResponse, error) {
+	return DeleteSessionResponse{}, methodNotSupported(MethodAgentDeleteSession)
 }
 
 func (BaseAgent) UnstableForkSession(context.Context, ForkSessionRequest) (ForkSessionResponse, error) {
@@ -115,20 +123,12 @@ func (BaseAgent) Prompt(context.Context, PromptRequest) (PromptResponse, error) 
 	return PromptResponse{}, methodNotSupported(MethodAgentPrompt)
 }
 
-func (BaseAgent) UnstableResumeSession(context.Context, ResumeSessionRequest) (ResumeSessionResponse, error) {
-	return ResumeSessionResponse{}, methodNotSupported(MethodAgentUnstableResumeSession)
+func (BaseAgent) ResumeSession(context.Context, ResumeSessionRequest) (ResumeSessionResponse, error) {
+	return ResumeSessionResponse{}, methodNotSupported(MethodAgentResumeSession)
 }
 
 func (BaseAgent) SetSessionConfigOption(context.Context, SetSessionConfigOptionRequest) (SetSessionConfigOptionResponse, error) {
 	return SetSessionConfigOptionResponse{}, methodNotSupported(MethodAgentSetSessionConfigOption)
-}
-
-func (BaseAgent) SetSessionMode(context.Context, SetSessionModeRequest) (SetSessionModeResponse, error) {
-	return SetSessionModeResponse{}, methodNotSupported(MethodAgentSetSessionMode)
-}
-
-func (BaseAgent) UnstableSetSessionModel(context.Context, SetSessionModelRequest) (SetSessionModelResponse, error) {
-	return SetSessionModelResponse{}, methodNotSupported(MethodAgentUnstableSetSessionModel)
 }
 
 var _ Agent = BaseAgent{}
@@ -149,12 +149,16 @@ func (BaseClient) UnstableCreateElicitation(context.Context, CreateElicitationRe
 	return CreateElicitationResponse{}, methodNotSupported(MethodClientUnstableCreateElicitation)
 }
 
-func (BaseClient) ReadTextFile(context.Context, ReadTextFileRequest) (ReadTextFileResponse, error) {
-	return ReadTextFileResponse{}, methodNotSupported(MethodClientReadTextFile)
+func (BaseClient) UnstableConnectMCP(context.Context, ConnectMCPRequest) (ConnectMCPResponse, error) {
+	return ConnectMCPResponse{}, methodNotSupported(MethodClientUnstableConnectMCP)
 }
 
-func (BaseClient) WriteTextFile(context.Context, WriteTextFileRequest) (WriteTextFileResponse, error) {
-	return WriteTextFileResponse{}, methodNotSupported(MethodClientWriteTextFile)
+func (BaseClient) UnstableDisconnectMCP(context.Context, DisconnectMCPRequest) (DisconnectMCPResponse, error) {
+	return DisconnectMCPResponse{}, methodNotSupported(MethodClientUnstableDisconnectMCP)
+}
+
+func (BaseClient) UnstableMCPMessage(context.Context, MessageMCPNotification) error {
+	return notificationNotImplemented(MethodClientUnstableMCPMessage)
 }
 
 func (BaseClient) RequestPermission(context.Context, RequestPermissionRequest) (RequestPermissionResponse, error) {
@@ -163,26 +167,6 @@ func (BaseClient) RequestPermission(context.Context, RequestPermissionRequest) (
 
 func (BaseClient) SessionUpdate(context.Context, SessionNotification) error {
 	return notificationNotImplemented(MethodClientSessionUpdate)
-}
-
-func (BaseClient) CreateTerminal(context.Context, CreateTerminalRequest) (CreateTerminalResponse, error) {
-	return CreateTerminalResponse{}, methodNotSupported(MethodClientCreateTerminal)
-}
-
-func (BaseClient) KillTerminal(context.Context, KillTerminalRequest) (KillTerminalResponse, error) {
-	return KillTerminalResponse{}, methodNotSupported(MethodClientKillTerminal)
-}
-
-func (BaseClient) TerminalOutput(context.Context, TerminalOutputRequest) (TerminalOutputResponse, error) {
-	return TerminalOutputResponse{}, methodNotSupported(MethodClientTerminalOutput)
-}
-
-func (BaseClient) ReleaseTerminal(context.Context, ReleaseTerminalRequest) (ReleaseTerminalResponse, error) {
-	return ReleaseTerminalResponse{}, methodNotSupported(MethodClientReleaseTerminal)
-}
-
-func (BaseClient) WaitForTerminalExit(context.Context, WaitForTerminalExitRequest) (WaitForTerminalExitResponse, error) {
-	return WaitForTerminalExitResponse{}, methodNotSupported(MethodClientWaitForTerminalExit)
 }
 
 var _ Client = BaseClient{}

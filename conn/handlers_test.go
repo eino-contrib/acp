@@ -27,7 +27,10 @@ func TestClientConnectionRegistersAllGeneratedMethods(t *testing.T) {
 func expectedMethodKeys(side methodmeta.Side, notification bool) []string {
 	keys := make([]string, 0)
 	for _, meta := range methodmeta.All() {
-		if meta.Side == side && meta.Notification == notification {
+		if meta.Notification != notification {
+			continue
+		}
+		if meta.Side == side || meta.Side == methodmeta.SideBoth {
 			keys = append(keys, meta.WireMethod)
 		}
 	}

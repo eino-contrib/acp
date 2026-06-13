@@ -103,7 +103,7 @@ func (g *Generator) Generate(pkg string) ([]byte, error) {
 
 	// Generate extension payload types (schema-less definitions) as json.RawMessage aliases.
 	for _, d := range defs {
-		if isExtPayloadType(d.Name) {
+		if isExtPayloadType(d.Name) || isRawPayloadDef(d.Schema) {
 			g.needJSON = true
 			goName := toTitleCase(d.Name)
 			g.writeComment(goName, d.Schema.Description)
@@ -216,7 +216,11 @@ func (g *Generator) generateEnum(d Definition) {
 	} else if len(s.OneOf) > 0 {
 		values, baseType = g.extractConstEnum(s.OneOf, s)
 	} else if len(s.AnyOf) > 0 {
-		values, baseType = g.extractConstEnum(filterNull(s.AnyOf), s)
+		if isOpenStringEnum(filterNull(s.AnyOf)) {
+			values, baseType = g.extractOpenStringEnum(filterNull(s.AnyOf))
+		} else {
+			values, baseType = g.extractConstEnum(filterNull(s.AnyOf), s)
+		}
 	}
 
 	if len(values) == 0 {
@@ -265,6 +269,28 @@ func (g *Generator) extractDirectEnum(s *Schema) ([]enumValue, string) {
 		}
 	}
 	return values, baseType
+}
+
+// extractOpenStringEnum collects the known string values from the enum-bearing
+// variant of an open string enum. The bare "other" variant contributes no named
+// constant; arbitrary values are still representable since the Go base type is a
+// plain string.
+func (g *Generator) extractOpenStringEnum(variants []*Schema) ([]enumValue, string) {
+	var values []enumValue
+	for _, v := range variants {
+		for _, raw := range v.Enum {
+			var str string
+			if err := json.Unmarshal(raw, &str); err != nil {
+				continue
+			}
+			name := str
+			if name == "" {
+				name = "Empty"
+			}
+			values = append(values, enumValue{name: name, raw: str})
+		}
+	}
+	return values, "string"
 }
 
 func (g *Generator) extractConstEnum(variants []*Schema, parent *Schema) ([]enumValue, string) {
@@ -888,7 +914,8 @@ func (g *Generator) generateSimpleUnion(d Definition) {
 
 	// Collect resolved ref types for try-parse union
 	var varRefs []variantRef
-	for _, v := range nonNull {
+	var inlineDefs []inlineVariantDef
+	for i, v := range nonNull {
 		ref := resolveVariantRef(v)
 		if ref != "" {
 			refName := resolveRef(ref)
@@ -911,10 +938,30 @@ func (g *Generator) generateSimpleUnion(d Definition) {
 			varRefs = append(varRefs, variantRef{goType: "[]" + itemType, schema: itemSchema, isArray: true})
 			continue
 		}
+		// Handle inline object variants: synthesize a named wrapper struct so the
+		// variant can participate in the try-parse union instead of degrading the
+		// whole union to `any`.
+		if iv := inlineObjectVariantSchema(v); iv != nil {
+			wrapperName := goName + inlineVariantSuffix(v, i)
+			inlineDefs = append(inlineDefs, inlineVariantDef{goType: wrapperName, schema: iv})
+			varRefs = append(varRefs, variantRef{goType: wrapperName, schema: iv})
+			continue
+		}
 	}
 
 	// If all variants are resolvable, generate a try-parse union
 	if len(varRefs) == len(nonNull) && len(varRefs) >= 2 {
+		for _, def := range inlineDefs {
+			g.writeComment(def.goType, def.schema.Description)
+			fmt.Fprintf(&g.buf, "type %s struct {\n", def.goType)
+			for _, f := range g.buildStructFields(def.schema) {
+				if f.comment != "" {
+					fmt.Fprintf(&g.buf, "\t// %s\n", f.comment)
+				}
+				fmt.Fprintf(&g.buf, "\t%s %s `json:\"%s\"`\n", f.goName, f.goType, f.jsonTag)
+			}
+			fmt.Fprintf(&g.buf, "}\n\n")
+		}
 		refTypes := make([]string, len(varRefs))
 		for i, vr := range varRefs {
 			refTypes[i] = vr.goType
@@ -926,6 +973,43 @@ func (g *Generator) generateSimpleUnion(d Definition) {
 	}
 
 	fmt.Fprintf(&g.buf, "type %s any\n\n", goName)
+}
+
+// inlineVariantDef is a synthesized wrapper struct for an inline object variant
+// of a simple union.
+type inlineVariantDef struct {
+	goType string
+	schema *Schema
+}
+
+// inlineObjectVariantSchema returns the object schema of an inline (non-ref)
+// object union variant, merging a single-level allOf if present. Returns nil if
+// the variant is not an inline object.
+func inlineObjectVariantSchema(v *Schema) *Schema {
+	if v == nil {
+		return nil
+	}
+	if resolveVariantRef(v) != "" {
+		return nil
+	}
+	s := v
+	if len(s.AllOf) > 0 {
+		s = mergeAllOf(s)
+		s.Description = v.Description
+	}
+	if hasObjectType(s) || len(s.Properties) > 0 {
+		return s
+	}
+	return nil
+}
+
+// inlineVariantSuffix derives the wrapper short name for an inline object
+// variant, preferring the variant title and falling back to a positional name.
+func inlineVariantSuffix(v *Schema, idx int) string {
+	if name := variantTitleName(v); name != "" {
+		return name
+	}
+	return fmt.Sprintf("Variant%d", idx+1)
 }
 
 // findDistinguishingFields finds required fields unique to each variant.
@@ -1224,6 +1308,28 @@ func isExtPayloadType(name string) bool {
 		return true
 	}
 	return false
+}
+
+// isRawPayloadDef reports whether a definition carries no structural shape
+// (no type/properties/$ref/composition/enum/const) yet is a real wire payload,
+// such as an "any JSON value" response bound to an x-method. These are emitted
+// as json.RawMessage aliases instead of being skipped.
+func isRawPayloadDef(s *Schema) bool {
+	if s == nil {
+		return false
+	}
+	if s.XMethod_ == "" {
+		return false
+	}
+	hasShape := len(s.Type) > 0 ||
+		len(s.Properties) > 0 ||
+		s.Ref != "" ||
+		len(s.OneOf) > 0 ||
+		len(s.AnyOf) > 0 ||
+		len(s.AllOf) > 0 ||
+		len(s.Enum) > 0 ||
+		s.Const != nil
+	return !hasShape
 }
 
 func hasObjectType(s *Schema) bool {

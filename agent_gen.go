@@ -26,14 +26,19 @@ type Agent interface {
 	//
 	// See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
 	Initialize(ctx context.Context, params InitializeRequest) (InitializeResponse, error)
+	// Request parameters for the logout method.
+	//
+	// Terminates the current authenticated session.
+	Logout(ctx context.Context, params LogoutRequest) (LogoutResponse, error)
 	// **UNSTABLE**
 	//
 	// This capability is not part of the spec yet, and may be removed or changed at any point.
 	//
-	// Request parameters for the logout method.
+	// Notification parameters for `mcp/message`.
 	//
-	// Terminates the current authenticated session.
-	UnstableLogout(ctx context.Context, params LogoutRequest) (LogoutResponse, error)
+	// This is used when the wrapped MCP message is a notification and the outer JSON-RPC
+	// envelope has no `id`.
+	UnstableMCPMessage(ctx context.Context, params MessageMCPNotification) error
 	// Notification sent when a suggestion is accepted.
 	NesAccept(ctx context.Context, params AcceptNesNotification) error
 	// Request to close an NES session.
@@ -52,7 +57,7 @@ type Agent interface {
 	// This capability is not part of the spec yet, and may be removed or changed at any point.
 	//
 	// Request parameters for `providers/disable`.
-	UnstableDisableProviders(ctx context.Context, params DisableProvidersRequest) (DisableProvidersResponse, error)
+	UnstableDisableProvider(ctx context.Context, params DisableProviderRequest) (DisableProviderResponse, error)
 	// **UNSTABLE**
 	//
 	// This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -66,23 +71,23 @@ type Agent interface {
 	// Request parameters for `providers/set`.
 	//
 	// Replaces the full configuration for one provider id.
-	UnstableSetProviders(ctx context.Context, params SetProvidersRequest) (SetProvidersResponse, error)
+	UnstableSetProvider(ctx context.Context, params SetProviderRequest) (SetProviderResponse, error)
 	// Notification to cancel ongoing operations for a session.
 	//
 	// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
 	SessionCancel(ctx context.Context, params CancelNotification) error
-	// **UNSTABLE**
-	//
-	// This capability is not part of the spec yet, and may be removed or changed at any point.
-	//
 	// Request parameters for closing an active session.
 	//
 	// If supported, the agent **must** cancel any ongoing work related to the session
 	// (treat it as if `session/cancel` was called) and then free up any resources
 	// associated with the session.
 	//
-	// Only available if the Agent supports the `sessionCapabilities.close` capability.
-	UnstableCloseSession(ctx context.Context, params CloseSessionRequest) (CloseSessionResponse, error)
+	// Only available if the Agent supports the `session.close` capability.
+	CloseSession(ctx context.Context, params CloseSessionRequest) (CloseSessionResponse, error)
+	// Request parameters for deleting an existing session from `session/list`.
+	//
+	// Only available if the Agent supports the `session.delete` capability.
+	DeleteSession(ctx context.Context, params DeleteSessionRequest) (DeleteSessionResponse, error)
 	// **UNSTABLE**
 	//
 	// This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -96,11 +101,11 @@ type Agent interface {
 	UnstableForkSession(ctx context.Context, params ForkSessionRequest) (ForkSessionResponse, error)
 	// Request parameters for listing existing sessions.
 	//
-	// Only available if the Agent supports the `sessionCapabilities.list` capability.
+	// Only available if the Agent supports the `session.list` capability.
 	ListSessions(ctx context.Context, params ListSessionsRequest) (ListSessionsResponse, error)
 	// Request parameters for loading an existing session.
 	//
-	// Only available if the Agent supports the `loadSession` capability.
+	// Only available if the Agent supports the `session.load` capability.
 	//
 	// See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
 	LoadSession(ctx context.Context, params LoadSessionRequest) (LoadSessionResponse, error)
@@ -114,56 +119,44 @@ type Agent interface {
 	//
 	// See protocol docs: [User Message](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message)
 	Prompt(ctx context.Context, params PromptRequest) (PromptResponse, error)
-	// **UNSTABLE**
-	//
-	// This capability is not part of the spec yet, and may be removed or changed at any point.
-	//
 	// Request parameters for resuming an existing session.
 	//
 	// Resumes an existing session without returning previous messages (unlike `session/load`).
 	// This is useful for agents that can resume sessions but don't implement full session loading.
 	//
-	// Only available if the Agent supports the `sessionCapabilities.resume` capability.
-	UnstableResumeSession(ctx context.Context, params ResumeSessionRequest) (ResumeSessionResponse, error)
+	// Only available if the Agent supports the `session.resume` capability.
+	ResumeSession(ctx context.Context, params ResumeSessionRequest) (ResumeSessionResponse, error)
 	// Request parameters for setting a session configuration option.
 	SetSessionConfigOption(ctx context.Context, params SetSessionConfigOptionRequest) (SetSessionConfigOptionResponse, error)
-	// Request parameters for setting a session mode.
-	SetSessionMode(ctx context.Context, params SetSessionModeRequest) (SetSessionModeResponse, error)
-	// **UNSTABLE**
-	//
-	// This capability is not part of the spec yet, and may be removed or changed at any point.
-	//
-	// Request parameters for setting a session model.
-	UnstableSetSessionModel(ctx context.Context, params SetSessionModelRequest) (SetSessionModelResponse, error)
 }
 
 // Agent method wire names.
 const (
-	MethodAgentAuthenticate             = "authenticate"
-	MethodAgentDocumentDidChange        = "document/didChange"
-	MethodAgentDocumentDidClose         = "document/didClose"
-	MethodAgentDocumentDidFocus         = "document/didFocus"
-	MethodAgentDocumentDidOpen          = "document/didOpen"
-	MethodAgentDocumentDidSave          = "document/didSave"
-	MethodAgentInitialize               = "initialize"
-	MethodAgentUnstableLogout           = "logout"
-	MethodAgentNesAccept                = "nes/accept"
-	MethodAgentCloseNes                 = "nes/close"
-	MethodAgentNesReject                = "nes/reject"
-	MethodAgentStartNes                 = "nes/start"
-	MethodAgentSuggestNes               = "nes/suggest"
-	MethodAgentUnstableDisableProviders = "providers/disable"
-	MethodAgentUnstableListProviders    = "providers/list"
-	MethodAgentUnstableSetProviders     = "providers/set"
-	MethodAgentSessionCancel            = "session/cancel"
-	MethodAgentUnstableCloseSession     = "session/close"
-	MethodAgentUnstableForkSession      = "session/fork"
-	MethodAgentListSessions             = "session/list"
-	MethodAgentLoadSession              = "session/load"
-	MethodAgentNewSession               = "session/new"
-	MethodAgentPrompt                   = "session/prompt"
-	MethodAgentUnstableResumeSession    = "session/resume"
-	MethodAgentSetSessionConfigOption   = "session/set_config_option"
-	MethodAgentSetSessionMode           = "session/set_mode"
-	MethodAgentUnstableSetSessionModel  = "session/set_model"
+	MethodAgentAuthenticate            = "authenticate"
+	MethodAgentDocumentDidChange       = "document/didChange"
+	MethodAgentDocumentDidClose        = "document/didClose"
+	MethodAgentDocumentDidFocus        = "document/didFocus"
+	MethodAgentDocumentDidOpen         = "document/didOpen"
+	MethodAgentDocumentDidSave         = "document/didSave"
+	MethodAgentInitialize              = "initialize"
+	MethodAgentLogout                  = "logout"
+	MethodAgentUnstableMCPMessage      = "mcp/message"
+	MethodAgentNesAccept               = "nes/accept"
+	MethodAgentCloseNes                = "nes/close"
+	MethodAgentNesReject               = "nes/reject"
+	MethodAgentStartNes                = "nes/start"
+	MethodAgentSuggestNes              = "nes/suggest"
+	MethodAgentUnstableDisableProvider = "providers/disable"
+	MethodAgentUnstableListProviders   = "providers/list"
+	MethodAgentUnstableSetProvider     = "providers/set"
+	MethodAgentSessionCancel           = "session/cancel"
+	MethodAgentCloseSession            = "session/close"
+	MethodAgentDeleteSession           = "session/delete"
+	MethodAgentUnstableForkSession     = "session/fork"
+	MethodAgentListSessions            = "session/list"
+	MethodAgentLoadSession             = "session/load"
+	MethodAgentNewSession              = "session/new"
+	MethodAgentPrompt                  = "session/prompt"
+	MethodAgentResumeSession           = "session/resume"
+	MethodAgentSetSessionConfigOption  = "session/set_config_option"
 )

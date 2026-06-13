@@ -74,14 +74,14 @@ func TestClientConnectionProcessesSessionUpdateNotificationsInOrder(t *testing.T
 		t.Fatalf("start: %v", err)
 	}
 
-	transport.inbox <- json.RawMessage(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"first","update":{"sessionUpdate":"current_mode_update"}}}`)
+	transport.inbox <- json.RawMessage(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"first","update":{"sessionUpdate":"plan_removed","id":"p1"}}}`)
 	select {
 	case <-client.firstStarted:
 	case <-time.After(2 * time.Second):
 		t.Fatal("first session/update did not start")
 	}
 
-	transport.inbox <- json.RawMessage(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"second","update":{"sessionUpdate":"current_mode_update"}}}`)
+	transport.inbox <- json.RawMessage(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"second","update":{"sessionUpdate":"plan_removed","id":"p2"}}}`)
 	select {
 	case <-client.secondDone:
 		t.Fatal("second session/update ran before first completed")

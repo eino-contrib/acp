@@ -19,12 +19,16 @@ func (a *AgentConnection) UnstableCreateElicitation(ctx context.Context, params 
 	return jsonrpc.SendRequestTyped[acp.CreateElicitationResponse](a.sender, ctx, acp.MethodClientUnstableCreateElicitation, params)
 }
 
-func (a *AgentConnection) ReadTextFile(ctx context.Context, params acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.ReadTextFileResponse](a.sender, ctx, acp.MethodClientReadTextFile, params)
+func (a *AgentConnection) UnstableConnectMCP(ctx context.Context, params acp.ConnectMCPRequest) (acp.ConnectMCPResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.ConnectMCPResponse](a.sender, ctx, acp.MethodClientUnstableConnectMCP, params)
 }
 
-func (a *AgentConnection) WriteTextFile(ctx context.Context, params acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.WriteTextFileResponse](a.sender, ctx, acp.MethodClientWriteTextFile, params)
+func (a *AgentConnection) UnstableDisconnectMCP(ctx context.Context, params acp.DisconnectMCPRequest) (acp.DisconnectMCPResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.DisconnectMCPResponse](a.sender, ctx, acp.MethodClientUnstableDisconnectMCP, params)
+}
+
+func (a *AgentConnection) UnstableMCPMessage(ctx context.Context, params acp.MessageMCPNotification) error {
+	return a.sender.SendNotification(ctx, acp.MethodClientUnstableMCPMessage, params)
 }
 
 func (a *AgentConnection) RequestPermission(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
@@ -33,24 +37,4 @@ func (a *AgentConnection) RequestPermission(ctx context.Context, params acp.Requ
 
 func (a *AgentConnection) SessionUpdate(ctx context.Context, params acp.SessionNotification) error {
 	return a.sender.SendNotification(ctx, acp.MethodClientSessionUpdate, params)
-}
-
-func (a *AgentConnection) CreateTerminal(ctx context.Context, params acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.CreateTerminalResponse](a.sender, ctx, acp.MethodClientCreateTerminal, params)
-}
-
-func (a *AgentConnection) KillTerminal(ctx context.Context, params acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.KillTerminalResponse](a.sender, ctx, acp.MethodClientKillTerminal, params)
-}
-
-func (a *AgentConnection) TerminalOutput(ctx context.Context, params acp.TerminalOutputRequest) (acp.TerminalOutputResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.TerminalOutputResponse](a.sender, ctx, acp.MethodClientTerminalOutput, params)
-}
-
-func (a *AgentConnection) ReleaseTerminal(ctx context.Context, params acp.ReleaseTerminalRequest) (acp.ReleaseTerminalResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.ReleaseTerminalResponse](a.sender, ctx, acp.MethodClientReleaseTerminal, params)
-}
-
-func (a *AgentConnection) WaitForTerminalExit(ctx context.Context, params acp.WaitForTerminalExitRequest) (acp.WaitForTerminalExitResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.WaitForTerminalExitResponse](a.sender, ctx, acp.MethodClientWaitForTerminalExit, params)
 }

@@ -20,10 +20,7 @@ func TestBaseAgentImplementsDefaults(t *testing.T) {
 		{name: "ListSessions", call: func() error { _, err := agent.ListSessions(context.Background(), ListSessionsRequest{}); return err }},
 		{name: "NewSession", call: func() error { _, err := agent.NewSession(context.Background(), NewSessionRequest{}); return err }},
 		{name: "Prompt", call: func() error { _, err := agent.Prompt(context.Background(), PromptRequest{}); return err }},
-		{name: "SetSessionMode", call: func() error {
-			_, err := agent.SetSessionMode(context.Background(), SetSessionModeRequest{})
-			return err
-		}},
+		{name: "Logout", call: func() error { _, err := agent.Logout(context.Background(), LogoutRequest{}); return err }},
 		{name: "SetSessionConfigOption", call: func() error {
 			_, err := agent.SetSessionConfigOption(context.Background(), SetSessionConfigOptionRequest{})
 			return err
@@ -56,27 +53,20 @@ func TestBaseClientImplementsDefaults(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{name: "ReadTextFile", call: func() error { _, err := client.ReadTextFile(context.Background(), ReadTextFileRequest{}); return err }},
-		{name: "WriteTextFile", call: func() error { _, err := client.WriteTextFile(context.Background(), WriteTextFileRequest{}); return err }},
 		{name: "RequestPermission", call: func() error {
 			_, err := client.RequestPermission(context.Background(), RequestPermissionRequest{})
 			return err
 		}},
-		{name: "CreateTerminal", call: func() error {
-			_, err := client.CreateTerminal(context.Background(), CreateTerminalRequest{})
+		{name: "UnstableCreateElicitation", call: func() error {
+			_, err := client.UnstableCreateElicitation(context.Background(), CreateElicitationRequest{})
 			return err
 		}},
-		{name: "KillTerminal", call: func() error { _, err := client.KillTerminal(context.Background(), KillTerminalRequest{}); return err }},
-		{name: "TerminalOutput", call: func() error {
-			_, err := client.TerminalOutput(context.Background(), TerminalOutputRequest{})
+		{name: "UnstableConnectMCP", call: func() error {
+			_, err := client.UnstableConnectMCP(context.Background(), ConnectMCPRequest{})
 			return err
 		}},
-		{name: "ReleaseTerminal", call: func() error {
-			_, err := client.ReleaseTerminal(context.Background(), ReleaseTerminalRequest{})
-			return err
-		}},
-		{name: "WaitForTerminalExit", call: func() error {
-			_, err := client.WaitForTerminalExit(context.Background(), WaitForTerminalExitRequest{})
+		{name: "UnstableDisconnectMCP", call: func() error {
+			_, err := client.UnstableDisconnectMCP(context.Background(), DisconnectMCPRequest{})
 			return err
 		}},
 	}

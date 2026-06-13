@@ -339,6 +339,13 @@ func classifyAnyOf(s *Schema) GenerateType {
 		return TypeEnum
 	}
 
+	// Open string enum: one enum-bearing string variant plus a bare string
+	// "other" variant for forward-compatible values → string enum with the
+	// known values as constants.
+	if isOpenStringEnum(variants) {
+		return TypeEnum
+	}
+
 	// Has explicit discriminator → discriminated union
 	if s.Discriminator != nil {
 		return TypeDiscriminatedUnion
@@ -369,7 +376,64 @@ func classifyAnyOf(s *Schema) GenerateType {
 		return TypeSimpleUnion
 	}
 
+	// Mixed object-like variants (refs and/or inline objects) → simple union.
+	// Covers open unions that add an inline "other" object alongside a ref.
+	if allObjectLikeVariants(variants) {
+		return TypeSimpleUnion
+	}
+
 	return TypePrimitive
+}
+
+// isObjectLikeVariant reports whether a union variant is object-shaped: a
+// resolvable $ref / allOf-ref, an array-of-ref, or an inline object.
+func isObjectLikeVariant(v *Schema) bool {
+	if v == nil {
+		return false
+	}
+	if resolveVariantRef(v) != "" {
+		return true
+	}
+	if v.Type.Contains("array") && v.Items != nil && v.Items.Ref != "" {
+		return true
+	}
+	return hasObjectType(v) || len(v.Properties) > 0
+}
+
+// allObjectLikeVariants reports whether every variant is object-like and there
+// are at least two of them.
+func allObjectLikeVariants(variants []*Schema) bool {
+	if len(variants) < 2 {
+		return false
+	}
+	for _, v := range variants {
+		if !isObjectLikeVariant(v) {
+			return false
+		}
+	}
+	return true
+}
+
+// isOpenStringEnum reports whether variants form an open string enum: every
+// variant is a plain string, and exactly one carries a non-empty enum list
+// while the rest are bare strings acting as forward-compatible "other" values.
+func isOpenStringEnum(variants []*Schema) bool {
+	if len(variants) < 2 {
+		return false
+	}
+	enumCount := 0
+	for _, v := range variants {
+		if v == nil || len(v.Type) != 1 || v.Type[0] != "string" {
+			return false
+		}
+		if v.Ref != "" || len(v.AllOf) > 0 || len(v.AnyOf) > 0 || len(v.OneOf) > 0 {
+			return false
+		}
+		if len(v.Enum) > 0 {
+			enumCount++
+		}
+	}
+	return enumCount == 1
 }
 
 func filterNull(schemas []*Schema) []*Schema {

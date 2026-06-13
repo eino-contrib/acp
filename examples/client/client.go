@@ -31,12 +31,6 @@ func (c *Client) SessionUpdate(_ context.Context, params acp.SessionNotification
 		if text, ok := v.Content.AsText(); ok {
 			fmt.Fprintf(os.Stderr, "[💬 Message] %s\n", text.Text)
 		}
-	} else if v, ok := update.AsToolCall(); ok {
-		status := ""
-		if v.Status != nil {
-			status = string(*v.Status)
-		}
-		fmt.Fprintf(os.Stderr, "[🔧 ToolCall] id=%s title=%s status=%s\n", v.ToolCallID, v.Title, status)
 	} else if v, ok := update.AsToolCallUpdate(); ok {
 		status := ""
 		if v.Status != nil {

@@ -87,7 +87,8 @@ func (g *Generator) findTypesForMethod(wireMethod, side string) (reqName, respNa
 	for name, schema := range g.schema.Defs {
 		xMethod, _ := schema.XMethod()
 		xSide, _ := schema.XSide()
-		if xMethod != wireMethod || xSide != side {
+		// "both" types (e.g. mcp/message) belong to both client and agent sides.
+		if xMethod != wireMethod || (xSide != side && xSide != "both") {
 			continue
 		}
 

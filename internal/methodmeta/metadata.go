@@ -12,6 +12,7 @@ type Side string
 const (
 	SideAgent  Side = "agent"
 	SideClient Side = "client"
+	SideBoth   Side = "both"
 )
 
 // Metadata describes generated capabilities for a single ACP wire method.

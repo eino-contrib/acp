@@ -16,8 +16,8 @@ const (
 	defaultOutputPath      = "../../types_gen.go"
 	defaultDownloadTimeout = 30 * time.Second
 
-	defaultSchemaURL = "https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/main/schema/schema.unstable.json"
-	defaultMetaURL   = "https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/main/schema/meta.unstable.json"
+	defaultSchemaURL = "https://github.com/agentclientprotocol/agent-client-protocol/blob/main/schema/v2/schema.unstable.json"
+	defaultMetaURL   = "https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/refs/heads/main/schema/v2/meta.unstable.json"
 )
 
 var (

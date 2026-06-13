@@ -79,7 +79,7 @@ func (a *echoAgent) simulateSessionUpdates(ctx context.Context, sessionID acp.Se
 
 	a.clientConn.SessionUpdate(ctx, acp.SessionNotification{
 		SessionID: sessionID,
-		Update: acp.NewSessionUpdateToolCall(acp.ToolCall{
+		Update: acp.NewSessionUpdateToolCallUpdate(acp.ToolCallUpdate{
 			ToolCallID: toolCallID,
 			Title:      "read_file",
 			Status:     &statusInProgress,

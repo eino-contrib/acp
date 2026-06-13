@@ -122,7 +122,7 @@ func TestSessionUpdateAndAuthMethodUnchangedShape(t *testing.T) {
 	text := generateUnstable(t)
 	// SessionUpdate / AuthMethod keep payload-only constructor signatures.
 	for _, expected := range []string{
-		"func NewSessionUpdateToolCall(v ToolCall) SessionUpdate",
+		"func NewSessionUpdateToolCallUpdate(v ToolCallUpdate) SessionUpdate",
 		"func NewAuthMethodEnvVarVariant(v AuthMethodEnvVar) AuthMethod",
 	} {
 		if !strings.Contains(text, expected) {

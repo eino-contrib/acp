@@ -315,11 +315,11 @@ func TestGenerateInterfacesPrefixesUnstableMethods(t *testing.T) {
 	agentText := string(agentSrc)
 
 	for _, expected := range []string{
-		"UnstableLogout(ctx context.Context, params LogoutRequest) (LogoutResponse, error)",
-		"UnstableDisableProviders(ctx context.Context, params DisableProvidersRequest) (DisableProvidersResponse, error)",
-		"UnstableSetSessionModel(ctx context.Context, params SetSessionModelRequest) (SetSessionModelResponse, error)",
-		"MethodAgentUnstableSetSessionModel",
-		`"session/set_model"`,
+		"UnstableDisableProvider(ctx context.Context, params DisableProviderRequest) (DisableProviderResponse, error)",
+		"UnstableListProviders(ctx context.Context, params ListProvidersRequest) (ListProvidersResponse, error)",
+		"UnstableSetProvider(ctx context.Context, params SetProviderRequest) (SetProviderResponse, error)",
+		"MethodAgentUnstableDisableProvider",
+		`"providers/disable"`,
 	} {
 		if !strings.Contains(agentText, expected) {
 			t.Fatalf("missing unstable generated fragment: %s", expected)
@@ -327,8 +327,7 @@ func TestGenerateInterfacesPrefixesUnstableMethods(t *testing.T) {
 	}
 
 	for _, unexpected := range []string{
-		"\tSetSessionModel(ctx context.Context, params SetSessionModelRequest) (SetSessionModelResponse, error)",
-		"MethodAgentSetSessionModel",
+		"\tDisableProvider(ctx context.Context, params DisableProviderRequest) (DisableProviderResponse, error)",
 	} {
 		if strings.Contains(agentText, unexpected) {
 			t.Fatalf("unexpected stable generated fragment: %s", unexpected)
