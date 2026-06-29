@@ -27,7 +27,14 @@ func TestClientConnectionRegistersAllGeneratedMethods(t *testing.T) {
 func expectedMethodKeys(side methodmeta.Side, notification bool) []string {
 	keys := make([]string, 0)
 	for _, meta := range methodmeta.All() {
-		if meta.Notification != notification {
+		// An overloaded wire method (mcp/message) supports both forms and must
+		// appear in both the request and notification handler maps, so select by
+		// the per-form capability flags rather than a single boolean.
+		supported := meta.SupportsRequest
+		if notification {
+			supported = meta.SupportsNotification
+		}
+		if !supported {
 			continue
 		}
 		if meta.Side == side || meta.Side == methodmeta.SideBoth {

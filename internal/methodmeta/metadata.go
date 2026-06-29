@@ -17,10 +17,15 @@ const (
 
 // Metadata describes generated capabilities for a single ACP wire method.
 type Metadata struct {
-	Key                   string
-	WireMethod            string
-	Side                  Side
-	Notification          bool
+	Key        string
+	WireMethod string
+	Side       Side
+	// SupportsRequest and SupportsNotification describe which JSON-RPC forms a
+	// wire method accepts. Most methods are one or the other; an overloaded
+	// method (e.g. mcp/message) sets both, meaning it is dispatched as a request
+	// when a JSON-RPC id is present and as a notification when it is absent.
+	SupportsRequest       bool
+	SupportsNotification  bool
 	SessionBound          bool
 	SessionHeaderRequired bool
 	SessionCreating       bool

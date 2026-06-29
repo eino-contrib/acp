@@ -9,6 +9,7 @@ func newAgentRequestHandlers(agent acp.Agent, conn *AgentConnection) map[string]
 		acp.MethodAgentLoginAuth:               bindRequestHandler(agent.LoginAuth),
 		acp.MethodAgentLogoutAuth:              bindRequestHandler(agent.LogoutAuth),
 		acp.MethodAgentInitialize:              bindRequestHandler(agent.Initialize),
+		acp.MethodAgentUnstableMCPMessage:      bindRequestHandler(agent.UnstableMCPMessage),
 		acp.MethodAgentCloseNes:                bindRequestHandler(agent.CloseNes),
 		acp.MethodAgentStartNes:                bindRequestHandler(agent.StartNes),
 		acp.MethodAgentSuggestNes:              bindRequestHandler(agent.SuggestNes),
@@ -29,15 +30,15 @@ func newAgentRequestHandlers(agent acp.Agent, conn *AgentConnection) map[string]
 
 func newAgentNotificationHandlers(conn *AgentConnection) map[string]notificationDispatcher {
 	return map[string]notificationDispatcher{
-		acp.MethodAgentDocumentDidChange:  bindNotificationHandler("document/didChange notification", conn.agent.DocumentDidChange),
-		acp.MethodAgentDocumentDidClose:   bindNotificationHandler("document/didClose notification", conn.agent.DocumentDidClose),
-		acp.MethodAgentDocumentDidFocus:   bindNotificationHandler("document/didFocus notification", conn.agent.DocumentDidFocus),
-		acp.MethodAgentDocumentDidOpen:    bindNotificationHandler("document/didOpen notification", conn.agent.DocumentDidOpen),
-		acp.MethodAgentDocumentDidSave:    bindNotificationHandler("document/didSave notification", conn.agent.DocumentDidSave),
-		acp.MethodAgentUnstableMCPMessage: bindNotificationHandler("mcp/message notification", conn.agent.UnstableMCPMessage),
-		acp.MethodAgentNesAccept:          bindNotificationHandler("nes/accept notification", conn.agent.NesAccept),
-		acp.MethodAgentNesReject:          bindNotificationHandler("nes/reject notification", conn.agent.NesReject),
-		acp.MethodAgentSessionCancel:      bindNotificationHandler("session/cancel notification", conn.agent.SessionCancel),
+		acp.MethodAgentDocumentDidChange:              bindNotificationHandler("document/didChange notification", conn.agent.DocumentDidChange),
+		acp.MethodAgentDocumentDidClose:               bindNotificationHandler("document/didClose notification", conn.agent.DocumentDidClose),
+		acp.MethodAgentDocumentDidFocus:               bindNotificationHandler("document/didFocus notification", conn.agent.DocumentDidFocus),
+		acp.MethodAgentDocumentDidOpen:                bindNotificationHandler("document/didOpen notification", conn.agent.DocumentDidOpen),
+		acp.MethodAgentDocumentDidSave:                bindNotificationHandler("document/didSave notification", conn.agent.DocumentDidSave),
+		acp.MethodAgentUnstableMCPMessageNotification: bindNotificationHandler("mcp/message notification", conn.agent.UnstableMCPMessageNotification),
+		acp.MethodAgentNesAccept:                      bindNotificationHandler("nes/accept notification", conn.agent.NesAccept),
+		acp.MethodAgentNesReject:                      bindNotificationHandler("nes/reject notification", conn.agent.NesReject),
+		acp.MethodAgentSessionCancel:                  bindNotificationHandler("session/cancel notification", conn.agent.SessionCancel),
 	}
 }
 
@@ -46,14 +47,15 @@ func newClientRequestHandlers(client acp.Client) map[string]requestDispatcher {
 		acp.MethodClientUnstableCreateElicitation: bindRequestHandler(client.UnstableCreateElicitation),
 		acp.MethodClientUnstableConnectMCP:        bindRequestHandler(client.UnstableConnectMCP),
 		acp.MethodClientUnstableDisconnectMCP:     bindRequestHandler(client.UnstableDisconnectMCP),
+		acp.MethodClientUnstableMCPMessage:        bindRequestHandler(client.UnstableMCPMessage),
 		acp.MethodClientRequestPermission:         bindRequestHandler(client.RequestPermission),
 	}
 }
 
 func newClientNotificationHandlers(client acp.Client) map[string]notificationDispatcher {
 	return map[string]notificationDispatcher{
-		acp.MethodClientUnstableElicitationComplete: bindNotificationHandler("elicitation/complete notification", client.UnstableElicitationComplete),
-		acp.MethodClientUnstableMCPMessage:          bindNotificationHandler("mcp/message notification", client.UnstableMCPMessage),
-		acp.MethodClientSessionUpdate:               bindNotificationHandler("session/update notification", client.SessionUpdate),
+		acp.MethodClientUnstableElicitationComplete:    bindNotificationHandler("elicitation/complete notification", client.UnstableElicitationComplete),
+		acp.MethodClientUnstableMCPMessageNotification: bindNotificationHandler("mcp/message notification", client.UnstableMCPMessageNotification),
+		acp.MethodClientSessionUpdate:                  bindNotificationHandler("session/update notification", client.SessionUpdate),
 	}
 }

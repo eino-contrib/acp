@@ -28,7 +28,8 @@ func (g *Generator) GenerateMethodMetadata(pkg string) ([]byte, error) {
 		fmt.Fprintf(&buf, "\t\tKey: %q,\n", e.Key)
 		fmt.Fprintf(&buf, "\t\tWireMethod: %q,\n", e.WireMethod)
 		fmt.Fprintf(&buf, "\t\tSide: %s,\n", e.Side)
-		fmt.Fprintf(&buf, "\t\tNotification: %t,\n", e.Notification)
+		fmt.Fprintf(&buf, "\t\tSupportsRequest: %t,\n", e.SupportsRequest)
+		fmt.Fprintf(&buf, "\t\tSupportsNotification: %t,\n", e.SupportsNotification)
 		fmt.Fprintf(&buf, "\t\tSessionBound: %t,\n", e.SessionBound)
 		fmt.Fprintf(&buf, "\t\tSessionHeaderRequired: %t,\n", e.SessionHeaderRequired)
 		fmt.Fprintf(&buf, "\t\tSessionCreating: %t,\n", e.SessionCreating)
@@ -42,12 +43,14 @@ func (g *Generator) GenerateMethodMetadata(pkg string) ([]byte, error) {
 // metadataEntry holds the resolved metadata for a single wire method. Methods
 // listed on both the agent and client sides (e.g. mcp/message) are collapsed
 // into a single entry with Side set to SideBoth, since methodMetadata is keyed
-// by wire method.
+// by wire method. A wire method that supports both a request and a notification
+// form sets both SupportsRequest and SupportsNotification.
 type metadataEntry struct {
 	Key                   string
 	WireMethod            string
 	Side                  string
-	Notification          bool
+	SupportsRequest       bool
+	SupportsNotification  bool
 	SessionBound          bool
 	SessionHeaderRequired bool
 	SessionCreating       bool
@@ -71,6 +74,8 @@ func (g *Generator) buildMetadataEntries(methods []MethodInfo) []metadataEntry {
 			if existing.Side != side {
 				existing.Side = "SideBoth"
 			}
+			existing.SupportsRequest = existing.SupportsRequest || !method.IsNotify
+			existing.SupportsNotification = existing.SupportsNotification || method.IsNotify
 			existing.SessionBound = existing.SessionBound || sessionBound
 			existing.SessionHeaderRequired = existing.SessionHeaderRequired || sessionHeaderRequired
 			existing.SessionCreating = existing.SessionCreating || sessionCreating
@@ -81,7 +86,8 @@ func (g *Generator) buildMetadataEntries(methods []MethodInfo) []metadataEntry {
 			Key:                   method.Key,
 			WireMethod:            method.WireMethod,
 			Side:                  side,
-			Notification:          method.IsNotify,
+			SupportsRequest:       !method.IsNotify,
+			SupportsNotification:  method.IsNotify,
 			SessionBound:          sessionBound,
 			SessionHeaderRequired: sessionHeaderRequired,
 			SessionCreating:       sessionCreating,

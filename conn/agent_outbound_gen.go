@@ -27,8 +27,12 @@ func (a *AgentConnection) UnstableDisconnectMCP(ctx context.Context, params acp.
 	return jsonrpc.SendRequestTyped[acp.DisconnectMCPResponse](a.sender, ctx, acp.MethodClientUnstableDisconnectMCP, params)
 }
 
-func (a *AgentConnection) UnstableMCPMessage(ctx context.Context, params acp.MessageMCPNotification) error {
-	return a.sender.SendNotification(ctx, acp.MethodClientUnstableMCPMessage, params)
+func (a *AgentConnection) UnstableMCPMessage(ctx context.Context, params acp.MessageMCPRequest) (acp.MessageMCPResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.MessageMCPResponse](a.sender, ctx, acp.MethodClientUnstableMCPMessage, params)
+}
+
+func (a *AgentConnection) UnstableMCPMessageNotification(ctx context.Context, params acp.MessageMCPNotification) error {
+	return a.sender.SendNotification(ctx, acp.MethodClientUnstableMCPMessageNotification, params)
 }
 
 func (a *AgentConnection) RequestPermission(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {

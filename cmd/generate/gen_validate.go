@@ -71,7 +71,13 @@ func (g *Generator) buildValidateChecks(s *Schema) []validateCheck {
 		goType := g.resolveFieldType(prop, true)
 
 		switch {
-		case goType == "string":
+		case goType == "string" || g.isStringAliasType(prop):
+			// A required field is checked for a non-empty value when it is a
+			// plain string or a $ref / allOf-ref to a primitive string alias
+			// (e.g. SessionID, MCPConnectionID, AuthMethodID). Alias fields used
+			// to be skipped because their Go type is the alias name rather than
+			// the literal "string", which let missing required identifiers decode
+			// to a zero value and slip past Validate().
 			checks = append(checks, validateCheck{
 				fieldGoName: goName,
 				jsonName:    propName,
@@ -125,8 +131,61 @@ func (g *Generator) generateEmptyValidate(name string) {
 	fmt.Fprintf(&g.buf, "}\n\n")
 }
 
+// generateInlineVariantValidate emits a Validate() for a synthesized inline
+// union-variant wrapper. These wrappers are created during union generation and
+// are not part of the top-level defs that generateValidateMethods walks, so
+// without this they would silently accept any object during the union's
+// try-parse fallback. The wrapperName is already a Go type name (not a schema
+// def name), so it is used verbatim as the receiver type.
+func (g *Generator) generateInlineVariantValidate(wrapperName string, variant *Schema) {
+	s := variant
+	if len(s.AllOf) > 0 {
+		s = mergeAllOf(s)
+	}
+	if s.Properties == nil {
+		return
+	}
+	checks := g.buildValidateChecks(s)
+	if len(checks) == 0 {
+		return
+	}
+	g.needFmt = true
+	fmt.Fprintf(&g.buf, "func (v *%s) Validate() error {\n", wrapperName)
+	for _, c := range checks {
+		fmt.Fprintf(&g.buf, "\tif v.%s == \"\" {\n", c.fieldGoName)
+		fmt.Fprintf(&g.buf, "\t\treturn fmt.Errorf(\"%s is required\")\n", c.jsonName)
+		fmt.Fprintf(&g.buf, "\t}\n")
+	}
+	fmt.Fprintf(&g.buf, "\treturn nil\n")
+	fmt.Fprintf(&g.buf, "}\n\n")
+}
+
 func isRequestOrResponseType(name string) bool {
 	return strings.HasSuffix(name, "Request") ||
 		strings.HasSuffix(name, "Response") ||
 		strings.HasSuffix(name, "Notification")
+}
+
+// isStringAliasType reports whether a property is a single $ref / allOf-ref to a
+// primitive string alias definition (e.g. SessionId, McpConnectionId). Such
+// fields generate a Go field typed as the alias name rather than the literal
+// "string", so the plain goType=="string" check misses them. They still carry
+// string semantics, so a required one is validated for a non-empty value.
+func (g *Generator) isStringAliasType(prop *Schema) bool {
+	ref := resolveSingleRef(prop)
+	if ref == "" {
+		return false
+	}
+	defs := g.defs()
+	if defs == nil {
+		return false
+	}
+	target, ok := defs[resolveRef(ref)]
+	if !ok || target == nil {
+		return false
+	}
+	if classifyType(target) != TypePrimitive {
+		return false
+	}
+	return target.Type.Contains("string")
 }

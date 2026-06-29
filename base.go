@@ -55,8 +55,12 @@ func (BaseAgent) Initialize(context.Context, InitializeRequest) (InitializeRespo
 	return InitializeResponse{}, methodNotSupported(MethodAgentInitialize)
 }
 
-func (BaseAgent) UnstableMCPMessage(context.Context, MessageMCPNotification) error {
-	return notificationNotImplemented(MethodAgentUnstableMCPMessage)
+func (BaseAgent) UnstableMCPMessage(context.Context, MessageMCPRequest) (MessageMCPResponse, error) {
+	return MessageMCPResponse{}, methodNotSupported(MethodAgentUnstableMCPMessage)
+}
+
+func (BaseAgent) UnstableMCPMessageNotification(context.Context, MessageMCPNotification) error {
+	return notificationNotImplemented(MethodAgentUnstableMCPMessageNotification)
 }
 
 func (BaseAgent) NesAccept(context.Context, AcceptNesNotification) error {
@@ -157,8 +161,12 @@ func (BaseClient) UnstableDisconnectMCP(context.Context, DisconnectMCPRequest) (
 	return DisconnectMCPResponse{}, methodNotSupported(MethodClientUnstableDisconnectMCP)
 }
 
-func (BaseClient) UnstableMCPMessage(context.Context, MessageMCPNotification) error {
-	return notificationNotImplemented(MethodClientUnstableMCPMessage)
+func (BaseClient) UnstableMCPMessage(context.Context, MessageMCPRequest) (MessageMCPResponse, error) {
+	return MessageMCPResponse{}, methodNotSupported(MethodClientUnstableMCPMessage)
+}
+
+func (BaseClient) UnstableMCPMessageNotification(context.Context, MessageMCPNotification) error {
+	return notificationNotImplemented(MethodClientUnstableMCPMessageNotification)
 }
 
 func (BaseClient) RequestPermission(context.Context, RequestPermissionRequest) (RequestPermissionResponse, error) {

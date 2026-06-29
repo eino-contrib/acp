@@ -34,11 +34,17 @@ type Agent interface {
 	//
 	// This capability is not part of the spec yet, and may be removed or changed at any point.
 	//
+	// Request parameters for `mcp/message`.
+	UnstableMCPMessage(ctx context.Context, params MessageMCPRequest) (MessageMCPResponse, error)
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
 	// Notification parameters for `mcp/message`.
 	//
 	// This is used when the wrapped MCP message is a notification and the outer JSON-RPC
 	// envelope has no `id`.
-	UnstableMCPMessage(ctx context.Context, params MessageMCPNotification) error
+	UnstableMCPMessageNotification(ctx context.Context, params MessageMCPNotification) error
 	// Notification sent when a suggestion is accepted.
 	NesAccept(ctx context.Context, params AcceptNesNotification) error
 	// Request to close an NES session.
@@ -132,31 +138,32 @@ type Agent interface {
 
 // Agent method wire names.
 const (
-	MethodAgentLoginAuth               = "auth/login"
-	MethodAgentLogoutAuth              = "auth/logout"
-	MethodAgentDocumentDidChange       = "document/didChange"
-	MethodAgentDocumentDidClose        = "document/didClose"
-	MethodAgentDocumentDidFocus        = "document/didFocus"
-	MethodAgentDocumentDidOpen         = "document/didOpen"
-	MethodAgentDocumentDidSave         = "document/didSave"
-	MethodAgentInitialize              = "initialize"
-	MethodAgentUnstableMCPMessage      = "mcp/message"
-	MethodAgentNesAccept               = "nes/accept"
-	MethodAgentCloseNes                = "nes/close"
-	MethodAgentNesReject               = "nes/reject"
-	MethodAgentStartNes                = "nes/start"
-	MethodAgentSuggestNes              = "nes/suggest"
-	MethodAgentUnstableDisableProvider = "providers/disable"
-	MethodAgentUnstableListProviders   = "providers/list"
-	MethodAgentUnstableSetProvider     = "providers/set"
-	MethodAgentSessionCancel           = "session/cancel"
-	MethodAgentCloseSession            = "session/close"
-	MethodAgentDeleteSession           = "session/delete"
-	MethodAgentUnstableForkSession     = "session/fork"
-	MethodAgentListSessions            = "session/list"
-	MethodAgentLoadSession             = "session/load"
-	MethodAgentNewSession              = "session/new"
-	MethodAgentPrompt                  = "session/prompt"
-	MethodAgentResumeSession           = "session/resume"
-	MethodAgentSetSessionConfigOption  = "session/set_config_option"
+	MethodAgentLoginAuth                      = "auth/login"
+	MethodAgentLogoutAuth                     = "auth/logout"
+	MethodAgentDocumentDidChange              = "document/didChange"
+	MethodAgentDocumentDidClose               = "document/didClose"
+	MethodAgentDocumentDidFocus               = "document/didFocus"
+	MethodAgentDocumentDidOpen                = "document/didOpen"
+	MethodAgentDocumentDidSave                = "document/didSave"
+	MethodAgentInitialize                     = "initialize"
+	MethodAgentUnstableMCPMessage             = "mcp/message"
+	MethodAgentUnstableMCPMessageNotification = "mcp/message"
+	MethodAgentNesAccept                      = "nes/accept"
+	MethodAgentCloseNes                       = "nes/close"
+	MethodAgentNesReject                      = "nes/reject"
+	MethodAgentStartNes                       = "nes/start"
+	MethodAgentSuggestNes                     = "nes/suggest"
+	MethodAgentUnstableDisableProvider        = "providers/disable"
+	MethodAgentUnstableListProviders          = "providers/list"
+	MethodAgentUnstableSetProvider            = "providers/set"
+	MethodAgentSessionCancel                  = "session/cancel"
+	MethodAgentCloseSession                   = "session/close"
+	MethodAgentDeleteSession                  = "session/delete"
+	MethodAgentUnstableForkSession            = "session/fork"
+	MethodAgentListSessions                   = "session/list"
+	MethodAgentLoadSession                    = "session/load"
+	MethodAgentNewSession                     = "session/new"
+	MethodAgentPrompt                         = "session/prompt"
+	MethodAgentResumeSession                  = "session/resume"
+	MethodAgentSetSessionConfigOption         = "session/set_config_option"
 )

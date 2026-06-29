@@ -5710,15 +5710,19 @@ func (a *AgentResponse) UnmarshalJSON(data []byte) error {
 	{
 		var vf0 AgentResponseResult
 		if err := json.Unmarshal(data, &vf0); err == nil {
-			a.Result = &vf0
-			return nil
+			if validator, ok := any(&vf0).(interface{ Validate() error }); !ok || validator.Validate() == nil {
+				a.Result = &vf0
+				return nil
+			}
 		}
 	}
 	{
 		var vf1 AgentResponseError
 		if err := json.Unmarshal(data, &vf1); err == nil {
-			a.Error = &vf1
-			return nil
+			if validator, ok := any(&vf1).(interface{ Validate() error }); !ok || validator.Validate() == nil {
+				a.Error = &vf1
+				return nil
+			}
 		}
 	}
 	return fmt.Errorf("data does not match any variant of AgentResponse")
@@ -5768,6 +5772,13 @@ type AvailableCommandInputOther struct {
 	Type string `json:"type"`
 }
 
+func (v *AvailableCommandInputOther) Validate() error {
+	if v.Type == "" {
+		return fmt.Errorf("type is required")
+	}
+	return nil
+}
+
 type AvailableCommandInput struct {
 	UnstructuredCommandInput *UnstructuredCommandInput   `json:"-"`
 	Other                    *AvailableCommandInputOther `json:"-"`
@@ -5806,15 +5817,19 @@ func (a *AvailableCommandInput) UnmarshalJSON(data []byte) error {
 	{
 		var vf0 UnstructuredCommandInput
 		if err := json.Unmarshal(data, &vf0); err == nil {
-			a.UnstructuredCommandInput = &vf0
-			return nil
+			if validator, ok := any(&vf0).(interface{ Validate() error }); !ok || validator.Validate() == nil {
+				a.UnstructuredCommandInput = &vf0
+				return nil
+			}
 		}
 	}
 	{
 		var vf1 AvailableCommandInputOther
 		if err := json.Unmarshal(data, &vf1); err == nil {
-			a.Other = &vf1
-			return nil
+			if validator, ok := any(&vf1).(interface{ Validate() error }); !ok || validator.Validate() == nil {
+				a.Other = &vf1
+				return nil
+			}
 		}
 	}
 	return fmt.Errorf("data does not match any variant of AvailableCommandInput")
@@ -5897,15 +5912,19 @@ func (c *ClientResponse) UnmarshalJSON(data []byte) error {
 	{
 		var vf0 ClientResponseResult
 		if err := json.Unmarshal(data, &vf0); err == nil {
-			c.Result = &vf0
-			return nil
+			if validator, ok := any(&vf0).(interface{ Validate() error }); !ok || validator.Validate() == nil {
+				c.Result = &vf0
+				return nil
+			}
 		}
 	}
 	{
 		var vf1 ClientResponseError
 		if err := json.Unmarshal(data, &vf1); err == nil {
-			c.Error = &vf1
-			return nil
+			if validator, ok := any(&vf1).(interface{ Validate() error }); !ok || validator.Validate() == nil {
+				c.Error = &vf1
+				return nil
+			}
 		}
 	}
 	return fmt.Errorf("data does not match any variant of ClientResponse")
@@ -6633,15 +6652,19 @@ func (e *EmbeddedResourceResource) UnmarshalJSON(data []byte) error {
 	{
 		var vf0 TextResourceContents
 		if err := json.Unmarshal(data, &vf0); err == nil {
-			e.TextResourceContents = &vf0
-			return nil
+			if validator, ok := any(&vf0).(interface{ Validate() error }); !ok || validator.Validate() == nil {
+				e.TextResourceContents = &vf0
+				return nil
+			}
 		}
 	}
 	{
 		var vf1 BlobResourceContents
 		if err := json.Unmarshal(data, &vf1); err == nil {
-			e.BlobResourceContents = &vf1
-			return nil
+			if validator, ok := any(&vf1).(interface{ Validate() error }); !ok || validator.Validate() == nil {
+				e.BlobResourceContents = &vf1
+				return nil
+			}
 		}
 	}
 	return fmt.Errorf("data does not match any variant of EmbeddedResourceResource")
@@ -6733,15 +6756,19 @@ func (m *MultiSelectItems) UnmarshalJSON(data []byte) error {
 	{
 		var vf0 UntitledMultiSelectItems
 		if err := json.Unmarshal(data, &vf0); err == nil {
-			m.UntitledMultiSelectItems = &vf0
-			return nil
+			if validator, ok := any(&vf0).(interface{ Validate() error }); !ok || validator.Validate() == nil {
+				m.UntitledMultiSelectItems = &vf0
+				return nil
+			}
 		}
 	}
 	{
 		var vf1 TitledMultiSelectItems
 		if err := json.Unmarshal(data, &vf1); err == nil {
-			m.TitledMultiSelectItems = &vf1
-			return nil
+			if validator, ok := any(&vf1).(interface{ Validate() error }); !ok || validator.Validate() == nil {
+				m.TitledMultiSelectItems = &vf1
+				return nil
+			}
 		}
 	}
 	return fmt.Errorf("data does not match any variant of MultiSelectItems")
@@ -6932,15 +6959,19 @@ func (s *SessionConfigSelectOptions) UnmarshalJSON(data []byte) error {
 	{
 		var vf0 SessionConfigSelectOptionsSessionConfigSelectOptionList
 		if err := json.Unmarshal(data, &vf0); err == nil {
-			s.SessionConfigSelectOptionList = &vf0
-			return nil
+			if validator, ok := any(&vf0).(interface{ Validate() error }); !ok || validator.Validate() == nil {
+				s.SessionConfigSelectOptionList = &vf0
+				return nil
+			}
 		}
 	}
 	{
 		var vf1 SessionConfigSelectOptionsSessionConfigSelectGroupList
 		if err := json.Unmarshal(data, &vf1); err == nil {
-			s.SessionConfigSelectGroupList = &vf1
-			return nil
+			if validator, ok := any(&vf1).(interface{ Validate() error }); !ok || validator.Validate() == nil {
+				s.SessionConfigSelectGroupList = &vf1
+				return nil
+			}
 		}
 	}
 	return fmt.Errorf("data does not match any variant of SessionConfigSelectOptions")
@@ -7020,6 +7051,23 @@ func (v *AcceptNesNotification) Validate() error {
 	if v.ID == "" {
 		return fmt.Errorf("id is required")
 	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
+	return nil
+}
+
+func (v *AgentMessage) Validate() error {
+	if v.MessageID == "" {
+		return fmt.Errorf("messageId is required")
+	}
+	return nil
+}
+
+func (v *AgentThought) Validate() error {
+	if v.MessageID == "" {
+		return fmt.Errorf("messageId is required")
+	}
 	return nil
 }
 
@@ -7041,6 +7089,9 @@ func (v *AuthEnvVar) Validate() error {
 }
 
 func (v *AuthMethodAgent) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -7048,6 +7099,9 @@ func (v *AuthMethodAgent) Validate() error {
 }
 
 func (v *AuthMethodEnvVar) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -7058,6 +7112,9 @@ func (v *AuthMethodEnvVar) Validate() error {
 }
 
 func (v *AuthMethodTerminal) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -7092,6 +7149,9 @@ func (v *BlobResourceContents) Validate() error {
 }
 
 func (v *CancelNotification) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -7100,6 +7160,9 @@ func (v *CancelRequestNotification) Validate() error {
 }
 
 func (v *CloseNesRequest) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -7108,6 +7171,9 @@ func (v *CloseNesResponse) Validate() error {
 }
 
 func (v *CloseSessionRequest) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -7116,6 +7182,9 @@ func (v *CloseSessionResponse) Validate() error {
 }
 
 func (v *CompleteElicitationNotification) Validate() error {
+	if v.ElicitationID == "" {
+		return fmt.Errorf("elicitationId is required")
+	}
 	return nil
 }
 
@@ -7127,10 +7196,23 @@ func (v *ConfigOptionUpdate) Validate() error {
 }
 
 func (v *ConnectMCPRequest) Validate() error {
+	if v.AcpID == "" {
+		return fmt.Errorf("acpId is required")
+	}
 	return nil
 }
 
 func (v *ConnectMCPResponse) Validate() error {
+	if v.ConnectionID == "" {
+		return fmt.Errorf("connectionId is required")
+	}
+	return nil
+}
+
+func (v *ContentChunk) Validate() error {
+	if v.MessageID == "" {
+		return fmt.Errorf("messageId is required")
+	}
 	return nil
 }
 
@@ -7142,6 +7224,9 @@ func (v *Cost) Validate() error {
 }
 
 func (v *DeleteSessionRequest) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -7153,6 +7238,9 @@ func (v *DidChangeDocumentNotification) Validate() error {
 	if v.ContentChanges == nil {
 		return fmt.Errorf("contentChanges is required")
 	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
 	}
@@ -7160,6 +7248,9 @@ func (v *DidChangeDocumentNotification) Validate() error {
 }
 
 func (v *DidCloseDocumentNotification) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
 	}
@@ -7167,6 +7258,9 @@ func (v *DidCloseDocumentNotification) Validate() error {
 }
 
 func (v *DidFocusDocumentNotification) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
 	}
@@ -7176,6 +7270,9 @@ func (v *DidFocusDocumentNotification) Validate() error {
 func (v *DidOpenDocumentNotification) Validate() error {
 	if v.LanguageID == "" {
 		return fmt.Errorf("languageId is required")
+	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
 	}
 	if v.Text == "" {
 		return fmt.Errorf("text is required")
@@ -7187,6 +7284,9 @@ func (v *DidOpenDocumentNotification) Validate() error {
 }
 
 func (v *DidSaveDocumentNotification) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
 	}
@@ -7215,10 +7315,20 @@ func (v *DisableProviderResponse) Validate() error {
 }
 
 func (v *DisconnectMCPRequest) Validate() error {
+	if v.ConnectionID == "" {
+		return fmt.Errorf("connectionId is required")
+	}
 	return nil
 }
 
 func (v *DisconnectMCPResponse) Validate() error {
+	return nil
+}
+
+func (v *ElicitationSessionScope) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -7253,10 +7363,16 @@ func (v *ForkSessionRequest) Validate() error {
 	if v.Cwd == "" {
 		return fmt.Errorf("cwd is required")
 	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
 func (v *ForkSessionResponse) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -7327,6 +7443,9 @@ func (v *LoadSessionRequest) Validate() error {
 	if v.MCPServers == nil {
 		return fmt.Errorf("mcpServers is required")
 	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -7335,6 +7454,9 @@ func (v *LoadSessionResponse) Validate() error {
 }
 
 func (v *LoginAuthRequest) Validate() error {
+	if v.MethodID == "" {
+		return fmt.Errorf("methodId is required")
+	}
 	return nil
 }
 
@@ -7351,6 +7473,9 @@ func (v *LogoutAuthResponse) Validate() error {
 }
 
 func (v *MCPServerAcp) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -7387,6 +7512,9 @@ func (v *MCPServerStdio) Validate() error {
 }
 
 func (v *MessageMCPNotification) Validate() error {
+	if v.ConnectionID == "" {
+		return fmt.Errorf("connectionId is required")
+	}
 	if v.Method == "" {
 		return fmt.Errorf("method is required")
 	}
@@ -7394,6 +7522,9 @@ func (v *MessageMCPNotification) Validate() error {
 }
 
 func (v *MessageMCPRequest) Validate() error {
+	if v.ConnectionID == "" {
+		return fmt.Errorf("connectionId is required")
+	}
 	if v.Method == "" {
 		return fmt.Errorf("method is required")
 	}
@@ -7550,12 +7681,18 @@ func (v *NewSessionRequest) Validate() error {
 }
 
 func (v *NewSessionResponse) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
 func (v *PermissionOption) Validate() error {
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
+	}
+	if v.OptionID == "" {
+		return fmt.Errorf("optionId is required")
 	}
 	return nil
 }
@@ -7568,6 +7705,9 @@ func (v *PlanEntry) Validate() error {
 }
 
 func (v *PlanFile) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
 	}
@@ -7578,6 +7718,9 @@ func (v *PlanItems) Validate() error {
 	if v.Entries == nil {
 		return fmt.Errorf("entries is required")
 	}
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
 	return nil
 }
 
@@ -7585,12 +7728,25 @@ func (v *PlanMarkdown) Validate() error {
 	if v.Content == "" {
 		return fmt.Errorf("content is required")
 	}
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	return nil
+}
+
+func (v *PlanRemoved) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
 	return nil
 }
 
 func (v *PromptRequest) Validate() error {
 	if v.Prompt == nil {
 		return fmt.Errorf("prompt is required")
+	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
 	}
 	return nil
 }
@@ -7627,12 +7783,18 @@ func (v *RejectNesNotification) Validate() error {
 	if v.ID == "" {
 		return fmt.Errorf("id is required")
 	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
 func (v *RequestPermissionRequest) Validate() error {
 	if v.Options == nil {
 		return fmt.Errorf("options is required")
+	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
 	}
 	return nil
 }
@@ -7655,6 +7817,9 @@ func (v *ResumeSessionRequest) Validate() error {
 	if v.Cwd == "" {
 		return fmt.Errorf("cwd is required")
 	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -7662,7 +7827,24 @@ func (v *ResumeSessionResponse) Validate() error {
 	return nil
 }
 
+func (v *SelectedPermissionOutcome) Validate() error {
+	if v.OptionID == "" {
+		return fmt.Errorf("optionId is required")
+	}
+	return nil
+}
+
+func (v *SessionConfigSelect) Validate() error {
+	if v.CurrentValue == "" {
+		return fmt.Errorf("currentValue is required")
+	}
+	return nil
+}
+
 func (v *SessionConfigSelectGroup) Validate() error {
+	if v.Group == "" {
+		return fmt.Errorf("group is required")
+	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -7676,6 +7858,9 @@ func (v *SessionConfigSelectOption) Validate() error {
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
+	if v.Value == "" {
+		return fmt.Errorf("value is required")
+	}
 	return nil
 }
 
@@ -7683,10 +7868,16 @@ func (v *SessionInfo) Validate() error {
 	if v.Cwd == "" {
 		return fmt.Errorf("cwd is required")
 	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
 func (v *SessionNotification) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -7716,10 +7907,16 @@ func (v *StartNesRequest) Validate() error {
 }
 
 func (v *StartNesResponse) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
 func (v *SuggestNesRequest) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
 	}
@@ -7764,9 +7961,23 @@ func (v *TitledMultiSelectItems) Validate() error {
 	return nil
 }
 
+func (v *ToolCallContentChunk) Validate() error {
+	if v.ToolCallID == "" {
+		return fmt.Errorf("toolCallId is required")
+	}
+	return nil
+}
+
 func (v *ToolCallLocation) Validate() error {
 	if v.Path == "" {
 		return fmt.Errorf("path is required")
+	}
+	return nil
+}
+
+func (v *ToolCallUpdate) Validate() error {
+	if v.ToolCallID == "" {
+		return fmt.Errorf("toolCallId is required")
 	}
 	return nil
 }
@@ -7781,6 +7992,13 @@ func (v *UnstructuredCommandInput) Validate() error {
 func (v *UntitledMultiSelectItems) Validate() error {
 	if v.Enum == nil {
 		return fmt.Errorf("enum is required")
+	}
+	return nil
+}
+
+func (v *UserMessage) Validate() error {
+	if v.MessageID == "" {
+		return fmt.Errorf("messageId is required")
 	}
 	return nil
 }

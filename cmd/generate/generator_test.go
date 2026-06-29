@@ -358,7 +358,8 @@ func TestGenerateMethodMetadataIncludesSessionFlags(t *testing.T) {
 		`"session/prompt": {`,
 		`SessionHeaderRequired:`,
 		`"session/update": {`,
-		`Notification:`,
+		`SupportsNotification:`,
+		`SupportsRequest:`,
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("missing generated fragment: %s", expected)
@@ -496,6 +497,69 @@ func TestGenerateTopLevelArrayDefinition(t *testing.T) {
 	}
 	if !strings.Contains(text, "type TagList []Tag") {
 		t.Fatalf("missing top-level array alias generation: %s", text)
+	}
+}
+
+// TestGenerateOverloadedMethodEmitsRequestAndNotification guards the codegen
+// contract for a wire method that supports both a request and a notification
+// form (mcp/message is the only such method in the v2 schema). It must yield two
+// interface methods — a request returning a response plus a notification — and
+// its method metadata must advertise both forms, otherwise an inbound request
+// (JSON-RPC id present) would have no handler and fail method-not-found.
+func TestGenerateOverloadedMethodEmitsRequestAndNotification(t *testing.T) {
+	schema, err := LoadSchema(testFixturePath("schema.unstable.json"))
+	if err != nil {
+		t.Fatalf("load unstable schema: %v", err)
+	}
+	meta, err := LoadMeta(testFixturePath("meta.unstable.json"))
+	if err != nil {
+		t.Fatalf("load unstable meta: %v", err)
+	}
+	gen := NewGenerator(schema, meta)
+
+	agentMethods := gen.buildMethods(meta.AgentMethods, "agent")
+	var req, notif *MethodInfo
+	for i := range agentMethods {
+		switch agentMethods[i].GoName {
+		case "UnstableMCPMessage":
+			req = &agentMethods[i]
+		case "UnstableMCPMessageNotification":
+			notif = &agentMethods[i]
+		}
+	}
+	if req == nil {
+		t.Fatal("missing request method UnstableMCPMessage for mcp/message")
+	}
+	if notif == nil {
+		t.Fatal("missing notification method UnstableMCPMessageNotification for mcp/message")
+	}
+	if req.IsNotify {
+		t.Fatal("UnstableMCPMessage must be a request, not a notification")
+	}
+	if req.ReqType != "MessageMCPRequest" || req.RespType != "MessageMCPResponse" {
+		t.Fatalf("request signature = (%s) (%s), want (MessageMCPRequest) (MessageMCPResponse)", req.ReqType, req.RespType)
+	}
+	if !notif.IsNotify || notif.ReqType != "MessageMCPNotification" {
+		t.Fatalf("notification form wrong: isNotify=%v reqType=%s", notif.IsNotify, notif.ReqType)
+	}
+	if req.WireMethod != "mcp/message" || notif.WireMethod != "mcp/message" {
+		t.Fatalf("both forms must map to wire method mcp/message, got %q and %q", req.WireMethod, notif.WireMethod)
+	}
+
+	metaSrc, err := gen.GenerateMethodMetadata("methodmeta")
+	if err != nil {
+		t.Fatalf("generate method metadata: %v", err)
+	}
+	metaText := string(metaSrc)
+	for _, want := range []string{
+		`"mcp/message": {`,
+		"SupportsRequest:       true",
+		"SupportsNotification:  true",
+		"Side:                  SideBoth",
+	} {
+		if !strings.Contains(metaText, want) {
+			t.Fatalf("method metadata missing %q\n%s", want, metaText)
+		}
 	}
 }
 

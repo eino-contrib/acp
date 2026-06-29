@@ -43,8 +43,12 @@ func (c *ClientConnection) Initialize(ctx context.Context, params acp.Initialize
 	return jsonrpc.SendRequestTyped[acp.InitializeResponse](c.conn, ctx, acp.MethodAgentInitialize, params)
 }
 
-func (c *ClientConnection) UnstableMCPMessage(ctx context.Context, params acp.MessageMCPNotification) error {
-	return c.conn.SendNotification(ctx, acp.MethodAgentUnstableMCPMessage, params)
+func (c *ClientConnection) UnstableMCPMessage(ctx context.Context, params acp.MessageMCPRequest) (acp.MessageMCPResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.MessageMCPResponse](c.conn, ctx, acp.MethodAgentUnstableMCPMessage, params)
+}
+
+func (c *ClientConnection) UnstableMCPMessageNotification(ctx context.Context, params acp.MessageMCPNotification) error {
+	return c.conn.SendNotification(ctx, acp.MethodAgentUnstableMCPMessageNotification, params)
 }
 
 func (c *ClientConnection) NesAccept(ctx context.Context, params acp.AcceptNesNotification) error {

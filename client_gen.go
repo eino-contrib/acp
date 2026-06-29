@@ -38,11 +38,17 @@ type Client interface {
 	//
 	// This capability is not part of the spec yet, and may be removed or changed at any point.
 	//
+	// Request parameters for `mcp/message`.
+	UnstableMCPMessage(ctx context.Context, params MessageMCPRequest) (MessageMCPResponse, error)
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
 	// Notification parameters for `mcp/message`.
 	//
 	// This is used when the wrapped MCP message is a notification and the outer JSON-RPC
 	// envelope has no `id`.
-	UnstableMCPMessage(ctx context.Context, params MessageMCPNotification) error
+	UnstableMCPMessageNotification(ctx context.Context, params MessageMCPNotification) error
 	// Request for user permission to execute a tool call.
 	//
 	// Sent when the agent needs authorization before performing a sensitive operation.
@@ -59,11 +65,12 @@ type Client interface {
 
 // Client method wire names.
 const (
-	MethodClientUnstableElicitationComplete = "elicitation/complete"
-	MethodClientUnstableCreateElicitation   = "elicitation/create"
-	MethodClientUnstableConnectMCP          = "mcp/connect"
-	MethodClientUnstableDisconnectMCP       = "mcp/disconnect"
-	MethodClientUnstableMCPMessage          = "mcp/message"
-	MethodClientRequestPermission           = "session/request_permission"
-	MethodClientSessionUpdate               = "session/update"
+	MethodClientUnstableElicitationComplete    = "elicitation/complete"
+	MethodClientUnstableCreateElicitation      = "elicitation/create"
+	MethodClientUnstableConnectMCP             = "mcp/connect"
+	MethodClientUnstableDisconnectMCP          = "mcp/disconnect"
+	MethodClientUnstableMCPMessage             = "mcp/message"
+	MethodClientUnstableMCPMessageNotification = "mcp/message"
+	MethodClientRequestPermission              = "session/request_permission"
+	MethodClientSessionUpdate                  = "session/update"
 )

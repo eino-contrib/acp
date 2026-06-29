@@ -839,6 +839,10 @@ func (g *Generator) generateInlineObjectUnion(goName string, variants []*Schema)
 		fmt.Fprintf(&g.buf, "}\n\n")
 		refTypes = append(refTypes, wrapperName)
 		unionVariants = append(unionVariants, variantRef{goType: wrapperName, schema: variant})
+		// Synthesized inline wrapper: emit Validate() here (generateValidateMethods
+		// only sees top-level defs) so the try-parse fallback can reject payloads
+		// missing the variant's required fields.
+		g.generateInlineVariantValidate(wrapperName, variant)
 	}
 	g.generateTryParseUnion(goName, refTypes, findDistinguishingFields(unionVariants), variantArrayIndices(unionVariants))
 }
@@ -961,6 +965,11 @@ func (g *Generator) generateSimpleUnion(d Definition) {
 				fmt.Fprintf(&g.buf, "\t%s %s `json:\"%s\"`\n", f.goName, f.goType, f.jsonTag)
 			}
 			fmt.Fprintf(&g.buf, "}\n\n")
+			// Inline wrapper variants are synthesized here rather than as
+			// top-level defs, so generateValidateMethods never sees them. Emit
+			// their Validate() now so the try-parse fallback can reject payloads
+			// that miss the variant's required fields.
+			g.generateInlineVariantValidate(def.goType, def.schema)
 		}
 		refTypes := make([]string, len(varRefs))
 		for i, vr := range varRefs {
@@ -1194,8 +1203,15 @@ func (g *Generator) generateTryParseUnion(goName string, refTypes []string, dist
 		fmt.Fprintf(&g.buf, "\t{\n")
 		fmt.Fprintf(&g.buf, "\t\tvar %s %s\n", varName, vt.wrapperName)
 		fmt.Fprintf(&g.buf, "\t\tif err := json.Unmarshal(data, &%s); err == nil {\n", varName)
-		fmt.Fprintf(&g.buf, "\t\t\t%s.%s = &%s\n", recv, vt.memberName, varName)
-		fmt.Fprintf(&g.buf, "\t\t\treturn nil\n")
+		// A successful json.Unmarshal does not prove the payload satisfies the
+		// variant's schema: Go silently tolerates missing required fields. When
+		// the variant carries required-field validation, run it here so an
+		// arbitrary object (e.g. `{}`) is not accepted as the first variant that
+		// happens to decode; fall through to the next variant instead.
+		fmt.Fprintf(&g.buf, "\t\t\tif validator, ok := any(&%s).(interface{ Validate() error }); !ok || validator.Validate() == nil {\n", varName)
+		fmt.Fprintf(&g.buf, "\t\t\t\t%s.%s = &%s\n", recv, vt.memberName, varName)
+		fmt.Fprintf(&g.buf, "\t\t\t\treturn nil\n")
+		fmt.Fprintf(&g.buf, "\t\t\t}\n")
 		fmt.Fprintf(&g.buf, "\t\t}\n")
 		fmt.Fprintf(&g.buf, "\t}\n")
 	}

@@ -41,46 +41,76 @@ func (g *Generator) buildMethods(methods map[string]string, side string) []Metho
 	var result []MethodInfo
 
 	for key, wireMethod := range methods {
-		mi := MethodInfo{
-			Key:        key,
-			WireMethod: wireMethod,
-			Side:       side,
-		}
-
-		// Find request/response types by matching x-method and x-side
+		// Find request/response/notification types by matching x-method and x-side.
 		reqName, respName, notifName := g.findTypesForMethod(wireMethod, side)
 
-		if notifName != "" {
-			mi.ReqType = toTitleCase(notifName)
-			mi.IsNotify = true
-			mi.Description = g.getDescription(notifName)
-			// Derive method name from notification type: SessionNotification → SessionUpdate (use meta key)
-			mi.GoName = toTitleCase(key)
-		} else if reqName != "" {
+		// A wire method may support both a request and a notification form (the
+		// only schema example is mcp/message). Emit a distinct MethodInfo for
+		// each form so both an inbound request (JSON-RPC id present) and an
+		// inbound notification (id absent) have a generated method + handler.
+		// Without this, an overloaded method collapses to notification-only and
+		// its request dispatches to method-not-found.
+		overloaded := reqName != "" && notifName != ""
+
+		if reqName != "" {
+			mi := MethodInfo{Key: key, WireMethod: wireMethod, Side: side}
 			mi.ReqType = toTitleCase(reqName)
 			if respName != "" {
 				mi.RespType = toTitleCase(respName)
 			}
 			mi.Description = g.getDescription(reqName)
-			// Derive method name from request type: ReadTextFileRequest → ReadTextFile
-			mi.GoName = strings.TrimSuffix(toTitleCase(reqName), "Request")
-		} else {
+			if overloaded {
+				// Derive the base name from the meta key (mcp_message →
+				// MCPMessage) rather than the request type (MessageMcpRequest →
+				// MessageMCP), so the request keeps the canonical wire name.
+				mi.GoName = toTitleCase(key)
+			} else {
+				// Derive method name from request type: ReadTextFileRequest → ReadTextFile
+				mi.GoName = strings.TrimSuffix(toTitleCase(reqName), "Request")
+			}
+			result = append(result, g.finalizeMethod(mi))
+		}
+
+		if notifName != "" {
+			mi := MethodInfo{Key: key, WireMethod: wireMethod, Side: side}
+			mi.ReqType = toTitleCase(notifName)
+			mi.IsNotify = true
+			mi.Description = g.getDescription(notifName)
+			// Derive method name from the meta key (SessionNotification →
+			// SessionUpdate). When the method is overloaded, suffix the
+			// notification form so it does not collide with the request method.
 			mi.GoName = toTitleCase(key)
+			if overloaded {
+				mi.GoName += "Notification"
+			}
+			result = append(result, g.finalizeMethod(mi))
 		}
 
-		mi.IsUnstable = isUnstableDescription(mi.Description)
-		if mi.IsUnstable && !strings.HasPrefix(mi.GoName, "Unstable") {
-			mi.GoName = "Unstable" + mi.GoName
+		if reqName == "" && notifName == "" {
+			mi := MethodInfo{Key: key, WireMethod: wireMethod, Side: side}
+			mi.GoName = toTitleCase(key)
+			result = append(result, g.finalizeMethod(mi))
 		}
-
-		result = append(result, mi)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].WireMethod < result[j].WireMethod
+		if result[i].WireMethod != result[j].WireMethod {
+			return result[i].WireMethod < result[j].WireMethod
+		}
+		// Tiebreaker for overloaded wire methods so output is deterministic.
+		return result[i].GoName < result[j].GoName
 	})
 
 	return result
+}
+
+// finalizeMethod applies the unstable-prefix rule shared by every method form.
+func (g *Generator) finalizeMethod(mi MethodInfo) MethodInfo {
+	mi.IsUnstable = isUnstableDescription(mi.Description)
+	if mi.IsUnstable && !strings.HasPrefix(mi.GoName, "Unstable") {
+		mi.GoName = "Unstable" + mi.GoName
+	}
+	return mi
 }
 
 func (g *Generator) findTypesForMethod(wireMethod, side string) (reqName, respName, notifName string) {
