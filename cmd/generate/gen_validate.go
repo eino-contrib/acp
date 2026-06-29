@@ -173,6 +173,15 @@ func (g *Generator) generateValidateFunc(name string, checks []validateCheck) {
 	goName := toTitleCase(name)
 	g.needFmt = true
 	fmt.Fprintf(&g.buf, "func (v *%s) Validate() error {\n", goName)
+	g.writeValidateChecks(checks)
+	fmt.Fprintf(&g.buf, "\treturn nil\n")
+	fmt.Fprintf(&g.buf, "}\n\n")
+}
+
+// writeValidateChecks emits the per-field check statements for a Validate()
+// body. It assumes the receiver variable is named "v". Callers are responsible
+// for the func signature and the trailing "return nil".
+func (g *Generator) writeValidateChecks(checks []validateCheck) {
 	for _, c := range checks {
 		switch c.checkKind {
 		case validateNonEmptyString:
@@ -200,8 +209,6 @@ func (g *Generator) generateValidateFunc(name string, checks []validateCheck) {
 			}
 		}
 	}
-	fmt.Fprintf(&g.buf, "\treturn nil\n")
-	fmt.Fprintf(&g.buf, "}\n\n")
 }
 
 // writeNestedValidate emits a guarded recursion into a field's Validate(). When

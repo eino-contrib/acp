@@ -433,6 +433,59 @@ func (a *AuthMethod) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 }
+func (a *AuthMethod) Validate() error {
+	set := 0
+	if a.EnvVarVariant != nil {
+		set++
+	}
+	if a.TerminalVariant != nil {
+		set++
+	}
+	if a.AgentVariant != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("AuthMethod: exactly one variant must be set, got %d", set)
+	}
+	if a.EnvVarVariant != nil {
+		return a.EnvVarVariant.Validate()
+	}
+	if a.TerminalVariant != nil {
+		return a.TerminalVariant.Validate()
+	}
+	if a.AgentVariant != nil {
+		return a.AgentVariant.Validate()
+	}
+	return nil
+}
+
+func (v *AuthMethodEnvVarVariant) Validate() error {
+	if validator, ok := any(&v.AuthMethodEnvVar).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *AuthMethodTerminalVariant) Validate() error {
+	if validator, ok := any(&v.AuthMethodTerminal).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *AuthMethodAgentVariant) Validate() error {
+	if validator, ok := any(&v.AuthMethodAgent).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (a *AuthMethod) AsEnvVarVariant() (AuthMethodEnvVarVariant, bool) {
 	if a.EnvVarVariant == nil {
 		var zero AuthMethodEnvVarVariant
@@ -675,6 +728,89 @@ func (c *ContentBlock) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
 }
+func (c *ContentBlock) Validate() error {
+	set := 0
+	if c.Text != nil {
+		set++
+	}
+	if c.Image != nil {
+		set++
+	}
+	if c.Audio != nil {
+		set++
+	}
+	if c.ResourceLink != nil {
+		set++
+	}
+	if c.Resource != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("ContentBlock: exactly one variant must be set, got %d", set)
+	}
+	if c.Text != nil {
+		return c.Text.Validate()
+	}
+	if c.Image != nil {
+		return c.Image.Validate()
+	}
+	if c.Audio != nil {
+		return c.Audio.Validate()
+	}
+	if c.ResourceLink != nil {
+		return c.ResourceLink.Validate()
+	}
+	if c.Resource != nil {
+		return c.Resource.Validate()
+	}
+	return nil
+}
+
+func (v *ContentBlockText) Validate() error {
+	if validator, ok := any(&v.TextContent).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ContentBlockImage) Validate() error {
+	if validator, ok := any(&v.ImageContent).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ContentBlockAudio) Validate() error {
+	if validator, ok := any(&v.AudioContent).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ContentBlockResourceLink) Validate() error {
+	if validator, ok := any(&v.ResourceLink).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ContentBlockResource) Validate() error {
+	if validator, ok := any(&v.EmbeddedResource).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *ContentBlock) AsText() (ContentBlockText, bool) {
 	if c.Text == nil {
 		var zero ContentBlockText
@@ -1439,6 +1575,89 @@ func (e *ElicitationPropertySchema) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
 }
+func (e *ElicitationPropertySchema) Validate() error {
+	set := 0
+	if e.String != nil {
+		set++
+	}
+	if e.Number != nil {
+		set++
+	}
+	if e.Integer != nil {
+		set++
+	}
+	if e.Boolean != nil {
+		set++
+	}
+	if e.Array != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("ElicitationPropertySchema: exactly one variant must be set, got %d", set)
+	}
+	if e.String != nil {
+		return e.String.Validate()
+	}
+	if e.Number != nil {
+		return e.Number.Validate()
+	}
+	if e.Integer != nil {
+		return e.Integer.Validate()
+	}
+	if e.Boolean != nil {
+		return e.Boolean.Validate()
+	}
+	if e.Array != nil {
+		return e.Array.Validate()
+	}
+	return nil
+}
+
+func (v *ElicitationPropertySchemaString) Validate() error {
+	if validator, ok := any(&v.StringPropertySchema).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ElicitationPropertySchemaNumber) Validate() error {
+	if validator, ok := any(&v.NumberPropertySchema).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ElicitationPropertySchemaInteger) Validate() error {
+	if validator, ok := any(&v.IntegerPropertySchema).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ElicitationPropertySchemaBoolean) Validate() error {
+	if validator, ok := any(&v.BooleanPropertySchema).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ElicitationPropertySchemaArray) Validate() error {
+	if validator, ok := any(&v.MultiSelectPropertySchema).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (e *ElicitationPropertySchema) AsString() (ElicitationPropertySchemaString, bool) {
 	if e.String == nil {
 		var zero ElicitationPropertySchemaString
@@ -1669,6 +1888,74 @@ func (m *MCPServer) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 }
+func (m *MCPServer) Validate() error {
+	set := 0
+	if m.HTTPVariant != nil {
+		set++
+	}
+	if m.SSEVariant != nil {
+		set++
+	}
+	if m.AcpVariant != nil {
+		set++
+	}
+	if m.StdioVariant != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("MCPServer: exactly one variant must be set, got %d", set)
+	}
+	if m.HTTPVariant != nil {
+		return m.HTTPVariant.Validate()
+	}
+	if m.SSEVariant != nil {
+		return m.SSEVariant.Validate()
+	}
+	if m.AcpVariant != nil {
+		return m.AcpVariant.Validate()
+	}
+	if m.StdioVariant != nil {
+		return m.StdioVariant.Validate()
+	}
+	return nil
+}
+
+func (v *MCPServerHTTPVariant) Validate() error {
+	if validator, ok := any(&v.MCPServerHTTP).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *MCPServerSSEVariant) Validate() error {
+	if validator, ok := any(&v.MCPServerSSE).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *MCPServerAcpVariant) Validate() error {
+	if validator, ok := any(&v.MCPServerAcp).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *MCPServerStdioVariant) Validate() error {
+	if validator, ok := any(&v.MCPServerStdio).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *MCPServer) AsHTTPVariant() (MCPServerHTTPVariant, bool) {
 	if m.HTTPVariant == nil {
 		var zero MCPServerHTTPVariant
@@ -1861,6 +2148,74 @@ func (n *NesSuggestion) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown discriminator value: %s", disc.Kind)
 	}
 }
+func (n *NesSuggestion) Validate() error {
+	set := 0
+	if n.Edit != nil {
+		set++
+	}
+	if n.Jump != nil {
+		set++
+	}
+	if n.Rename != nil {
+		set++
+	}
+	if n.SearchAndReplace != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("NesSuggestion: exactly one variant must be set, got %d", set)
+	}
+	if n.Edit != nil {
+		return n.Edit.Validate()
+	}
+	if n.Jump != nil {
+		return n.Jump.Validate()
+	}
+	if n.Rename != nil {
+		return n.Rename.Validate()
+	}
+	if n.SearchAndReplace != nil {
+		return n.SearchAndReplace.Validate()
+	}
+	return nil
+}
+
+func (v *NesSuggestionEdit) Validate() error {
+	if validator, ok := any(&v.NesEditSuggestion).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *NesSuggestionJump) Validate() error {
+	if validator, ok := any(&v.NesJumpSuggestion).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *NesSuggestionRename) Validate() error {
+	if validator, ok := any(&v.NesRenameSuggestion).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *NesSuggestionSearchAndReplace) Validate() error {
+	if validator, ok := any(&v.NesSearchAndReplaceSuggestion).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (n *NesSuggestion) AsEdit() (NesSuggestionEdit, bool) {
 	if n.Edit == nil {
 		var zero NesSuggestionEdit
@@ -2031,6 +2386,59 @@ func (p *PlanUpdateContent) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
 }
+func (p *PlanUpdateContent) Validate() error {
+	set := 0
+	if p.Items != nil {
+		set++
+	}
+	if p.File != nil {
+		set++
+	}
+	if p.Markdown != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("PlanUpdateContent: exactly one variant must be set, got %d", set)
+	}
+	if p.Items != nil {
+		return p.Items.Validate()
+	}
+	if p.File != nil {
+		return p.File.Validate()
+	}
+	if p.Markdown != nil {
+		return p.Markdown.Validate()
+	}
+	return nil
+}
+
+func (v *PlanUpdateContentItems) Validate() error {
+	if validator, ok := any(&v.PlanItems).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *PlanUpdateContentFile) Validate() error {
+	if validator, ok := any(&v.PlanFile).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *PlanUpdateContentMarkdown) Validate() error {
+	if validator, ok := any(&v.PlanMarkdown).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (p *PlanUpdateContent) AsItems() (PlanUpdateContentItems, bool) {
 	if p.Items == nil {
 		var zero PlanUpdateContentItems
@@ -2165,6 +2573,39 @@ func (r *RequestPermissionOutcome) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown discriminator value: %s", disc.Outcome)
 	}
 }
+func (r *RequestPermissionOutcome) Validate() error {
+	set := 0
+	if r.Cancelled != nil {
+		set++
+	}
+	if r.Selected != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("RequestPermissionOutcome: exactly one variant must be set, got %d", set)
+	}
+	if r.Cancelled != nil {
+		return r.Cancelled.Validate()
+	}
+	if r.Selected != nil {
+		return r.Selected.Validate()
+	}
+	return nil
+}
+
+func (v *RequestPermissionOutcomeCancelled) Validate() error {
+	return nil
+}
+
+func (v *RequestPermissionOutcomeSelected) Validate() error {
+	if validator, ok := any(&v.SelectedPermissionOutcome).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *RequestPermissionOutcome) AsCancelled() (RequestPermissionOutcomeCancelled, bool) {
 	if r.Cancelled == nil {
 		var zero RequestPermissionOutcomeCancelled
@@ -2933,6 +3374,209 @@ func (s *SessionUpdate) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown discriminator value: %s", disc.SessionUpdate)
 	}
 }
+func (s *SessionUpdate) Validate() error {
+	set := 0
+	if s.UserMessageChunk != nil {
+		set++
+	}
+	if s.AgentMessageChunk != nil {
+		set++
+	}
+	if s.AgentThoughtChunk != nil {
+		set++
+	}
+	if s.ToolCall != nil {
+		set++
+	}
+	if s.ToolCallUpdate != nil {
+		set++
+	}
+	if s.Plan != nil {
+		set++
+	}
+	if s.PlanUpdate != nil {
+		set++
+	}
+	if s.PlanRemoved != nil {
+		set++
+	}
+	if s.AvailableCommandsUpdate != nil {
+		set++
+	}
+	if s.CurrentModeUpdate != nil {
+		set++
+	}
+	if s.ConfigOptionUpdate != nil {
+		set++
+	}
+	if s.SessionInfoUpdate != nil {
+		set++
+	}
+	if s.UsageUpdate != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("SessionUpdate: exactly one variant must be set, got %d", set)
+	}
+	if s.UserMessageChunk != nil {
+		return s.UserMessageChunk.Validate()
+	}
+	if s.AgentMessageChunk != nil {
+		return s.AgentMessageChunk.Validate()
+	}
+	if s.AgentThoughtChunk != nil {
+		return s.AgentThoughtChunk.Validate()
+	}
+	if s.ToolCall != nil {
+		return s.ToolCall.Validate()
+	}
+	if s.ToolCallUpdate != nil {
+		return s.ToolCallUpdate.Validate()
+	}
+	if s.Plan != nil {
+		return s.Plan.Validate()
+	}
+	if s.PlanUpdate != nil {
+		return s.PlanUpdate.Validate()
+	}
+	if s.PlanRemoved != nil {
+		return s.PlanRemoved.Validate()
+	}
+	if s.AvailableCommandsUpdate != nil {
+		return s.AvailableCommandsUpdate.Validate()
+	}
+	if s.CurrentModeUpdate != nil {
+		return s.CurrentModeUpdate.Validate()
+	}
+	if s.ConfigOptionUpdate != nil {
+		return s.ConfigOptionUpdate.Validate()
+	}
+	if s.SessionInfoUpdate != nil {
+		return s.SessionInfoUpdate.Validate()
+	}
+	if s.UsageUpdate != nil {
+		return s.UsageUpdate.Validate()
+	}
+	return nil
+}
+
+func (v *SessionUpdateUserMessageChunk) Validate() error {
+	if validator, ok := any(&v.ContentChunk).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateAgentMessageChunk) Validate() error {
+	if validator, ok := any(&v.ContentChunk).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateAgentThoughtChunk) Validate() error {
+	if validator, ok := any(&v.ContentChunk).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateToolCall) Validate() error {
+	if validator, ok := any(&v.ToolCall).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateToolCallUpdate) Validate() error {
+	if validator, ok := any(&v.ToolCallUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdatePlan) Validate() error {
+	if validator, ok := any(&v.Plan).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdatePlanUpdate) Validate() error {
+	if validator, ok := any(&v.PlanUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdatePlanRemoved) Validate() error {
+	if validator, ok := any(&v.PlanRemoved).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateAvailableCommandsUpdate) Validate() error {
+	if validator, ok := any(&v.AvailableCommandsUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateCurrentModeUpdate) Validate() error {
+	if validator, ok := any(&v.CurrentModeUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateConfigOptionUpdate) Validate() error {
+	if validator, ok := any(&v.ConfigOptionUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateSessionInfoUpdate) Validate() error {
+	if validator, ok := any(&v.SessionInfoUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateUsageUpdate) Validate() error {
+	if validator, ok := any(&v.UsageUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *SessionUpdate) AsUserMessageChunk() (SessionUpdateUserMessageChunk, bool) {
 	if s.UserMessageChunk == nil {
 		var zero SessionUpdateUserMessageChunk
@@ -3545,6 +4189,59 @@ func (t *ToolCallContent) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
 }
+func (t *ToolCallContent) Validate() error {
+	set := 0
+	if t.Content != nil {
+		set++
+	}
+	if t.Diff != nil {
+		set++
+	}
+	if t.Terminal != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("ToolCallContent: exactly one variant must be set, got %d", set)
+	}
+	if t.Content != nil {
+		return t.Content.Validate()
+	}
+	if t.Diff != nil {
+		return t.Diff.Validate()
+	}
+	if t.Terminal != nil {
+		return t.Terminal.Validate()
+	}
+	return nil
+}
+
+func (v *ToolCallContentContent) Validate() error {
+	if validator, ok := any(&v.Content).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ToolCallContentDiff) Validate() error {
+	if validator, ok := any(&v.Diff).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ToolCallContentTerminal) Validate() error {
+	if validator, ok := any(&v.Terminal).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (t *ToolCallContent) AsContent() (ToolCallContentContent, bool) {
 	if t.Content == nil {
 		var zero ToolCallContentContent
