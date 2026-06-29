@@ -118,4 +118,3 @@ func mapJSONTypeToGo(jsonType string) string {
 		return jsonType
 	}
 }
-
