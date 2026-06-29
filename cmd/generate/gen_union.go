@@ -30,6 +30,13 @@ func (g *Generator) generateDiscriminatedUnion(d Definition) {
 	s := d.Schema
 	goName := toTitleCase(d.Name)
 
+	// A discriminated union always emits json.Marshal/Unmarshal and fmt.Errorf,
+	// so record the import needs here. Generation derives the import block from
+	// the needs recorded during body emission (rather than a separate pre-scan),
+	// so each emitter must self-declare what it uses.
+	g.needJSON = true
+	g.needFmt = true
+
 	discField := ""
 	if s.Discriminator != nil {
 		discField = s.Discriminator.PropertyName
