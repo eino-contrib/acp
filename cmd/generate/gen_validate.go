@@ -71,7 +71,7 @@ func (g *Generator) buildValidateChecks(s *Schema) []validateCheck {
 		goType := g.resolveFieldType(prop, true)
 
 		switch {
-		case goType == "string":
+		case goType == "string" || g.isStringLike(prop):
 			checks = append(checks, validateCheck{
 				fieldGoName: goName,
 				jsonName:    propName,
@@ -92,6 +92,61 @@ func (g *Generator) buildValidateChecks(s *Schema) []validateCheck {
 		}
 	}
 	return checks
+}
+
+// isStringLike reports whether prop ultimately resolves to a free-form string
+// schema, following $ref, single-element allOf refs, and single non-null
+// oneOf/anyOf variants. Required fields typed this way generate as named string
+// aliases (e.g. SessionID, TerminalID), so a literal goType == "string" check
+// misses them. Schemas carrying enum or const are deliberately excluded: those
+// are membership-constrained and not subject to a plain non-empty check, matching
+// the generator's existing behavior of not validating enum values.
+func (g *Generator) isStringLike(prop *Schema) bool {
+	return g.isStringLikeSchema(prop, make(map[string]bool))
+}
+
+func (g *Generator) isStringLikeSchema(s *Schema, seen map[string]bool) bool {
+	if s == nil {
+		return false
+	}
+	if len(s.Enum) > 0 || s.Const != nil {
+		return false
+	}
+
+	if ref := resolveSingleRef(s); ref != "" {
+		name := resolveRef(ref)
+		if seen[name] {
+			return false
+		}
+		seen[name] = true
+		if g.schema == nil || g.schema.Defs == nil {
+			return false
+		}
+		return g.isStringLikeSchema(g.schema.Defs[name], seen)
+	}
+
+	if variants := unionVariants(s); len(variants) > 0 {
+		nonNull := filterNull(variants)
+		if len(nonNull) != 1 {
+			return false
+		}
+		return g.isStringLikeSchema(nonNull[0], seen)
+	}
+
+	if len(s.Type) == 0 {
+		return false
+	}
+	hasString := false
+	for _, t := range s.Type {
+		if t == "null" {
+			continue
+		}
+		if t != "string" {
+			return false
+		}
+		hasString = true
+	}
+	return hasString
 }
 
 func (g *Generator) generateValidateFunc(name string, checks []validateCheck) {
