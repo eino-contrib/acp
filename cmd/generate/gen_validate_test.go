@@ -117,3 +117,75 @@ func rawJSONList(items ...string) []json.RawMessage {
 	}
 	return out
 }
+
+// TestGenerateValidateRecursesIntoRequiredNested guards the fix where Validate()
+// only checked presence and never descended into a required value-typed struct
+// field or the elements of a required slice. The generated RequestPermissionRequest
+// must recurse into its required value ToolCall, and Plan must recurse into the
+// elements of its required entries slice. The recursion uses a runtime interface
+// assertion so it is a safe no-op for non-validatable targets.
+func TestGenerateValidateRecursesIntoRequiredNested(t *testing.T) {
+	schema, err := LoadSchema(testFixturePath("schema.unstable.json"))
+	if err != nil {
+		t.Fatalf("load unstable schema: %v", err)
+	}
+	meta, err := LoadMeta(testFixturePath("meta.unstable.json"))
+	if err != nil {
+		t.Fatalf("load unstable meta: %v", err)
+	}
+
+	gen := NewGenerator(schema, meta)
+	src, err := gen.Generate("acp")
+	if err != nil {
+		t.Fatalf("generate source: %v", err)
+	}
+	text := string(src)
+
+	// Required value-typed struct field: recurse on its address.
+	permBody := validateFuncBody(t, text, "RequestPermissionRequest")
+	if !strings.Contains(permBody, "any(&v.ToolCall).(interface{ Validate() error })") {
+		t.Fatalf("RequestPermissionRequest.Validate() must recurse into required ToolCall; body:\n%s", permBody)
+	}
+	// Required slice: recurse per element via &slice[i].
+	if !strings.Contains(permBody, "for i := range v.Options {") ||
+		!strings.Contains(permBody, "any(&v.Options[i]).(interface{ Validate() error })") {
+		t.Fatalf("RequestPermissionRequest.Validate() must recurse into Options elements; body:\n%s", permBody)
+	}
+
+	planBody := validateFuncBody(t, text, "Plan")
+	if !strings.Contains(planBody, "for i := range v.Entries {") ||
+		!strings.Contains(planBody, "any(&v.Entries[i]).(interface{ Validate() error })") {
+		t.Fatalf("Plan.Validate() must recurse into Entries elements; body:\n%s", planBody)
+	}
+}
+
+// TestGenerateValidateDoesNotRecurseIntoPrimitives confirms the recursion is
+// gated: required string/enum fields must not gain an interface assertion, so the
+// generated code stays free of dead no-op calls on non-composite targets.
+func TestGenerateValidateDoesNotRecurseIntoPrimitives(t *testing.T) {
+	schema, err := LoadSchema(testFixturePath("schema.unstable.json"))
+	if err != nil {
+		t.Fatalf("load unstable schema: %v", err)
+	}
+	meta, err := LoadMeta(testFixturePath("meta.unstable.json"))
+	if err != nil {
+		t.Fatalf("load unstable meta: %v", err)
+	}
+
+	gen := NewGenerator(schema, meta)
+	src, err := gen.Generate("acp")
+	if err != nil {
+		t.Fatalf("generate source: %v", err)
+	}
+	text := string(src)
+
+	// PlanEntry has only required-string/enum fields; it must keep the plain
+	// non-empty check with no nested interface assertion.
+	body := validateFuncBody(t, text, "PlanEntry")
+	if strings.Contains(body, "interface{ Validate() error }") {
+		t.Fatalf("PlanEntry.Validate() should not recurse into primitive fields; body:\n%s", body)
+	}
+	if !strings.Contains(body, `if v.Content == "" {`) {
+		t.Fatalf("PlanEntry.Validate() missing content non-empty check; body:\n%s", body)
+	}
+}

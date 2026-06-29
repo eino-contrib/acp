@@ -6769,6 +6769,13 @@ func (v *AuthMethodEnvVar) Validate() error {
 	if v.Vars == nil {
 		return fmt.Errorf("vars is required")
 	}
+	for i := range v.Vars {
+		if validator, ok := any(&v.Vars[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Vars[%d]: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -6806,6 +6813,13 @@ func (v *AvailableCommand) Validate() error {
 func (v *AvailableCommandsUpdate) Validate() error {
 	if v.AvailableCommands == nil {
 		return fmt.Errorf("availableCommands is required")
+	}
+	for i := range v.AvailableCommands {
+		if validator, ok := any(&v.AvailableCommands[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("AvailableCommands[%d]: %w", i, err)
+			}
+		}
 	}
 	return nil
 }
@@ -6864,6 +6878,13 @@ func (v *ConfigOptionUpdate) Validate() error {
 	if v.ConfigOptions == nil {
 		return fmt.Errorf("configOptions is required")
 	}
+	for i := range v.ConfigOptions {
+		if validator, ok := any(&v.ConfigOptions[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("ConfigOptions[%d]: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -6877,6 +6898,24 @@ func (v *ConnectMCPRequest) Validate() error {
 func (v *ConnectMCPResponse) Validate() error {
 	if v.ConnectionID == "" {
 		return fmt.Errorf("connectionId is required")
+	}
+	return nil
+}
+
+func (v *Content) Validate() error {
+	if validator, ok := any(&v.Content).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Content: %w", err)
+		}
+	}
+	return nil
+}
+
+func (v *ContentChunk) Validate() error {
+	if validator, ok := any(&v.Content).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Content: %w", err)
+		}
 	}
 	return nil
 }
@@ -6927,6 +6966,13 @@ func (v *DidChangeDocumentNotification) Validate() error {
 	if v.ContentChanges == nil {
 		return fmt.Errorf("contentChanges is required")
 	}
+	for i := range v.ContentChanges {
+		if validator, ok := any(&v.ContentChanges[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("ContentChanges[%d]: %w", i, err)
+			}
+		}
+	}
 	if v.SessionID == "" {
 		return fmt.Errorf("sessionId is required")
 	}
@@ -6947,11 +6993,21 @@ func (v *DidCloseDocumentNotification) Validate() error {
 }
 
 func (v *DidFocusDocumentNotification) Validate() error {
+	if validator, ok := any(&v.Position).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Position: %w", err)
+		}
+	}
 	if v.SessionID == "" {
 		return fmt.Errorf("sessionId is required")
 	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
+	}
+	if validator, ok := any(&v.VisibleRange).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("VisibleRange: %w", err)
+		}
 	}
 	return nil
 }
@@ -7017,6 +7073,15 @@ func (v *DisconnectMCPResponse) Validate() error {
 func (v *ElicitationSessionScope) Validate() error {
 	if v.SessionID == "" {
 		return fmt.Errorf("sessionId is required")
+	}
+	return nil
+}
+
+func (v *EmbeddedResource) Validate() error {
+	if validator, ok := any(&v.Resource).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Resource: %w", err)
+		}
 	}
 	return nil
 }
@@ -7125,6 +7190,13 @@ func (v *ListProvidersResponse) Validate() error {
 	if v.Providers == nil {
 		return fmt.Errorf("providers is required")
 	}
+	for i := range v.Providers {
+		if validator, ok := any(&v.Providers[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Providers[%d]: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -7136,6 +7208,13 @@ func (v *ListSessionsResponse) Validate() error {
 	if v.Sessions == nil {
 		return fmt.Errorf("sessions is required")
 	}
+	for i := range v.Sessions {
+		if validator, ok := any(&v.Sessions[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Sessions[%d]: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -7145,6 +7224,13 @@ func (v *LoadSessionRequest) Validate() error {
 	}
 	if v.MCPServers == nil {
 		return fmt.Errorf("mcpServers is required")
+	}
+	for i := range v.MCPServers {
+		if validator, ok := any(&v.MCPServers[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("MCPServers[%d]: %w", i, err)
+			}
+		}
 	}
 	if v.SessionID == "" {
 		return fmt.Errorf("sessionId is required")
@@ -7178,6 +7264,13 @@ func (v *MCPServerHTTP) Validate() error {
 	if v.Headers == nil {
 		return fmt.Errorf("headers is required")
 	}
+	for i := range v.Headers {
+		if validator, ok := any(&v.Headers[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Headers[%d]: %w", i, err)
+			}
+		}
+	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -7190,6 +7283,13 @@ func (v *MCPServerHTTP) Validate() error {
 func (v *MCPServerSSE) Validate() error {
 	if v.Headers == nil {
 		return fmt.Errorf("headers is required")
+	}
+	for i := range v.Headers {
+		if validator, ok := any(&v.Headers[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Headers[%d]: %w", i, err)
+			}
+		}
 	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
@@ -7209,6 +7309,13 @@ func (v *MCPServerStdio) Validate() error {
 	}
 	if v.Env == nil {
 		return fmt.Errorf("env is required")
+	}
+	for i := range v.Env {
+		if validator, ok := any(&v.Env[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Env[%d]: %w", i, err)
+			}
+		}
 	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
@@ -7236,9 +7343,23 @@ func (v *MessageMCPRequest) Validate() error {
 	return nil
 }
 
+func (v *MultiSelectPropertySchema) Validate() error {
+	if validator, ok := any(&v.Items).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Items: %w", err)
+		}
+	}
+	return nil
+}
+
 func (v *NesDiagnostic) Validate() error {
 	if v.Message == "" {
 		return fmt.Errorf("message is required")
+	}
+	if validator, ok := any(&v.Range).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Range: %w", err)
+		}
 	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
@@ -7260,6 +7381,13 @@ func (v *NesEditSuggestion) Validate() error {
 	if v.Edits == nil {
 		return fmt.Errorf("edits is required")
 	}
+	for i := range v.Edits {
+		if validator, ok := any(&v.Edits[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Edits[%d]: %w", i, err)
+			}
+		}
+	}
 	if v.ID == "" {
 		return fmt.Errorf("id is required")
 	}
@@ -7279,6 +7407,11 @@ func (v *NesExcerpt) Validate() error {
 func (v *NesJumpSuggestion) Validate() error {
 	if v.ID == "" {
 		return fmt.Errorf("id is required")
+	}
+	if validator, ok := any(&v.Position).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Position: %w", err)
+		}
 	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
@@ -7313,6 +7446,13 @@ func (v *NesRelatedSnippet) Validate() error {
 	if v.Excerpts == nil {
 		return fmt.Errorf("excerpts is required")
 	}
+	for i := range v.Excerpts {
+		if validator, ok := any(&v.Excerpts[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Excerpts[%d]: %w", i, err)
+			}
+		}
+	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
 	}
@@ -7325,6 +7465,11 @@ func (v *NesRenameSuggestion) Validate() error {
 	}
 	if v.NewName == "" {
 		return fmt.Errorf("newName is required")
+	}
+	if validator, ok := any(&v.Position).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Position: %w", err)
+		}
 	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
@@ -7365,12 +7510,22 @@ func (v *NesTextEdit) Validate() error {
 	if v.NewText == "" {
 		return fmt.Errorf("newText is required")
 	}
+	if validator, ok := any(&v.Range).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Range: %w", err)
+		}
+	}
 	return nil
 }
 
 func (v *NesUserAction) Validate() error {
 	if v.Action == "" {
 		return fmt.Errorf("action is required")
+	}
+	if validator, ok := any(&v.Position).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Position: %w", err)
+		}
 	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
@@ -7384,6 +7539,13 @@ func (v *NewSessionRequest) Validate() error {
 	}
 	if v.MCPServers == nil {
 		return fmt.Errorf("mcpServers is required")
+	}
+	for i := range v.MCPServers {
+		if validator, ok := any(&v.MCPServers[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("MCPServers[%d]: %w", i, err)
+			}
+		}
 	}
 	return nil
 }
@@ -7409,6 +7571,13 @@ func (v *Plan) Validate() error {
 	if v.Entries == nil {
 		return fmt.Errorf("entries is required")
 	}
+	for i := range v.Entries {
+		if validator, ok := any(&v.Entries[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Entries[%d]: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -7433,6 +7602,13 @@ func (v *PlanItems) Validate() error {
 	if v.Entries == nil {
 		return fmt.Errorf("entries is required")
 	}
+	for i := range v.Entries {
+		if validator, ok := any(&v.Entries[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Entries[%d]: %w", i, err)
+			}
+		}
+	}
 	if v.ID == "" {
 		return fmt.Errorf("id is required")
 	}
@@ -7456,9 +7632,25 @@ func (v *PlanRemoved) Validate() error {
 	return nil
 }
 
+func (v *PlanUpdate) Validate() error {
+	if validator, ok := any(&v.Plan).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Plan: %w", err)
+		}
+	}
+	return nil
+}
+
 func (v *PromptRequest) Validate() error {
 	if v.Prompt == nil {
 		return fmt.Errorf("prompt is required")
+	}
+	for i := range v.Prompt {
+		if validator, ok := any(&v.Prompt[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Prompt[%d]: %w", i, err)
+			}
+		}
 	}
 	if v.SessionID == "" {
 		return fmt.Errorf("sessionId is required")
@@ -7483,6 +7675,20 @@ func (v *ProviderInfo) Validate() error {
 	}
 	if v.Supported == nil {
 		return fmt.Errorf("supported is required")
+	}
+	return nil
+}
+
+func (v *Range) Validate() error {
+	if validator, ok := any(&v.End).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("End: %w", err)
+		}
+	}
+	if validator, ok := any(&v.Start).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Start: %w", err)
+		}
 	}
 	return nil
 }
@@ -7532,13 +7738,30 @@ func (v *RequestPermissionRequest) Validate() error {
 	if v.Options == nil {
 		return fmt.Errorf("options is required")
 	}
+	for i := range v.Options {
+		if validator, ok := any(&v.Options[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Options[%d]: %w", i, err)
+			}
+		}
+	}
 	if v.SessionID == "" {
 		return fmt.Errorf("sessionId is required")
+	}
+	if validator, ok := any(&v.ToolCall).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("ToolCall: %w", err)
+		}
 	}
 	return nil
 }
 
 func (v *RequestPermissionResponse) Validate() error {
+	if validator, ok := any(&v.Outcome).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Outcome: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -7577,6 +7800,11 @@ func (v *SessionConfigSelect) Validate() error {
 	if v.CurrentValue == "" {
 		return fmt.Errorf("currentValue is required")
 	}
+	if validator, ok := any(&v.Options).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Options: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -7589,6 +7817,13 @@ func (v *SessionConfigSelectGroup) Validate() error {
 	}
 	if v.Options == nil {
 		return fmt.Errorf("options is required")
+	}
+	for i := range v.Options {
+		if validator, ok := any(&v.Options[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Options[%d]: %w", i, err)
+			}
+		}
 	}
 	return nil
 }
@@ -7627,6 +7862,13 @@ func (v *SessionModeState) Validate() error {
 	if v.AvailableModes == nil {
 		return fmt.Errorf("availableModes is required")
 	}
+	for i := range v.AvailableModes {
+		if validator, ok := any(&v.AvailableModes[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("AvailableModes[%d]: %w", i, err)
+			}
+		}
+	}
 	if v.CurrentModeID == "" {
 		return fmt.Errorf("currentModeId is required")
 	}
@@ -7636,6 +7878,11 @@ func (v *SessionModeState) Validate() error {
 func (v *SessionNotification) Validate() error {
 	if v.SessionID == "" {
 		return fmt.Errorf("sessionId is required")
+	}
+	if validator, ok := any(&v.Update).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Update: %w", err)
+		}
 	}
 	return nil
 }
@@ -7657,6 +7904,13 @@ func (v *SetProviderResponse) Validate() error {
 func (v *SetSessionConfigOptionResponse) Validate() error {
 	if v.ConfigOptions == nil {
 		return fmt.Errorf("configOptions is required")
+	}
+	for i := range v.ConfigOptions {
+		if validator, ok := any(&v.ConfigOptions[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("ConfigOptions[%d]: %w", i, err)
+			}
+		}
 	}
 	return nil
 }
@@ -7687,6 +7941,11 @@ func (v *StartNesResponse) Validate() error {
 }
 
 func (v *SuggestNesRequest) Validate() error {
+	if validator, ok := any(&v.Position).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Position: %w", err)
+		}
+	}
 	if v.SessionID == "" {
 		return fmt.Errorf("sessionId is required")
 	}
@@ -7699,6 +7958,13 @@ func (v *SuggestNesRequest) Validate() error {
 func (v *SuggestNesResponse) Validate() error {
 	if v.Suggestions == nil {
 		return fmt.Errorf("suggestions is required")
+	}
+	for i := range v.Suggestions {
+		if validator, ok := any(&v.Suggestions[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Suggestions[%d]: %w", i, err)
+			}
+		}
 	}
 	return nil
 }
@@ -7754,6 +8020,13 @@ func (v *TextResourceContents) Validate() error {
 func (v *TitledMultiSelectItems) Validate() error {
 	if v.AnyOf == nil {
 		return fmt.Errorf("anyOf is required")
+	}
+	for i := range v.AnyOf {
+		if validator, ok := any(&v.AnyOf[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("AnyOf[%d]: %w", i, err)
+			}
+		}
 	}
 	return nil
 }
