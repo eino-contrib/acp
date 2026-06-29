@@ -118,7 +118,7 @@ func TestObjectUnionNonDiscriminatorStructuralMatch(t *testing.T) {
 	}
 }
 
-func TestSessionUpdateAndAuthMethodUnchangedShape(t *testing.T) {
+func TestSessionUpdateAndAuthMethodUnionValidate(t *testing.T) {
 	text := generateUnstable(t)
 	// SessionUpdate / AuthMethod keep payload-only constructor signatures.
 	for _, expected := range []string{
@@ -129,12 +129,29 @@ func TestSessionUpdateAndAuthMethodUnchangedShape(t *testing.T) {
 			t.Fatalf("missing unchanged fragment: %q", expected)
 		}
 	}
-	// They must not gain exact-one Validate or union-level Validate.
-	if strings.Contains(text, "func (s *SessionUpdate) Validate() error {") {
-		t.Fatal("SessionUpdate must not gain a union-level Validate")
+	// They gain an exactly-one union-level Validate so that a required value-typed
+	// union field (e.g. SessionNotification.Update) is no longer a no-op when the
+	// union is left zero. The guarded recursion previously emitted in the holder
+	// only takes effect once these unions implement Validate().
+	for _, expected := range []string{
+		"func (s *SessionUpdate) Validate() error {",
+		"func (a *AuthMethod) Validate() error {",
+		"SessionUpdate: exactly one variant must be set",
+		"AuthMethod: exactly one variant must be set",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("missing union Validate fragment: %q", expected)
+		}
 	}
-	if strings.Contains(text, "func (a *AuthMethod) Validate() error {") {
-		t.Fatal("AuthMethod must not gain a union-level Validate")
+	// Each variant wrapper also gains a Validate that recurses into its embedded
+	// payload via the guarded interface assertion.
+	for _, expected := range []string{
+		"func (v *SessionUpdateToolCall) Validate() error {",
+		"func (v *AuthMethodEnvVarVariant) Validate() error {",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("missing variant Validate fragment: %q", expected)
+		}
 	}
 }
 

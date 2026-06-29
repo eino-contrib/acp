@@ -27,6 +27,22 @@ func (a *AgentConnection) WriteTextFile(ctx context.Context, params acp.WriteTex
 	return jsonrpc.SendRequestTyped[acp.WriteTextFileResponse](a.sender, ctx, acp.MethodClientWriteTextFile, params)
 }
 
+func (a *AgentConnection) UnstableConnectMCP(ctx context.Context, params acp.ConnectMCPRequest) (acp.ConnectMCPResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.ConnectMCPResponse](a.sender, ctx, acp.MethodClientUnstableConnectMCP, params)
+}
+
+func (a *AgentConnection) UnstableDisconnectMCP(ctx context.Context, params acp.DisconnectMCPRequest) (acp.DisconnectMCPResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.DisconnectMCPResponse](a.sender, ctx, acp.MethodClientUnstableDisconnectMCP, params)
+}
+
+func (a *AgentConnection) UnstableMessageMCP(ctx context.Context, params acp.MessageMCPRequest) (acp.MessageMCPResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.MessageMCPResponse](a.sender, ctx, acp.MethodClientUnstableMessageMCP, params)
+}
+
+func (a *AgentConnection) UnstableMCPMessage(ctx context.Context, params acp.MessageMCPNotification) error {
+	return a.sender.SendNotification(ctx, acp.MethodClientUnstableMCPMessage, params)
+}
+
 func (a *AgentConnection) RequestPermission(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 	return jsonrpc.SendRequestTyped[acp.RequestPermissionResponse](a.sender, ctx, acp.MethodClientRequestPermission, params)
 }

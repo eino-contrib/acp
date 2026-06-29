@@ -39,8 +39,16 @@ func (c *ClientConnection) Initialize(ctx context.Context, params acp.Initialize
 	return jsonrpc.SendRequestTyped[acp.InitializeResponse](c.conn, ctx, acp.MethodAgentInitialize, params)
 }
 
-func (c *ClientConnection) UnstableLogout(ctx context.Context, params acp.LogoutRequest) (acp.LogoutResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.LogoutResponse](c.conn, ctx, acp.MethodAgentUnstableLogout, params)
+func (c *ClientConnection) Logout(ctx context.Context, params acp.LogoutRequest) (acp.LogoutResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.LogoutResponse](c.conn, ctx, acp.MethodAgentLogout, params)
+}
+
+func (c *ClientConnection) UnstableMessageMCP(ctx context.Context, params acp.MessageMCPRequest) (acp.MessageMCPResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.MessageMCPResponse](c.conn, ctx, acp.MethodAgentUnstableMessageMCP, params)
+}
+
+func (c *ClientConnection) UnstableMCPMessage(ctx context.Context, params acp.MessageMCPNotification) error {
+	return c.conn.SendNotification(ctx, acp.MethodAgentUnstableMCPMessage, params)
 }
 
 func (c *ClientConnection) NesAccept(ctx context.Context, params acp.AcceptNesNotification) error {
@@ -63,24 +71,28 @@ func (c *ClientConnection) SuggestNes(ctx context.Context, params acp.SuggestNes
 	return jsonrpc.SendRequestTyped[acp.SuggestNesResponse](c.conn, ctx, acp.MethodAgentSuggestNes, params)
 }
 
-func (c *ClientConnection) UnstableDisableProviders(ctx context.Context, params acp.DisableProvidersRequest) (acp.DisableProvidersResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.DisableProvidersResponse](c.conn, ctx, acp.MethodAgentUnstableDisableProviders, params)
+func (c *ClientConnection) UnstableDisableProvider(ctx context.Context, params acp.DisableProviderRequest) (acp.DisableProviderResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.DisableProviderResponse](c.conn, ctx, acp.MethodAgentUnstableDisableProvider, params)
 }
 
 func (c *ClientConnection) UnstableListProviders(ctx context.Context, params acp.ListProvidersRequest) (acp.ListProvidersResponse, error) {
 	return jsonrpc.SendRequestTyped[acp.ListProvidersResponse](c.conn, ctx, acp.MethodAgentUnstableListProviders, params)
 }
 
-func (c *ClientConnection) UnstableSetProviders(ctx context.Context, params acp.SetProvidersRequest) (acp.SetProvidersResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.SetProvidersResponse](c.conn, ctx, acp.MethodAgentUnstableSetProviders, params)
+func (c *ClientConnection) UnstableSetProvider(ctx context.Context, params acp.SetProviderRequest) (acp.SetProviderResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.SetProviderResponse](c.conn, ctx, acp.MethodAgentUnstableSetProvider, params)
 }
 
 func (c *ClientConnection) SessionCancel(ctx context.Context, params acp.CancelNotification) error {
 	return c.conn.SendNotification(ctx, acp.MethodAgentSessionCancel, params)
 }
 
-func (c *ClientConnection) UnstableCloseSession(ctx context.Context, params acp.CloseSessionRequest) (acp.CloseSessionResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.CloseSessionResponse](c.conn, ctx, acp.MethodAgentUnstableCloseSession, params)
+func (c *ClientConnection) CloseSession(ctx context.Context, params acp.CloseSessionRequest) (acp.CloseSessionResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.CloseSessionResponse](c.conn, ctx, acp.MethodAgentCloseSession, params)
+}
+
+func (c *ClientConnection) DeleteSession(ctx context.Context, params acp.DeleteSessionRequest) (acp.DeleteSessionResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.DeleteSessionResponse](c.conn, ctx, acp.MethodAgentDeleteSession, params)
 }
 
 func (c *ClientConnection) UnstableForkSession(ctx context.Context, params acp.ForkSessionRequest) (acp.ForkSessionResponse, error) {
@@ -131,8 +143,8 @@ func (c *ClientConnection) Prompt(ctx context.Context, params acp.PromptRequest)
 	return jsonrpc.SendRequestTyped[acp.PromptResponse](c.conn, ctx, acp.MethodAgentPrompt, params)
 }
 
-func (c *ClientConnection) UnstableResumeSession(ctx context.Context, params acp.ResumeSessionRequest) (acp.ResumeSessionResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.ResumeSessionResponse](c.conn, ctx, acp.MethodAgentUnstableResumeSession, params)
+func (c *ClientConnection) ResumeSession(ctx context.Context, params acp.ResumeSessionRequest) (acp.ResumeSessionResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.ResumeSessionResponse](c.conn, ctx, acp.MethodAgentResumeSession, params)
 }
 
 func (c *ClientConnection) SetSessionConfigOption(ctx context.Context, params acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
@@ -141,8 +153,4 @@ func (c *ClientConnection) SetSessionConfigOption(ctx context.Context, params ac
 
 func (c *ClientConnection) SetSessionMode(ctx context.Context, params acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
 	return jsonrpc.SendRequestTyped[acp.SetSessionModeResponse](c.conn, ctx, acp.MethodAgentSetSessionMode, params)
-}
-
-func (c *ClientConnection) UnstableSetSessionModel(ctx context.Context, params acp.SetSessionModelRequest) (acp.SetSessionModelResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.SetSessionModelResponse](c.conn, ctx, acp.MethodAgentUnstableSetSessionModel, params)
 }

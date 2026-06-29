@@ -191,8 +191,10 @@ const (
 type Role string
 
 const (
+	// The assistant side of a conversation.
 	RoleAssistant Role = "assistant"
-	RoleUser      Role = "user"
+	// The user side of a conversation.
+	RoleUser Role = "user"
 )
 
 // Semantic category for a session configuration option.
@@ -211,6 +213,8 @@ const (
 	SessionConfigOptionCategoryMode SessionConfigOptionCategory = "mode"
 	// Model selector.
 	SessionConfigOptionCategoryModel SessionConfigOptionCategory = "model"
+	// Model-related configuration parameter.
+	SessionConfigOptionCategoryModelConfig SessionConfigOptionCategory = "model_config"
 	// Thought/reasoning level selector.
 	SessionConfigOptionCategoryThoughtLevel SessionConfigOptionCategory = "thought_level"
 )
@@ -429,6 +433,59 @@ func (a *AuthMethod) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 }
+func (a *AuthMethod) Validate() error {
+	set := 0
+	if a.EnvVarVariant != nil {
+		set++
+	}
+	if a.TerminalVariant != nil {
+		set++
+	}
+	if a.AgentVariant != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("AuthMethod: exactly one variant must be set, got %d", set)
+	}
+	if a.EnvVarVariant != nil {
+		return a.EnvVarVariant.Validate()
+	}
+	if a.TerminalVariant != nil {
+		return a.TerminalVariant.Validate()
+	}
+	if a.AgentVariant != nil {
+		return a.AgentVariant.Validate()
+	}
+	return nil
+}
+
+func (v *AuthMethodEnvVarVariant) Validate() error {
+	if validator, ok := any(&v.AuthMethodEnvVar).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *AuthMethodTerminalVariant) Validate() error {
+	if validator, ok := any(&v.AuthMethodTerminal).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *AuthMethodAgentVariant) Validate() error {
+	if validator, ok := any(&v.AuthMethodAgent).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (a *AuthMethod) AsEnvVarVariant() (AuthMethodEnvVarVariant, bool) {
 	if a.EnvVarVariant == nil {
 		var zero AuthMethodEnvVarVariant
@@ -671,6 +728,89 @@ func (c *ContentBlock) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
 }
+func (c *ContentBlock) Validate() error {
+	set := 0
+	if c.Text != nil {
+		set++
+	}
+	if c.Image != nil {
+		set++
+	}
+	if c.Audio != nil {
+		set++
+	}
+	if c.ResourceLink != nil {
+		set++
+	}
+	if c.Resource != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("ContentBlock: exactly one variant must be set, got %d", set)
+	}
+	if c.Text != nil {
+		return c.Text.Validate()
+	}
+	if c.Image != nil {
+		return c.Image.Validate()
+	}
+	if c.Audio != nil {
+		return c.Audio.Validate()
+	}
+	if c.ResourceLink != nil {
+		return c.ResourceLink.Validate()
+	}
+	if c.Resource != nil {
+		return c.Resource.Validate()
+	}
+	return nil
+}
+
+func (v *ContentBlockText) Validate() error {
+	if validator, ok := any(&v.TextContent).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ContentBlockImage) Validate() error {
+	if validator, ok := any(&v.ImageContent).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ContentBlockAudio) Validate() error {
+	if validator, ok := any(&v.AudioContent).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ContentBlockResourceLink) Validate() error {
+	if validator, ok := any(&v.ResourceLink).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ContentBlockResource) Validate() error {
+	if validator, ok := any(&v.EmbeddedResource).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *ContentBlock) AsText() (ContentBlockText, bool) {
 	if c.Text == nil {
 		var zero ContentBlockText
@@ -1435,6 +1575,89 @@ func (e *ElicitationPropertySchema) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
 }
+func (e *ElicitationPropertySchema) Validate() error {
+	set := 0
+	if e.String != nil {
+		set++
+	}
+	if e.Number != nil {
+		set++
+	}
+	if e.Integer != nil {
+		set++
+	}
+	if e.Boolean != nil {
+		set++
+	}
+	if e.Array != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("ElicitationPropertySchema: exactly one variant must be set, got %d", set)
+	}
+	if e.String != nil {
+		return e.String.Validate()
+	}
+	if e.Number != nil {
+		return e.Number.Validate()
+	}
+	if e.Integer != nil {
+		return e.Integer.Validate()
+	}
+	if e.Boolean != nil {
+		return e.Boolean.Validate()
+	}
+	if e.Array != nil {
+		return e.Array.Validate()
+	}
+	return nil
+}
+
+func (v *ElicitationPropertySchemaString) Validate() error {
+	if validator, ok := any(&v.StringPropertySchema).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ElicitationPropertySchemaNumber) Validate() error {
+	if validator, ok := any(&v.NumberPropertySchema).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ElicitationPropertySchemaInteger) Validate() error {
+	if validator, ok := any(&v.IntegerPropertySchema).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ElicitationPropertySchemaBoolean) Validate() error {
+	if validator, ok := any(&v.BooleanPropertySchema).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ElicitationPropertySchemaArray) Validate() error {
+	if validator, ok := any(&v.MultiSelectPropertySchema).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (e *ElicitationPropertySchema) AsString() (ElicitationPropertySchemaString, bool) {
 	if e.String == nil {
 		var zero ElicitationPropertySchemaString
@@ -1532,6 +1755,19 @@ type MCPServerSSEVariant struct {
 	Type string `json:"type,omitempty"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// # ACP transport configuration
+//
+// Only available when the Agent capabilities indicate `mcp_capabilities.acp` is `true`.
+// The MCP server is provided by an ACP component and communicates over the ACP channel.
+type MCPServerAcpVariant struct {
+	MCPServerAcp
+	Type string `json:"type,omitempty"`
+}
+
 type MCPServerStdioVariant struct {
 	MCPServerStdio
 	Type string `json:"type,omitempty"`
@@ -1551,7 +1787,16 @@ type MCPServer struct {
 	// SSE transport configuration
 	//
 	// Only available when the Agent capabilities indicate `mcp_capabilities.sse` is `true`.
-	SSEVariant   *MCPServerSSEVariant   `json:"-"`
+	SSEVariant *MCPServerSSEVariant `json:"-"`
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// ACP transport configuration
+	//
+	// Only available when the Agent capabilities indicate `mcp_capabilities.acp` is `true`.
+	// The MCP server is provided by an ACP component and communicates over the ACP channel.
+	AcpVariant   *MCPServerAcpVariant   `json:"-"`
 	StdioVariant *MCPServerStdioVariant `json:"-"`
 }
 
@@ -1578,6 +1823,18 @@ func (m MCPServer) MarshalJSON() ([]byte, error) {
 			return nil, err
 		}
 		obj["type"], _ = json.Marshal("sse")
+		return json.Marshal(obj)
+	}
+	if m.AcpVariant != nil {
+		data, err := json.Marshal(*m.AcpVariant)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("acp")
 		return json.Marshal(obj)
 	}
 	if m.StdioVariant != nil {
@@ -1612,6 +1869,13 @@ func (m *MCPServer) UnmarshalJSON(data []byte) error {
 		}
 		m.SSEVariant = &v
 		return nil
+	case "acp":
+		var v MCPServerAcpVariant
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		m.AcpVariant = &v
+		return nil
 	default:
 		if disc.Type != "" {
 			return fmt.Errorf("unknown discriminator value: %s", disc.Type)
@@ -1624,6 +1888,74 @@ func (m *MCPServer) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 }
+func (m *MCPServer) Validate() error {
+	set := 0
+	if m.HTTPVariant != nil {
+		set++
+	}
+	if m.SSEVariant != nil {
+		set++
+	}
+	if m.AcpVariant != nil {
+		set++
+	}
+	if m.StdioVariant != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("MCPServer: exactly one variant must be set, got %d", set)
+	}
+	if m.HTTPVariant != nil {
+		return m.HTTPVariant.Validate()
+	}
+	if m.SSEVariant != nil {
+		return m.SSEVariant.Validate()
+	}
+	if m.AcpVariant != nil {
+		return m.AcpVariant.Validate()
+	}
+	if m.StdioVariant != nil {
+		return m.StdioVariant.Validate()
+	}
+	return nil
+}
+
+func (v *MCPServerHTTPVariant) Validate() error {
+	if validator, ok := any(&v.MCPServerHTTP).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *MCPServerSSEVariant) Validate() error {
+	if validator, ok := any(&v.MCPServerSSE).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *MCPServerAcpVariant) Validate() error {
+	if validator, ok := any(&v.MCPServerAcp).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *MCPServerStdioVariant) Validate() error {
+	if validator, ok := any(&v.MCPServerStdio).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *MCPServer) AsHTTPVariant() (MCPServerHTTPVariant, bool) {
 	if m.HTTPVariant == nil {
 		var zero MCPServerHTTPVariant
@@ -1637,6 +1969,13 @@ func (m *MCPServer) AsSSEVariant() (MCPServerSSEVariant, bool) {
 		return zero, false
 	}
 	return *m.SSEVariant, true
+}
+func (m *MCPServer) AsAcpVariant() (MCPServerAcpVariant, bool) {
+	if m.AcpVariant == nil {
+		var zero MCPServerAcpVariant
+		return zero, false
+	}
+	return *m.AcpVariant, true
 }
 func (m *MCPServer) AsStdioVariant() (MCPServerStdioVariant, bool) {
 	if m.StdioVariant == nil {
@@ -1662,6 +2001,15 @@ func NewMCPServerSSEVariant(v MCPServerSSE) MCPServer {
 		Type:         "sse",
 	}
 	return MCPServer{SSEVariant: &w}
+}
+
+// NewMCPServerAcpVariant creates a MCPServer holding a AcpVariant variant.
+func NewMCPServerAcpVariant(v MCPServerAcp) MCPServer {
+	w := MCPServerAcpVariant{
+		MCPServerAcp: v,
+		Type:         "acp",
+	}
+	return MCPServer{AcpVariant: &w}
 }
 
 // NewMCPServerStdioVariant creates a MCPServer holding a StdioVariant variant.
@@ -1800,6 +2148,74 @@ func (n *NesSuggestion) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown discriminator value: %s", disc.Kind)
 	}
 }
+func (n *NesSuggestion) Validate() error {
+	set := 0
+	if n.Edit != nil {
+		set++
+	}
+	if n.Jump != nil {
+		set++
+	}
+	if n.Rename != nil {
+		set++
+	}
+	if n.SearchAndReplace != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("NesSuggestion: exactly one variant must be set, got %d", set)
+	}
+	if n.Edit != nil {
+		return n.Edit.Validate()
+	}
+	if n.Jump != nil {
+		return n.Jump.Validate()
+	}
+	if n.Rename != nil {
+		return n.Rename.Validate()
+	}
+	if n.SearchAndReplace != nil {
+		return n.SearchAndReplace.Validate()
+	}
+	return nil
+}
+
+func (v *NesSuggestionEdit) Validate() error {
+	if validator, ok := any(&v.NesEditSuggestion).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *NesSuggestionJump) Validate() error {
+	if validator, ok := any(&v.NesJumpSuggestion).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *NesSuggestionRename) Validate() error {
+	if validator, ok := any(&v.NesRenameSuggestion).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *NesSuggestionSearchAndReplace) Validate() error {
+	if validator, ok := any(&v.NesSearchAndReplaceSuggestion).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (n *NesSuggestion) AsEdit() (NesSuggestionEdit, bool) {
 	if n.Edit == nil {
 		var zero NesSuggestionEdit
@@ -1863,6 +2279,213 @@ func NewNesSuggestionSearchAndReplace(v NesSearchAndReplaceSuggestion) NesSugges
 		Kind:                          "searchAndReplace",
 	}
 	return NesSuggestion{SearchAndReplace: &w}
+}
+
+// Structured plan entries.
+type PlanUpdateContentItems struct {
+	PlanItems
+	Type string `json:"type,omitempty"`
+}
+
+// A URI pointing to a file containing the plan.
+type PlanUpdateContentFile struct {
+	PlanFile
+	Type string `json:"type,omitempty"`
+}
+
+// Raw markdown content for the plan.
+type PlanUpdateContentMarkdown struct {
+	PlanMarkdown
+	Type string `json:"type,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Updated content for a plan.
+type PlanUpdateContent struct {
+	// Structured plan entries.
+	Items *PlanUpdateContentItems `json:"-"`
+	// A URI pointing to a file containing the plan.
+	File *PlanUpdateContentFile `json:"-"`
+	// Raw markdown content for the plan.
+	Markdown *PlanUpdateContentMarkdown `json:"-"`
+}
+
+func (p PlanUpdateContent) MarshalJSON() ([]byte, error) {
+	if p.Items != nil {
+		data, err := json.Marshal(*p.Items)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("items")
+		return json.Marshal(obj)
+	}
+	if p.File != nil {
+		data, err := json.Marshal(*p.File)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("file")
+		return json.Marshal(obj)
+	}
+	if p.Markdown != nil {
+		data, err := json.Marshal(*p.Markdown)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["type"], _ = json.Marshal("markdown")
+		return json.Marshal(obj)
+	}
+	return nil, fmt.Errorf("no variant is set for PlanUpdateContent")
+}
+func (p *PlanUpdateContent) UnmarshalJSON(data []byte) error {
+	*p = PlanUpdateContent{}
+	var disc struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &disc); err != nil {
+		return err
+	}
+	switch disc.Type {
+	case "items":
+		var v PlanUpdateContentItems
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		p.Items = &v
+		return nil
+	case "file":
+		var v PlanUpdateContentFile
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		p.File = &v
+		return nil
+	case "markdown":
+		var v PlanUpdateContentMarkdown
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		p.Markdown = &v
+		return nil
+	default:
+		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
+	}
+}
+func (p *PlanUpdateContent) Validate() error {
+	set := 0
+	if p.Items != nil {
+		set++
+	}
+	if p.File != nil {
+		set++
+	}
+	if p.Markdown != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("PlanUpdateContent: exactly one variant must be set, got %d", set)
+	}
+	if p.Items != nil {
+		return p.Items.Validate()
+	}
+	if p.File != nil {
+		return p.File.Validate()
+	}
+	if p.Markdown != nil {
+		return p.Markdown.Validate()
+	}
+	return nil
+}
+
+func (v *PlanUpdateContentItems) Validate() error {
+	if validator, ok := any(&v.PlanItems).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *PlanUpdateContentFile) Validate() error {
+	if validator, ok := any(&v.PlanFile).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *PlanUpdateContentMarkdown) Validate() error {
+	if validator, ok := any(&v.PlanMarkdown).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *PlanUpdateContent) AsItems() (PlanUpdateContentItems, bool) {
+	if p.Items == nil {
+		var zero PlanUpdateContentItems
+		return zero, false
+	}
+	return *p.Items, true
+}
+func (p *PlanUpdateContent) AsFile() (PlanUpdateContentFile, bool) {
+	if p.File == nil {
+		var zero PlanUpdateContentFile
+		return zero, false
+	}
+	return *p.File, true
+}
+func (p *PlanUpdateContent) AsMarkdown() (PlanUpdateContentMarkdown, bool) {
+	if p.Markdown == nil {
+		var zero PlanUpdateContentMarkdown
+		return zero, false
+	}
+	return *p.Markdown, true
+}
+
+// NewPlanUpdateContentItems creates a PlanUpdateContent holding a Items variant.
+func NewPlanUpdateContentItems(v PlanItems) PlanUpdateContent {
+	w := PlanUpdateContentItems{
+		PlanItems: v,
+		Type:      "items",
+	}
+	return PlanUpdateContent{Items: &w}
+}
+
+// NewPlanUpdateContentFile creates a PlanUpdateContent holding a File variant.
+func NewPlanUpdateContentFile(v PlanFile) PlanUpdateContent {
+	w := PlanUpdateContentFile{
+		PlanFile: v,
+		Type:     "file",
+	}
+	return PlanUpdateContent{File: &w}
+}
+
+// NewPlanUpdateContentMarkdown creates a PlanUpdateContent holding a Markdown variant.
+func NewPlanUpdateContentMarkdown(v PlanMarkdown) PlanUpdateContent {
+	w := PlanUpdateContentMarkdown{
+		PlanMarkdown: v,
+		Type:         "markdown",
+	}
+	return PlanUpdateContent{Markdown: &w}
 }
 
 // The prompt turn was cancelled before the user responded.
@@ -1950,6 +2573,39 @@ func (r *RequestPermissionOutcome) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown discriminator value: %s", disc.Outcome)
 	}
 }
+func (r *RequestPermissionOutcome) Validate() error {
+	set := 0
+	if r.Cancelled != nil {
+		set++
+	}
+	if r.Selected != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("RequestPermissionOutcome: exactly one variant must be set, got %d", set)
+	}
+	if r.Cancelled != nil {
+		return r.Cancelled.Validate()
+	}
+	if r.Selected != nil {
+		return r.Selected.Validate()
+	}
+	return nil
+}
+
+func (v *RequestPermissionOutcomeCancelled) Validate() error {
+	return nil
+}
+
+func (v *RequestPermissionOutcomeSelected) Validate() error {
+	if validator, ok := any(&v.SelectedPermissionOutcome).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *RequestPermissionOutcome) AsCancelled() (RequestPermissionOutcomeCancelled, bool) {
 	if r.Cancelled == nil {
 		var zero RequestPermissionOutcomeCancelled
@@ -2358,6 +3014,26 @@ type SessionUpdatePlan struct {
 	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// A content update for a plan identified by ID.
+type SessionUpdatePlanUpdate struct {
+	PlanUpdate
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Removal notice for a plan identified by ID.
+type SessionUpdatePlanRemoved struct {
+	PlanRemoved
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
+}
+
 // Available commands are ready or have changed
 type SessionUpdateAvailableCommandsUpdate struct {
 	AvailableCommandsUpdate
@@ -2384,10 +3060,6 @@ type SessionUpdateSessionInfoUpdate struct {
 	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Context window and cost update for the session.
 type SessionUpdateUsageUpdate struct {
 	UsageUpdate
@@ -2413,6 +3085,18 @@ type SessionUpdate struct {
 	// The agent's execution plan for complex tasks.
 	// See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
 	Plan *SessionUpdatePlan `json:"-"`
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// A content update for a plan identified by ID.
+	PlanUpdate *SessionUpdatePlanUpdate `json:"-"`
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Removal notice for a plan identified by ID.
+	PlanRemoved *SessionUpdatePlanRemoved `json:"-"`
 	// Available commands are ready or have changed
 	AvailableCommandsUpdate *SessionUpdateAvailableCommandsUpdate `json:"-"`
 	// The current mode of the session has changed
@@ -2423,10 +3107,6 @@ type SessionUpdate struct {
 	ConfigOptionUpdate *SessionUpdateConfigOptionUpdate `json:"-"`
 	// Session metadata has been updated (title, timestamps, custom metadata)
 	SessionInfoUpdate *SessionUpdateSessionInfoUpdate `json:"-"`
-	// **UNSTABLE**
-	//
-	// This capability is not part of the spec yet, and may be removed or changed at any point.
-	//
 	// Context window and cost update for the session.
 	UsageUpdate *SessionUpdateUsageUpdate `json:"-"`
 }
@@ -2502,6 +3182,30 @@ func (s SessionUpdate) MarshalJSON() ([]byte, error) {
 			return nil, err
 		}
 		obj["sessionUpdate"], _ = json.Marshal("plan")
+		return json.Marshal(obj)
+	}
+	if s.PlanUpdate != nil {
+		data, err := json.Marshal(*s.PlanUpdate)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("plan_update")
+		return json.Marshal(obj)
+	}
+	if s.PlanRemoved != nil {
+		data, err := json.Marshal(*s.PlanRemoved)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("plan_removed")
 		return json.Marshal(obj)
 	}
 	if s.AvailableCommandsUpdate != nil {
@@ -2617,6 +3321,20 @@ func (s *SessionUpdate) UnmarshalJSON(data []byte) error {
 		}
 		s.Plan = &v
 		return nil
+	case "plan_update":
+		var v SessionUpdatePlanUpdate
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		s.PlanUpdate = &v
+		return nil
+	case "plan_removed":
+		var v SessionUpdatePlanRemoved
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		s.PlanRemoved = &v
+		return nil
 	case "available_commands_update":
 		var v SessionUpdateAvailableCommandsUpdate
 		if err := json.Unmarshal(data, &v); err != nil {
@@ -2656,6 +3374,209 @@ func (s *SessionUpdate) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown discriminator value: %s", disc.SessionUpdate)
 	}
 }
+func (s *SessionUpdate) Validate() error {
+	set := 0
+	if s.UserMessageChunk != nil {
+		set++
+	}
+	if s.AgentMessageChunk != nil {
+		set++
+	}
+	if s.AgentThoughtChunk != nil {
+		set++
+	}
+	if s.ToolCall != nil {
+		set++
+	}
+	if s.ToolCallUpdate != nil {
+		set++
+	}
+	if s.Plan != nil {
+		set++
+	}
+	if s.PlanUpdate != nil {
+		set++
+	}
+	if s.PlanRemoved != nil {
+		set++
+	}
+	if s.AvailableCommandsUpdate != nil {
+		set++
+	}
+	if s.CurrentModeUpdate != nil {
+		set++
+	}
+	if s.ConfigOptionUpdate != nil {
+		set++
+	}
+	if s.SessionInfoUpdate != nil {
+		set++
+	}
+	if s.UsageUpdate != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("SessionUpdate: exactly one variant must be set, got %d", set)
+	}
+	if s.UserMessageChunk != nil {
+		return s.UserMessageChunk.Validate()
+	}
+	if s.AgentMessageChunk != nil {
+		return s.AgentMessageChunk.Validate()
+	}
+	if s.AgentThoughtChunk != nil {
+		return s.AgentThoughtChunk.Validate()
+	}
+	if s.ToolCall != nil {
+		return s.ToolCall.Validate()
+	}
+	if s.ToolCallUpdate != nil {
+		return s.ToolCallUpdate.Validate()
+	}
+	if s.Plan != nil {
+		return s.Plan.Validate()
+	}
+	if s.PlanUpdate != nil {
+		return s.PlanUpdate.Validate()
+	}
+	if s.PlanRemoved != nil {
+		return s.PlanRemoved.Validate()
+	}
+	if s.AvailableCommandsUpdate != nil {
+		return s.AvailableCommandsUpdate.Validate()
+	}
+	if s.CurrentModeUpdate != nil {
+		return s.CurrentModeUpdate.Validate()
+	}
+	if s.ConfigOptionUpdate != nil {
+		return s.ConfigOptionUpdate.Validate()
+	}
+	if s.SessionInfoUpdate != nil {
+		return s.SessionInfoUpdate.Validate()
+	}
+	if s.UsageUpdate != nil {
+		return s.UsageUpdate.Validate()
+	}
+	return nil
+}
+
+func (v *SessionUpdateUserMessageChunk) Validate() error {
+	if validator, ok := any(&v.ContentChunk).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateAgentMessageChunk) Validate() error {
+	if validator, ok := any(&v.ContentChunk).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateAgentThoughtChunk) Validate() error {
+	if validator, ok := any(&v.ContentChunk).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateToolCall) Validate() error {
+	if validator, ok := any(&v.ToolCall).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateToolCallUpdate) Validate() error {
+	if validator, ok := any(&v.ToolCallUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdatePlan) Validate() error {
+	if validator, ok := any(&v.Plan).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdatePlanUpdate) Validate() error {
+	if validator, ok := any(&v.PlanUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdatePlanRemoved) Validate() error {
+	if validator, ok := any(&v.PlanRemoved).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateAvailableCommandsUpdate) Validate() error {
+	if validator, ok := any(&v.AvailableCommandsUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateCurrentModeUpdate) Validate() error {
+	if validator, ok := any(&v.CurrentModeUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateConfigOptionUpdate) Validate() error {
+	if validator, ok := any(&v.ConfigOptionUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateSessionInfoUpdate) Validate() error {
+	if validator, ok := any(&v.SessionInfoUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *SessionUpdateUsageUpdate) Validate() error {
+	if validator, ok := any(&v.UsageUpdate).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *SessionUpdate) AsUserMessageChunk() (SessionUpdateUserMessageChunk, bool) {
 	if s.UserMessageChunk == nil {
 		var zero SessionUpdateUserMessageChunk
@@ -2697,6 +3618,20 @@ func (s *SessionUpdate) AsPlan() (SessionUpdatePlan, bool) {
 		return zero, false
 	}
 	return *s.Plan, true
+}
+func (s *SessionUpdate) AsPlanUpdate() (SessionUpdatePlanUpdate, bool) {
+	if s.PlanUpdate == nil {
+		var zero SessionUpdatePlanUpdate
+		return zero, false
+	}
+	return *s.PlanUpdate, true
+}
+func (s *SessionUpdate) AsPlanRemoved() (SessionUpdatePlanRemoved, bool) {
+	if s.PlanRemoved == nil {
+		var zero SessionUpdatePlanRemoved
+		return zero, false
+	}
+	return *s.PlanRemoved, true
 }
 func (s *SessionUpdate) AsAvailableCommandsUpdate() (SessionUpdateAvailableCommandsUpdate, bool) {
 	if s.AvailableCommandsUpdate == nil {
@@ -2786,6 +3721,24 @@ func NewSessionUpdatePlan(v Plan) SessionUpdate {
 		SessionUpdate: "plan",
 	}
 	return SessionUpdate{Plan: &w}
+}
+
+// NewSessionUpdatePlanUpdate creates a SessionUpdate holding a PlanUpdate variant.
+func NewSessionUpdatePlanUpdate(v PlanUpdate) SessionUpdate {
+	w := SessionUpdatePlanUpdate{
+		PlanUpdate:    v,
+		SessionUpdate: "plan_update",
+	}
+	return SessionUpdate{PlanUpdate: &w}
+}
+
+// NewSessionUpdatePlanRemoved creates a SessionUpdate holding a PlanRemoved variant.
+func NewSessionUpdatePlanRemoved(v PlanRemoved) SessionUpdate {
+	w := SessionUpdatePlanRemoved{
+		PlanRemoved:   v,
+		SessionUpdate: "plan_removed",
+	}
+	return SessionUpdate{PlanRemoved: &w}
 }
 
 // NewSessionUpdateAvailableCommandsUpdate creates a SessionUpdate holding a AvailableCommandsUpdate variant.
@@ -3236,6 +4189,59 @@ func (t *ToolCallContent) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unknown discriminator value: %s", disc.Type)
 	}
 }
+func (t *ToolCallContent) Validate() error {
+	set := 0
+	if t.Content != nil {
+		set++
+	}
+	if t.Diff != nil {
+		set++
+	}
+	if t.Terminal != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("ToolCallContent: exactly one variant must be set, got %d", set)
+	}
+	if t.Content != nil {
+		return t.Content.Validate()
+	}
+	if t.Diff != nil {
+		return t.Diff.Validate()
+	}
+	if t.Terminal != nil {
+		return t.Terminal.Validate()
+	}
+	return nil
+}
+
+func (v *ToolCallContentContent) Validate() error {
+	if validator, ok := any(&v.Content).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ToolCallContentDiff) Validate() error {
+	if validator, ok := any(&v.Diff).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ToolCallContentTerminal) Validate() error {
+	if validator, ok := any(&v.Terminal).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (t *ToolCallContent) AsContent() (ToolCallContentContent, bool) {
 	if t.Content == nil {
 		var zero ToolCallContentContent
@@ -3294,10 +4300,6 @@ type AcceptNesNotification struct {
 
 func (x AcceptNesNotification) GetSessionID() string { return string(x.SessionID) }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Authentication-related capabilities supported by the agent.
 type AgentAuthCapabilities struct {
 	Meta   map[string]any      `json:"_meta,omitempty"`
@@ -3371,7 +4373,7 @@ type AuthEnvVar struct {
 type AuthMethodAgent struct {
 	Meta        map[string]any `json:"_meta,omitempty"`
 	Description string         `json:"description,omitempty"`
-	ID          string         `json:"id"`
+	ID          AuthMethodID   `json:"id"`
 	Name        string         `json:"name"`
 }
 
@@ -3385,7 +4387,7 @@ type AuthMethodAgent struct {
 type AuthMethodEnvVar struct {
 	Meta        map[string]any `json:"_meta,omitempty"`
 	Description string         `json:"description,omitempty"`
-	ID          string         `json:"id"`
+	ID          AuthMethodID   `json:"id"`
 	Link        string         `json:"link,omitempty"`
 	Name        string         `json:"name"`
 	Vars        []AuthEnvVar   `json:"vars"`
@@ -3403,7 +4405,7 @@ type AuthMethodTerminal struct {
 	Args        []string          `json:"args,omitempty"`
 	Description string            `json:"description,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
-	ID          string            `json:"id"`
+	ID          AuthMethodID      `json:"id"`
 	Name        string            `json:"name"`
 }
 
@@ -3412,7 +4414,7 @@ type AuthMethodTerminal struct {
 // Specifies which authentication method to use.
 type AuthenticateRequest struct {
 	Meta     map[string]any `json:"_meta,omitempty"`
-	MethodID string         `json:"methodId"`
+	MethodID AuthMethodID   `json:"methodId"`
 }
 
 // Response to the `authenticate` method.
@@ -3442,11 +4444,23 @@ type BlobResourceContents struct {
 	URI      string         `json:"uri"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Capabilities for boolean session configuration options.
+//
+// Supplying `{}` means the client supports boolean session configuration options.
+type BooleanConfigOptionCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
 // Schema for boolean properties in an elicitation form.
 type BooleanPropertySchema struct {
-	Default     *bool  `json:"default,omitempty"`
-	Description string `json:"description,omitempty"`
-	Title       string `json:"title,omitempty"`
+	Meta        map[string]any `json:"_meta,omitempty"`
+	Default     *bool          `json:"default,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Title       string         `json:"title,omitempty"`
 }
 
 // Notification to cancel ongoing operations for a session.
@@ -3478,13 +4492,15 @@ type CancelRequestNotification struct {
 //
 // See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/initialization#client-capabilities)
 type ClientCapabilities struct {
-	Meta              map[string]any           `json:"_meta,omitempty"`
-	Auth              *AuthCapabilities        `json:"auth,omitempty"`
-	Elicitation       *ElicitationCapabilities `json:"elicitation,omitempty"`
-	FS                *FileSystemCapabilities  `json:"fs,omitempty"`
-	Nes               *ClientNesCapabilities   `json:"nes,omitempty"`
-	PositionEncodings []PositionEncodingKind   `json:"positionEncodings,omitempty"`
-	Terminal          bool                     `json:"terminal,omitempty"`
+	Meta              map[string]any             `json:"_meta,omitempty"`
+	Auth              *AuthCapabilities          `json:"auth,omitempty"`
+	Elicitation       *ElicitationCapabilities   `json:"elicitation,omitempty"`
+	FS                *FileSystemCapabilities    `json:"fs,omitempty"`
+	Nes               *ClientNesCapabilities     `json:"nes,omitempty"`
+	Plan              *PlanCapabilities          `json:"plan,omitempty"`
+	PositionEncodings []PositionEncodingKind     `json:"positionEncodings,omitempty"`
+	Session           *ClientSessionCapabilities `json:"session,omitempty"`
+	Terminal          bool                       `json:"terminal,omitempty"`
 }
 
 // NES capabilities advertised by the client during initialization.
@@ -3493,6 +4509,16 @@ type ClientNesCapabilities struct {
 	Jump             *NesJumpCapabilities             `json:"jump,omitempty"`
 	Rename           *NesRenameCapabilities           `json:"rename,omitempty"`
 	SearchAndReplace *NesSearchAndReplaceCapabilities `json:"searchAndReplace,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Session-related capabilities supported by the client.
+type ClientSessionCapabilities struct {
+	Meta          map[string]any                    `json:"_meta,omitempty"`
+	ConfigOptions *SessionConfigOptionsCapabilities `json:"configOptions,omitempty"`
 }
 
 // Request to close an NES session.
@@ -3511,10 +4537,6 @@ type CloseNesResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Request parameters for closing an active session.
 //
 // If supported, the agent **must** cancel any ongoing work related to the session
@@ -3529,10 +4551,6 @@ type CloseSessionRequest struct {
 
 func (x CloseSessionRequest) GetSessionID() string { return string(x.SessionID) }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Response from closing a session.
 type CloseSessionResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
@@ -3554,6 +4572,26 @@ type ConfigOptionUpdate struct {
 	ConfigOptions []SessionConfigOption `json:"configOptions"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for `mcp/connect`.
+type ConnectMCPRequest struct {
+	Meta  map[string]any `json:"_meta,omitempty"`
+	AcpID MCPServerAcpID `json:"acpId"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response to `mcp/connect`.
+type ConnectMCPResponse struct {
+	Meta         map[string]any  `json:"_meta,omitempty"`
+	ConnectionID MCPConnectionID `json:"connectionId"`
+}
+
 // Standard content block (text, images, resources).
 type Content struct {
 	Meta    map[string]any `json:"_meta,omitempty"`
@@ -3564,17 +4602,14 @@ type Content struct {
 type ContentChunk struct {
 	Meta      map[string]any `json:"_meta,omitempty"`
 	Content   ContentBlock   `json:"content"`
-	MessageID string         `json:"messageId,omitempty"`
+	MessageID *MessageID     `json:"messageId,omitempty"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Cost information for a session.
 type Cost struct {
-	Amount   float64 `json:"amount"`
-	Currency string  `json:"currency"`
+	Meta     map[string]any `json:"_meta,omitempty"`
+	Amount   float64        `json:"amount"`
+	Currency string         `json:"currency"`
 }
 
 // Request to create a new terminal and execute a command.
@@ -3593,7 +4628,7 @@ func (x CreateTerminalRequest) GetSessionID() string { return string(x.SessionID
 // Response containing the ID of the created terminal.
 type CreateTerminalResponse struct {
 	Meta       map[string]any `json:"_meta,omitempty"`
-	TerminalID string         `json:"terminalId"`
+	TerminalID TerminalID     `json:"terminalId"`
 }
 
 // The current mode of the session has changed
@@ -3602,6 +4637,21 @@ type CreateTerminalResponse struct {
 type CurrentModeUpdate struct {
 	Meta          map[string]any `json:"_meta,omitempty"`
 	CurrentModeID SessionModeID  `json:"currentModeId"`
+}
+
+// Request parameters for deleting an existing session from `session/list`.
+//
+// Only available if the Agent supports the `sessionCapabilities.delete` capability.
+type DeleteSessionRequest struct {
+	Meta      map[string]any `json:"_meta,omitempty"`
+	SessionID SessionID      `json:"sessionId"`
+}
+
+func (x DeleteSessionRequest) GetSessionID() string { return string(x.SessionID) }
+
+// Response from deleting a session.
+type DeleteSessionResponse struct {
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // Notification sent when a file is edited.
@@ -3674,7 +4724,7 @@ type Diff struct {
 // This capability is not part of the spec yet, and may be removed or changed at any point.
 //
 // Request parameters for `providers/disable`.
-type DisableProvidersRequest struct {
+type DisableProviderRequest struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 	ID   string         `json:"id"`
 }
@@ -3684,7 +4734,26 @@ type DisableProvidersRequest struct {
 // This capability is not part of the spec yet, and may be removed or changed at any point.
 //
 // Response to `providers/disable`.
-type DisableProvidersResponse struct {
+type DisableProviderResponse struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for `mcp/disconnect`.
+type DisconnectMCPRequest struct {
+	Meta         map[string]any  `json:"_meta,omitempty"`
+	ConnectionID MCPConnectionID `json:"connectionId"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response to `mcp/disconnect`.
+type DisconnectMCPResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
@@ -3732,6 +4801,7 @@ type ElicitationRequestScope struct {
 // This represents a JSON Schema object with primitive-typed properties,
 // as required by the elicitation specification.
 type ElicitationSchema struct {
+	Meta        map[string]any                       `json:"_meta,omitempty"`
 	Description string                               `json:"description,omitempty"`
 	Properties  map[string]ElicitationPropertySchema `json:"properties,omitempty"`
 	Required    []string                             `json:"required,omitempty"`
@@ -3773,8 +4843,9 @@ type EmbeddedResource struct {
 
 // A titled enum option with a const value and human-readable title.
 type EnumOption struct {
-	Const string `json:"const"`
-	Title string `json:"title"`
+	Meta  map[string]any `json:"_meta,omitempty"`
+	Const string         `json:"const"`
+	Title string         `json:"title"`
 }
 
 // An environment variable to set when launching an MCP server.
@@ -3833,7 +4904,6 @@ func (x ForkSessionRequest) GetSessionID() string { return string(x.SessionID) }
 type ForkSessionResponse struct {
 	Meta          map[string]any        `json:"_meta,omitempty"`
 	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
-	Models        *SessionModelState    `json:"models,omitempty"`
 	Modes         *SessionModeState     `json:"modes,omitempty"`
 	SessionID     SessionID             `json:"sessionId"`
 }
@@ -3857,7 +4927,7 @@ type ImageContent struct {
 }
 
 // Metadata about the implementation of the client or agent.
-// Describes the name and version of an MCP implementation, with an optional
+// Describes the name and version of an ACP implementation, with an optional
 // title for UI representation.
 type Implementation struct {
 	Meta    map[string]any `json:"_meta,omitempty"`
@@ -3897,18 +4967,19 @@ func (x InitializeResponse) GetProtocolVersion() ProtocolVersion { return x.Prot
 
 // Schema for integer properties in an elicitation form.
 type IntegerPropertySchema struct {
-	Default     *int64 `json:"default,omitempty"`
-	Description string `json:"description,omitempty"`
-	Maximum     *int64 `json:"maximum,omitempty"`
-	Minimum     *int64 `json:"minimum,omitempty"`
-	Title       string `json:"title,omitempty"`
+	Meta        map[string]any `json:"_meta,omitempty"`
+	Default     *int64         `json:"default,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Maximum     *int64         `json:"maximum,omitempty"`
+	Minimum     *int64         `json:"minimum,omitempty"`
+	Title       string         `json:"title,omitempty"`
 }
 
 // Request to kill a terminal without releasing it.
 type KillTerminalRequest struct {
 	Meta       map[string]any `json:"_meta,omitempty"`
 	SessionID  SessionID      `json:"sessionId"`
-	TerminalID string         `json:"terminalId"`
+	TerminalID TerminalID     `json:"terminalId"`
 }
 
 func (x KillTerminalRequest) GetSessionID() string { return string(x.SessionID) }
@@ -3941,10 +5012,9 @@ type ListProvidersResponse struct {
 //
 // Only available if the Agent supports the `sessionCapabilities.list` capability.
 type ListSessionsRequest struct {
-	Meta                  map[string]any `json:"_meta,omitempty"`
-	AdditionalDirectories []string       `json:"additionalDirectories,omitempty"`
-	Cursor                string         `json:"cursor,omitempty"`
-	Cwd                   string         `json:"cwd,omitempty"`
+	Meta   map[string]any `json:"_meta,omitempty"`
+	Cursor string         `json:"cursor,omitempty"`
+	Cwd    string         `json:"cwd,omitempty"`
 }
 
 // Response from listing sessions.
@@ -3973,14 +5043,9 @@ func (x LoadSessionRequest) GetSessionID() string { return string(x.SessionID) }
 type LoadSessionResponse struct {
 	Meta          map[string]any        `json:"_meta,omitempty"`
 	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
-	Models        *SessionModelState    `json:"models,omitempty"`
 	Modes         *SessionModeState     `json:"modes,omitempty"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Logout capabilities supported by the agent.
 //
 // By supplying `{}` it means that the agent supports the logout method.
@@ -3988,10 +5053,6 @@ type LogoutCapabilities struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Request parameters for the logout method.
 //
 // Terminates the current authenticated session.
@@ -3999,10 +5060,6 @@ type LogoutRequest struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Response to the `logout` method.
 type LogoutResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
@@ -4011,8 +5068,23 @@ type LogoutResponse struct {
 // MCP capabilities supported by the agent
 type MCPCapabilities struct {
 	Meta map[string]any `json:"_meta,omitempty"`
+	Acp  bool           `json:"acp,omitempty"`
 	HTTP bool           `json:"http,omitempty"`
 	SSE  bool           `json:"sse,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// ACP transport configuration for MCP.
+//
+// The MCP server is provided by an ACP component and communicates over the ACP channel
+// using `mcp/connect`, `mcp/message`, and `mcp/disconnect`.
+type MCPServerAcp struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+	ID   MCPServerAcpID `json:"id"`
+	Name string         `json:"name"`
 }
 
 // HTTP transport configuration for MCP.
@@ -4044,16 +5116,32 @@ type MCPServerStdio struct {
 //
 // This capability is not part of the spec yet, and may be removed or changed at any point.
 //
-// Information about a selectable model.
-type ModelInfo struct {
-	Meta        map[string]any `json:"_meta,omitempty"`
-	Description string         `json:"description,omitempty"`
-	ModelID     ModelID        `json:"modelId"`
-	Name        string         `json:"name"`
+// Notification parameters for `mcp/message`.
+//
+// This is used when the wrapped MCP message is a notification and the outer JSON-RPC
+// envelope has no `id`.
+type MessageMCPNotification struct {
+	Meta         map[string]any  `json:"_meta,omitempty"`
+	ConnectionID MCPConnectionID `json:"connectionId"`
+	Method       string          `json:"method"`
+	Params       map[string]any  `json:"params,omitempty"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Request parameters for `mcp/message`.
+type MessageMCPRequest struct {
+	Meta         map[string]any  `json:"_meta,omitempty"`
+	ConnectionID MCPConnectionID `json:"connectionId"`
+	Method       string          `json:"method"`
+	Params       map[string]any  `json:"params,omitempty"`
 }
 
 // Schema for multi-select (array) properties in an elicitation form.
 type MultiSelectPropertySchema struct {
+	Meta        map[string]any   `json:"_meta,omitempty"`
 	Default     []string         `json:"default,omitempty"`
 	Description string           `json:"description,omitempty"`
 	Items       MultiSelectItems `json:"items"`
@@ -4082,6 +5170,7 @@ type NesContextCapabilities struct {
 
 // A diagnostic (error, warning, etc.).
 type NesDiagnostic struct {
+	Meta     map[string]any        `json:"_meta,omitempty"`
 	Message  string                `json:"message"`
 	Range    Range                 `json:"range"`
 	Severity NesDiagnosticSeverity `json:"severity"`
@@ -4137,16 +5226,18 @@ type NesEditHistoryCapabilities struct {
 
 // An entry in the edit history.
 type NesEditHistoryEntry struct {
-	Diff string `json:"diff"`
-	URI  string `json:"uri"`
+	Meta map[string]any `json:"_meta,omitempty"`
+	Diff string         `json:"diff"`
+	URI  string         `json:"uri"`
 }
 
 // A text edit suggestion.
 type NesEditSuggestion struct {
-	CursorPosition *Position     `json:"cursorPosition,omitempty"`
-	Edits          []NesTextEdit `json:"edits"`
-	ID             string        `json:"id"`
-	URI            string        `json:"uri"`
+	Meta           map[string]any `json:"_meta,omitempty"`
+	CursorPosition *Position      `json:"cursorPosition,omitempty"`
+	Edits          []NesTextEdit  `json:"edits"`
+	ID             string         `json:"id"`
+	URI            string         `json:"uri"`
 }
 
 // Event capabilities the agent can consume.
@@ -4157,9 +5248,10 @@ type NesEventCapabilities struct {
 
 // A code excerpt from a file.
 type NesExcerpt struct {
-	EndLine   int64  `json:"endLine"`
-	StartLine int64  `json:"startLine"`
-	Text      string `json:"text"`
+	Meta      map[string]any `json:"_meta,omitempty"`
+	EndLine   int64          `json:"endLine"`
+	StartLine int64          `json:"startLine"`
+	Text      string         `json:"text"`
 }
 
 // Marker for jump suggestion support.
@@ -4169,17 +5261,19 @@ type NesJumpCapabilities struct {
 
 // A jump-to-location suggestion.
 type NesJumpSuggestion struct {
-	ID       string   `json:"id"`
-	Position Position `json:"position"`
-	URI      string   `json:"uri"`
+	Meta     map[string]any `json:"_meta,omitempty"`
+	ID       string         `json:"id"`
+	Position Position       `json:"position"`
+	URI      string         `json:"uri"`
 }
 
 // An open file in the editor.
 type NesOpenFile struct {
-	LanguageID    string `json:"languageId"`
-	LastFocusedMs *int64 `json:"lastFocusedMs,omitempty"`
-	URI           string `json:"uri"`
-	VisibleRange  *Range `json:"visibleRange,omitempty"`
+	Meta          map[string]any `json:"_meta,omitempty"`
+	LanguageID    string         `json:"languageId"`
+	LastFocusedMs *int64         `json:"lastFocusedMs,omitempty"`
+	URI           string         `json:"uri"`
+	VisibleRange  *Range         `json:"visibleRange,omitempty"`
 }
 
 // Capabilities for open files context.
@@ -4189,9 +5283,10 @@ type NesOpenFilesCapabilities struct {
 
 // A recently accessed file.
 type NesRecentFile struct {
-	LanguageID string `json:"languageId"`
-	Text       string `json:"text"`
-	URI        string `json:"uri"`
+	Meta       map[string]any `json:"_meta,omitempty"`
+	LanguageID string         `json:"languageId"`
+	Text       string         `json:"text"`
+	URI        string         `json:"uri"`
 }
 
 // Capabilities for recent files context.
@@ -4202,8 +5297,9 @@ type NesRecentFilesCapabilities struct {
 
 // A related code snippet from a file.
 type NesRelatedSnippet struct {
-	Excerpts []NesExcerpt `json:"excerpts"`
-	URI      string       `json:"uri"`
+	Meta     map[string]any `json:"_meta,omitempty"`
+	Excerpts []NesExcerpt   `json:"excerpts"`
+	URI      string         `json:"uri"`
 }
 
 // Capabilities for related snippets context.
@@ -4218,17 +5314,19 @@ type NesRenameCapabilities struct {
 
 // A rename symbol suggestion.
 type NesRenameSuggestion struct {
-	ID       string   `json:"id"`
-	NewName  string   `json:"newName"`
-	Position Position `json:"position"`
-	URI      string   `json:"uri"`
+	Meta     map[string]any `json:"_meta,omitempty"`
+	ID       string         `json:"id"`
+	NewName  string         `json:"newName"`
+	Position Position       `json:"position"`
+	URI      string         `json:"uri"`
 }
 
 // Repository metadata for an NES session.
 type NesRepository struct {
-	Name      string `json:"name"`
-	Owner     string `json:"owner"`
-	RemoteURL string `json:"remoteUrl"`
+	Meta      map[string]any `json:"_meta,omitempty"`
+	Name      string         `json:"name"`
+	Owner     string         `json:"owner"`
+	RemoteURL string         `json:"remoteUrl"`
 }
 
 // Marker for search and replace suggestion support.
@@ -4238,11 +5336,12 @@ type NesSearchAndReplaceCapabilities struct {
 
 // A search-and-replace suggestion.
 type NesSearchAndReplaceSuggestion struct {
-	ID      string `json:"id"`
-	IsRegex *bool  `json:"isRegex,omitempty"`
-	Replace string `json:"replace"`
-	Search  string `json:"search"`
-	URI     string `json:"uri"`
+	Meta    map[string]any `json:"_meta,omitempty"`
+	ID      string         `json:"id"`
+	IsRegex *bool          `json:"isRegex,omitempty"`
+	Replace string         `json:"replace"`
+	Search  string         `json:"search"`
+	URI     string         `json:"uri"`
 }
 
 // Context attached to a suggestion request.
@@ -4258,16 +5357,18 @@ type NesSuggestContext struct {
 
 // A text edit within a suggestion.
 type NesTextEdit struct {
-	NewText string `json:"newText"`
-	Range   Range  `json:"range"`
+	Meta    map[string]any `json:"_meta,omitempty"`
+	NewText string         `json:"newText"`
+	Range   Range          `json:"range"`
 }
 
 // A user action (typing, cursor movement, etc.).
 type NesUserAction struct {
-	Action      string   `json:"action"`
-	Position    Position `json:"position"`
-	TimestampMs int64    `json:"timestampMs"`
-	URI         string   `json:"uri"`
+	Meta        map[string]any `json:"_meta,omitempty"`
+	Action      string         `json:"action"`
+	Position    Position       `json:"position"`
+	TimestampMs int64          `json:"timestampMs"`
+	URI         string         `json:"uri"`
 }
 
 // Capabilities for user actions context.
@@ -4292,7 +5393,6 @@ type NewSessionRequest struct {
 type NewSessionResponse struct {
 	Meta          map[string]any        `json:"_meta,omitempty"`
 	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
-	Models        *SessionModelState    `json:"models,omitempty"`
 	Modes         *SessionModeState     `json:"modes,omitempty"`
 	SessionID     SessionID             `json:"sessionId"`
 }
@@ -4301,11 +5401,12 @@ func (x NewSessionResponse) GetSessionID() string { return string(x.SessionID) }
 
 // Schema for number (floating-point) properties in an elicitation form.
 type NumberPropertySchema struct {
-	Default     *float64 `json:"default,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Maximum     *float64 `json:"maximum,omitempty"`
-	Minimum     *float64 `json:"minimum,omitempty"`
-	Title       string   `json:"title,omitempty"`
+	Meta        map[string]any `json:"_meta,omitempty"`
+	Default     *float64       `json:"default,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Maximum     *float64       `json:"maximum,omitempty"`
+	Minimum     *float64       `json:"minimum,omitempty"`
+	Title       string         `json:"title,omitempty"`
 }
 
 // An option presented to the user when requesting permission.
@@ -4328,6 +5429,15 @@ type Plan struct {
 	Entries []PlanEntry    `json:"entries"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Capabilities for receiving `plan_update` and `plan_removed` session updates.
+type PlanCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
 // A single entry in the execution plan.
 //
 // Represents a task or goal that the assistant intends to accomplish
@@ -4340,12 +5450,66 @@ type PlanEntry struct {
 	Status   PlanEntryStatus   `json:"status"`
 }
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// A plan represented by a file URI.
+type PlanFile struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+	ID   PlanID         `json:"id"`
+	URI  string         `json:"uri"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// A plan represented as structured entries.
+type PlanItems struct {
+	Meta    map[string]any `json:"_meta,omitempty"`
+	Entries []PlanEntry    `json:"entries"`
+	ID      PlanID         `json:"id"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// A plan represented as raw markdown content.
+type PlanMarkdown struct {
+	Meta    map[string]any `json:"_meta,omitempty"`
+	Content string         `json:"content"`
+	ID      PlanID         `json:"id"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Removal notice for a plan identified by ID.
+type PlanRemoved struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+	ID   PlanID         `json:"id"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// A content update for a plan identified by ID.
+type PlanUpdate struct {
+	Meta map[string]any    `json:"_meta,omitempty"`
+	Plan PlanUpdateContent `json:"plan"`
+}
+
 // A zero-based position in a text document.
 //
 // The meaning of `character` depends on the negotiated position encoding.
 type Position struct {
-	Character int64 `json:"character"`
-	Line      int64 `json:"line"`
+	Meta      map[string]any `json:"_meta,omitempty"`
+	Character int64          `json:"character"`
+	Line      int64          `json:"line"`
 }
 
 // Prompt capabilities supported by the agent in `session/prompt` requests.
@@ -4374,7 +5538,6 @@ type PromptCapabilities struct {
 // See protocol docs: [User Message](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message)
 type PromptRequest struct {
 	Meta      map[string]any `json:"_meta,omitempty"`
-	MessageID string         `json:"messageId,omitempty"`
 	Prompt    []ContentBlock `json:"prompt"`
 	SessionID SessionID      `json:"sessionId"`
 }
@@ -4385,10 +5548,9 @@ func (x PromptRequest) GetSessionID() string { return string(x.SessionID) }
 //
 // See protocol docs: [Check for Completion](https://agentclientprotocol.com/protocol/prompt-turn#4-check-for-completion)
 type PromptResponse struct {
-	Meta          map[string]any `json:"_meta,omitempty"`
-	StopReason    StopReason     `json:"stopReason"`
-	Usage         *Usage         `json:"usage,omitempty"`
-	UserMessageID string         `json:"userMessageId,omitempty"`
+	Meta       map[string]any `json:"_meta,omitempty"`
+	StopReason StopReason     `json:"stopReason"`
+	Usage      *Usage         `json:"usage,omitempty"`
 }
 
 // **UNSTABLE**
@@ -4397,8 +5559,9 @@ type PromptResponse struct {
 //
 // Current effective non-secret routing configuration for a provider.
 type ProviderCurrentConfig struct {
-	APIType LlmProtocol `json:"apiType"`
-	BaseURL string      `json:"baseUrl"`
+	Meta    map[string]any `json:"_meta,omitempty"`
+	APIType LlmProtocol    `json:"apiType"`
+	BaseURL string         `json:"baseUrl"`
 }
 
 // **UNSTABLE**
@@ -4407,11 +5570,11 @@ type ProviderCurrentConfig struct {
 //
 // Information about a configurable LLM provider.
 type ProviderInfo struct {
-	Meta      map[string]any        `json:"_meta,omitempty"`
-	Current   ProviderCurrentConfig `json:"current"`
-	ID        string                `json:"id"`
-	Required  bool                  `json:"required"`
-	Supported []LlmProtocol         `json:"supported"`
+	Meta      map[string]any         `json:"_meta,omitempty"`
+	Current   *ProviderCurrentConfig `json:"current,omitempty"`
+	ID        string                 `json:"id"`
+	Required  bool                   `json:"required"`
+	Supported []LlmProtocol          `json:"supported"`
 }
 
 // **UNSTABLE**
@@ -4427,8 +5590,9 @@ type ProvidersCapabilities struct {
 
 // A range in a text document, expressed as start and end positions.
 type Range struct {
-	End   Position `json:"end"`
-	Start Position `json:"start"`
+	Meta  map[string]any `json:"_meta,omitempty"`
+	End   Position       `json:"end"`
+	Start Position       `json:"start"`
 }
 
 // Request to read content from a text file.
@@ -4464,7 +5628,7 @@ func (x RejectNesNotification) GetSessionID() string { return string(x.SessionID
 type ReleaseTerminalRequest struct {
 	Meta       map[string]any `json:"_meta,omitempty"`
 	SessionID  SessionID      `json:"sessionId"`
-	TerminalID string         `json:"terminalId"`
+	TerminalID TerminalID     `json:"terminalId"`
 }
 
 func (x ReleaseTerminalRequest) GetSessionID() string { return string(x.SessionID) }
@@ -4506,10 +5670,6 @@ type ResourceLink struct {
 	URI         string         `json:"uri"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Request parameters for resuming an existing session.
 //
 // Resumes an existing session without returning previous messages (unlike `session/load`).
@@ -4526,15 +5686,10 @@ type ResumeSessionRequest struct {
 
 func (x ResumeSessionRequest) GetSessionID() string { return string(x.SessionID) }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Response from resuming an existing session.
 type ResumeSessionResponse struct {
 	Meta          map[string]any        `json:"_meta,omitempty"`
 	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
-	Models        *SessionModelState    `json:"models,omitempty"`
 	Modes         *SessionModeState     `json:"modes,omitempty"`
 }
 
@@ -4544,14 +5699,12 @@ type SelectedPermissionOutcome struct {
 	OptionID PermissionOptionID `json:"optionId"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Capabilities for additional session directories support.
 //
-// By supplying `{}` it means that the agent supports the `additionalDirectories` field on
-// supported session lifecycle requests and `session/list`.
+// By supplying `{}` it means that the agent supports the `additionalDirectories`
+// field on supported session lifecycle requests. Agents that also support
+// `session/list` may return `SessionInfo.additionalDirectories` to report the
+// complete ordered additional-root list associated with a listed session.
 type SessionAdditionalDirectoriesCapabilities struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
@@ -4569,15 +5722,12 @@ type SessionCapabilities struct {
 	Meta                  map[string]any                            `json:"_meta,omitempty"`
 	AdditionalDirectories *SessionAdditionalDirectoriesCapabilities `json:"additionalDirectories,omitempty"`
 	Close                 *SessionCloseCapabilities                 `json:"close,omitempty"`
+	Delete                *SessionDeleteCapabilities                `json:"delete,omitempty"`
 	Fork                  *SessionForkCapabilities                  `json:"fork,omitempty"`
 	List                  *SessionListCapabilities                  `json:"list,omitempty"`
 	Resume                *SessionResumeCapabilities                `json:"resume,omitempty"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Capabilities for the `session/close` method.
 //
 // By supplying `{}` it means that the agent supports closing of sessions.
@@ -4592,6 +5742,16 @@ type SessionCloseCapabilities struct {
 // A boolean on/off toggle session configuration option payload.
 type SessionConfigBoolean struct {
 	CurrentValue bool `json:"currentValue"`
+}
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Session configuration option capabilities supported by the client.
+type SessionConfigOptionsCapabilities struct {
+	Meta    map[string]any                   `json:"_meta,omitempty"`
+	Boolean *BooleanConfigOptionCapabilities `json:"boolean,omitempty"`
 }
 
 // A single-value selector (dropdown) session configuration option payload.
@@ -4614,6 +5774,13 @@ type SessionConfigSelectOption struct {
 	Description string               `json:"description,omitempty"`
 	Name        string               `json:"name"`
 	Value       SessionConfigValueID `json:"value"`
+}
+
+// Capabilities for the `session/delete` method.
+//
+// Supplying `{}` means the agent supports deleting sessions from `session/list`.
+type SessionDeleteCapabilities struct {
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // **UNSTABLE**
@@ -4673,17 +5840,6 @@ type SessionModeState struct {
 	CurrentModeID  SessionModeID  `json:"currentModeId"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
-// The set of models and the one currently active.
-type SessionModelState struct {
-	Meta            map[string]any `json:"_meta,omitempty"`
-	AvailableModels []ModelInfo    `json:"availableModels"`
-	CurrentModelID  ModelID        `json:"currentModelId"`
-}
-
 // Notification containing a session update from the agent.
 //
 // Used to stream real-time progress and results during prompt processing.
@@ -4697,10 +5853,6 @@ type SessionNotification struct {
 
 func (x SessionNotification) GetSessionID() string { return string(x.SessionID) }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Capabilities for the `session/resume` method.
 //
 // By supplying `{}` it means that the agent supports resuming of sessions.
@@ -4715,7 +5867,7 @@ type SessionResumeCapabilities struct {
 // Request parameters for `providers/set`.
 //
 // Replaces the full configuration for one provider id.
-type SetProvidersRequest struct {
+type SetProviderRequest struct {
 	Meta    map[string]any    `json:"_meta,omitempty"`
 	APIType LlmProtocol       `json:"apiType"`
 	BaseURL string            `json:"baseUrl"`
@@ -4728,7 +5880,7 @@ type SetProvidersRequest struct {
 // This capability is not part of the spec yet, and may be removed or changed at any point.
 //
 // Response to `providers/set`.
-type SetProvidersResponse struct {
+type SetProviderResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
@@ -4749,28 +5901,6 @@ func (x SetSessionModeRequest) GetSessionID() string { return string(x.SessionID
 
 // Response to `session/set_mode` method.
 type SetSessionModeResponse struct {
-	Meta map[string]any `json:"_meta,omitempty"`
-}
-
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
-// Request parameters for setting a session model.
-type SetSessionModelRequest struct {
-	Meta      map[string]any `json:"_meta,omitempty"`
-	ModelID   ModelID        `json:"modelId"`
-	SessionID SessionID      `json:"sessionId"`
-}
-
-func (x SetSessionModelRequest) GetSessionID() string { return string(x.SessionID) }
-
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
-// Response to `session/set_model` method.
-type SetSessionModelResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
@@ -4795,15 +5925,16 @@ func (x StartNesResponse) GetSessionID() string { return string(x.SessionID) }
 // When `enum` or `oneOf` is set, this represents a single-select enum
 // with `"type": "string"`.
 type StringPropertySchema struct {
-	Default     string        `json:"default,omitempty"`
-	Description string        `json:"description,omitempty"`
-	Enum        []string      `json:"enum,omitempty"`
-	Format      *StringFormat `json:"format,omitempty"`
-	MaxLength   *int64        `json:"maxLength,omitempty"`
-	MinLength   *int64        `json:"minLength,omitempty"`
-	OneOf       []EnumOption  `json:"oneOf,omitempty"`
-	Pattern     string        `json:"pattern,omitempty"`
-	Title       string        `json:"title,omitempty"`
+	Meta        map[string]any `json:"_meta,omitempty"`
+	Default     string         `json:"default,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Enum        []string       `json:"enum,omitempty"`
+	Format      *StringFormat  `json:"format,omitempty"`
+	MaxLength   *int64         `json:"maxLength,omitempty"`
+	MinLength   *int64         `json:"minLength,omitempty"`
+	OneOf       []EnumOption   `json:"oneOf,omitempty"`
+	Pattern     string         `json:"pattern,omitempty"`
+	Title       string         `json:"title,omitempty"`
 }
 
 // Request for a code suggestion.
@@ -4833,7 +5964,7 @@ type SuggestNesResponse struct {
 // See protocol docs: [Terminal](https://agentclientprotocol.com/protocol/terminals)
 type Terminal struct {
 	Meta       map[string]any `json:"_meta,omitempty"`
-	TerminalID string         `json:"terminalId"`
+	TerminalID TerminalID     `json:"terminalId"`
 }
 
 // Exit status of a terminal command.
@@ -4847,7 +5978,7 @@ type TerminalExitStatus struct {
 type TerminalOutputRequest struct {
 	Meta       map[string]any `json:"_meta,omitempty"`
 	SessionID  SessionID      `json:"sessionId"`
-	TerminalID string         `json:"terminalId"`
+	TerminalID TerminalID     `json:"terminalId"`
 }
 
 func (x TerminalOutputRequest) GetSessionID() string { return string(x.SessionID) }
@@ -4872,8 +6003,9 @@ type TextContent struct {
 // When `range` is `None`, `text` is the full content of the document.
 // When `range` is `Some`, `text` replaces the given range.
 type TextDocumentContentChangeEvent struct {
-	Range *Range `json:"range,omitempty"`
-	Text  string `json:"text"`
+	Meta  map[string]any `json:"_meta,omitempty"`
+	Range *Range         `json:"range,omitempty"`
+	Text  string         `json:"text"`
 }
 
 // Text-based resource contents.
@@ -4886,7 +6018,8 @@ type TextResourceContents struct {
 
 // Items definition for titled multi-select enum properties.
 type TitledMultiSelectItems struct {
-	AnyOf []EnumOption `json:"anyOf"`
+	Meta  map[string]any `json:"_meta,omitempty"`
+	AnyOf []EnumOption   `json:"anyOf"`
 }
 
 // Represents a tool call that the language model has requested.
@@ -4945,6 +6078,7 @@ type UnstructuredCommandInput struct {
 
 // Items definition for untitled multi-select enum properties.
 type UntitledMultiSelectItems struct {
+	Meta map[string]any        `json:"_meta,omitempty"`
 	Enum []string              `json:"enum"`
 	Type ElicitationStringType `json:"type"`
 }
@@ -4955,18 +6089,15 @@ type UntitledMultiSelectItems struct {
 //
 // Token usage information for a prompt turn.
 type Usage struct {
-	CachedReadTokens  *int64 `json:"cachedReadTokens,omitempty"`
-	CachedWriteTokens *int64 `json:"cachedWriteTokens,omitempty"`
-	InputTokens       int64  `json:"inputTokens"`
-	OutputTokens      int64  `json:"outputTokens"`
-	ThoughtTokens     *int64 `json:"thoughtTokens,omitempty"`
-	TotalTokens       int64  `json:"totalTokens"`
+	Meta              map[string]any `json:"_meta,omitempty"`
+	CachedReadTokens  *int64         `json:"cachedReadTokens,omitempty"`
+	CachedWriteTokens *int64         `json:"cachedWriteTokens,omitempty"`
+	InputTokens       int64          `json:"inputTokens"`
+	OutputTokens      int64          `json:"outputTokens"`
+	ThoughtTokens     *int64         `json:"thoughtTokens,omitempty"`
+	TotalTokens       int64          `json:"totalTokens"`
 }
 
-// **UNSTABLE**
-//
-// This capability is not part of the spec yet, and may be removed or changed at any point.
-//
 // Context window and cost update for a session.
 type UsageUpdate struct {
 	Meta map[string]any `json:"_meta,omitempty"`
@@ -4979,7 +6110,7 @@ type UsageUpdate struct {
 type WaitForTerminalExitRequest struct {
 	Meta       map[string]any `json:"_meta,omitempty"`
 	SessionID  SessionID      `json:"sessionId"`
-	TerminalID string         `json:"terminalId"`
+	TerminalID TerminalID     `json:"terminalId"`
 }
 
 func (x WaitForTerminalExitRequest) GetSessionID() string { return string(x.SessionID) }
@@ -4993,8 +6124,9 @@ type WaitForTerminalExitResponse struct {
 
 // A workspace folder.
 type WorkspaceFolder struct {
-	Name string `json:"name"`
-	URI  string `json:"uri"`
+	Meta map[string]any `json:"_meta,omitempty"`
+	Name string         `json:"name"`
+	URI  string         `json:"uri"`
 }
 
 // Request to write content to a text file.
@@ -5014,6 +6146,7 @@ type WriteTextFileResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
+// A JSON-RPC response object.
 type AgentResponseResult struct {
 	ID     RequestID       `json:"id"`
 	Result json.RawMessage `json:"result"`
@@ -5102,9 +6235,13 @@ func NewAgentResponseError(v AgentResponseError) AgentResponse {
 	return AgentResponse{Error: &vv}
 }
 
+// Typed identifier used for auth method values on the wire.
+type AuthMethodID string
+
 // The input specification for a command.
 type AvailableCommandInput = UnstructuredCommandInput
 
+// A JSON-RPC response object.
 type ClientResponseResult struct {
 	ID     RequestID       `json:"id"`
 	Result json.RawMessage `json:"result"`
@@ -5193,6 +6330,7 @@ func NewClientResponseError(v ClientResponseError) ClientResponse {
 	return ClientResponse{Error: &vv}
 }
 
+// Allowed wire representations for [`ElicitationContentValue`].
 type ElicitationContentValue struct {
 	String      *ElicitationContentValueString      `json:"-"`
 	Int64       *ElicitationContentValueInt64       `json:"-"`
@@ -5932,8 +7070,22 @@ func NewEmbeddedResourceResourceBlobResourceContents(v BlobResourceContents) Emb
 //
 // This capability is not part of the spec yet, and may be removed or changed at any point.
 //
-// A unique identifier for a model.
-type ModelID string
+// A unique identifier for an active MCP-over-ACP connection.
+type MCPConnectionID string
+
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Unique identifier for an MCP server using the ACP transport.
+//
+// The value is opaque and generated by the ACP component providing the MCP server. It is
+// used by `mcp/connect` to route connection requests back to the component that declared the
+// server.
+type MCPServerAcpID string
+
+// Unique identifier for a message within a session.
+type MessageID string
 
 // Items for a multi-select (array) property schema.
 type MultiSelectItems struct {
@@ -6017,6 +7169,13 @@ func NewMultiSelectItemsTitledMultiSelectItems(v TitledMultiSelectItems) MultiSe
 // Unique identifier for a permission option.
 type PermissionOptionID string
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Unique identifier for a plan within a session.
+type PlanID string
+
 // Protocol version identifier.
 //
 // This version is only bumped for breaking changes.
@@ -6025,13 +7184,13 @@ type ProtocolVersion int64
 
 // JSON RPC Request Id
 //
-// An identifier established by the Client that MUST contain a String, Number, or NULL value if included. If it is not included it is assumed to be a notification. The value SHOULD normally not be Null [1] and Numbers SHOULD NOT contain fractional parts [2]
+// An identifier established by the Client that MUST contain a String, Number, or NULL value if included. If it is not included it is assumed to be a notification. The value SHOULD normally not be Null \[1\] and Numbers SHOULD NOT contain fractional parts \[2\]
 //
 // The Server MUST reply with the same value in the Response object if included. This member is used to correlate the context between the two objects.
 //
-// [1] The use of Null as a value for the id member in a Request object is discouraged, because this specification uses a value of Null for Responses with an unknown id. Also, because JSON-RPC 1.0 uses an id value of Null for Notifications this could cause confusion in handling.
+// \[1\] The use of Null as a value for the id member in a Request object is discouraged, because this specification uses a value of Null for Responses with an unknown id. Also, because JSON-RPC 1.0 uses an id value of Null for Notifications this could cause confusion in handling.
 //
-// [2] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
+// \[2\] Fractional parts may be problematic, since many decimal fractions cannot be represented exactly as binary fractions.
 type RequestID struct {
 	Null   *RequestIDNull   `json:"-"`
 	Int64  *RequestIDInt64  `json:"-"`
@@ -6224,6 +7383,9 @@ type SessionID string
 // Unique identifier for a Session Mode.
 type SessionModeID string
 
+// Typed identifier used for terminal values on the wire.
+type TerminalID string
+
 // Unique identifier for a tool call within a session.
 type ToolCallID string
 
@@ -6248,9 +7410,21 @@ type ExtRequest = json.RawMessage
 // See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
 type ExtResponse = json.RawMessage
 
+// **UNSTABLE**
+//
+// This capability is not part of the spec yet, and may be removed or changed at any point.
+//
+// Response to `mcp/message`.
+//
+// This is the inner MCP response result payload. Any JSON value is valid.
+type MessageMCPResponse = json.RawMessage
+
 func (v *AcceptNesNotification) Validate() error {
 	if v.ID == "" {
 		return fmt.Errorf("id is required")
+	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
 	}
 	return nil
 }
@@ -6292,6 +7466,13 @@ func (v *AuthMethodEnvVar) Validate() error {
 	if v.Vars == nil {
 		return fmt.Errorf("vars is required")
 	}
+	for i := range v.Vars {
+		if validator, ok := any(&v.Vars[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Vars[%d]: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -6330,6 +7511,13 @@ func (v *AvailableCommandsUpdate) Validate() error {
 	if v.AvailableCommands == nil {
 		return fmt.Errorf("availableCommands is required")
 	}
+	for i := range v.AvailableCommands {
+		if validator, ok := any(&v.AvailableCommands[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("AvailableCommands[%d]: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -6344,6 +7532,9 @@ func (v *BlobResourceContents) Validate() error {
 }
 
 func (v *CancelNotification) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -6352,6 +7543,9 @@ func (v *CancelRequestNotification) Validate() error {
 }
 
 func (v *CloseNesRequest) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -6360,6 +7554,9 @@ func (v *CloseNesResponse) Validate() error {
 }
 
 func (v *CloseSessionRequest) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -6368,12 +7565,54 @@ func (v *CloseSessionResponse) Validate() error {
 }
 
 func (v *CompleteElicitationNotification) Validate() error {
+	if v.ElicitationID == "" {
+		return fmt.Errorf("elicitationId is required")
+	}
 	return nil
 }
 
 func (v *ConfigOptionUpdate) Validate() error {
 	if v.ConfigOptions == nil {
 		return fmt.Errorf("configOptions is required")
+	}
+	for i := range v.ConfigOptions {
+		if validator, ok := any(&v.ConfigOptions[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("ConfigOptions[%d]: %w", i, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (v *ConnectMCPRequest) Validate() error {
+	if v.AcpID == "" {
+		return fmt.Errorf("acpId is required")
+	}
+	return nil
+}
+
+func (v *ConnectMCPResponse) Validate() error {
+	if v.ConnectionID == "" {
+		return fmt.Errorf("connectionId is required")
+	}
+	return nil
+}
+
+func (v *Content) Validate() error {
+	if validator, ok := any(&v.Content).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Content: %w", err)
+		}
+	}
+	return nil
+}
+
+func (v *ContentChunk) Validate() error {
+	if validator, ok := any(&v.Content).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Content: %w", err)
+		}
 	}
 	return nil
 }
@@ -6389,6 +7628,9 @@ func (v *CreateTerminalRequest) Validate() error {
 	if v.Command == "" {
 		return fmt.Errorf("command is required")
 	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -6399,9 +7641,37 @@ func (v *CreateTerminalResponse) Validate() error {
 	return nil
 }
 
+func (v *CurrentModeUpdate) Validate() error {
+	if v.CurrentModeID == "" {
+		return fmt.Errorf("currentModeId is required")
+	}
+	return nil
+}
+
+func (v *DeleteSessionRequest) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
+	return nil
+}
+
+func (v *DeleteSessionResponse) Validate() error {
+	return nil
+}
+
 func (v *DidChangeDocumentNotification) Validate() error {
 	if v.ContentChanges == nil {
 		return fmt.Errorf("contentChanges is required")
+	}
+	for i := range v.ContentChanges {
+		if validator, ok := any(&v.ContentChanges[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("ContentChanges[%d]: %w", i, err)
+			}
+		}
+	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
 	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
@@ -6410,6 +7680,9 @@ func (v *DidChangeDocumentNotification) Validate() error {
 }
 
 func (v *DidCloseDocumentNotification) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
 	}
@@ -6417,8 +7690,21 @@ func (v *DidCloseDocumentNotification) Validate() error {
 }
 
 func (v *DidFocusDocumentNotification) Validate() error {
+	if validator, ok := any(&v.Position).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Position: %w", err)
+		}
+	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
+	}
+	if validator, ok := any(&v.VisibleRange).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("VisibleRange: %w", err)
+		}
 	}
 	return nil
 }
@@ -6426,6 +7712,9 @@ func (v *DidFocusDocumentNotification) Validate() error {
 func (v *DidOpenDocumentNotification) Validate() error {
 	if v.LanguageID == "" {
 		return fmt.Errorf("languageId is required")
+	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
 	}
 	if v.Text == "" {
 		return fmt.Errorf("text is required")
@@ -6437,6 +7726,9 @@ func (v *DidOpenDocumentNotification) Validate() error {
 }
 
 func (v *DidSaveDocumentNotification) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
 	}
@@ -6453,14 +7745,41 @@ func (v *Diff) Validate() error {
 	return nil
 }
 
-func (v *DisableProvidersRequest) Validate() error {
+func (v *DisableProviderRequest) Validate() error {
 	if v.ID == "" {
 		return fmt.Errorf("id is required")
 	}
 	return nil
 }
 
-func (v *DisableProvidersResponse) Validate() error {
+func (v *DisableProviderResponse) Validate() error {
+	return nil
+}
+
+func (v *DisconnectMCPRequest) Validate() error {
+	if v.ConnectionID == "" {
+		return fmt.Errorf("connectionId is required")
+	}
+	return nil
+}
+
+func (v *DisconnectMCPResponse) Validate() error {
+	return nil
+}
+
+func (v *ElicitationSessionScope) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
+	return nil
+}
+
+func (v *EmbeddedResource) Validate() error {
+	if validator, ok := any(&v.Resource).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Resource: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -6495,10 +7814,16 @@ func (v *ForkSessionRequest) Validate() error {
 	if v.Cwd == "" {
 		return fmt.Errorf("cwd is required")
 	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
 func (v *ForkSessionResponse) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -6541,6 +7866,9 @@ func (v *InitializeResponse) Validate() error {
 }
 
 func (v *KillTerminalRequest) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	if v.TerminalID == "" {
 		return fmt.Errorf("terminalId is required")
 	}
@@ -6559,6 +7887,13 @@ func (v *ListProvidersResponse) Validate() error {
 	if v.Providers == nil {
 		return fmt.Errorf("providers is required")
 	}
+	for i := range v.Providers {
+		if validator, ok := any(&v.Providers[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Providers[%d]: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -6570,6 +7905,13 @@ func (v *ListSessionsResponse) Validate() error {
 	if v.Sessions == nil {
 		return fmt.Errorf("sessions is required")
 	}
+	for i := range v.Sessions {
+		if validator, ok := any(&v.Sessions[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Sessions[%d]: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -6579,6 +7921,16 @@ func (v *LoadSessionRequest) Validate() error {
 	}
 	if v.MCPServers == nil {
 		return fmt.Errorf("mcpServers is required")
+	}
+	for i := range v.MCPServers {
+		if validator, ok := any(&v.MCPServers[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("MCPServers[%d]: %w", i, err)
+			}
+		}
+	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
 	}
 	return nil
 }
@@ -6595,9 +7947,26 @@ func (v *LogoutResponse) Validate() error {
 	return nil
 }
 
+func (v *MCPServerAcp) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if v.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	return nil
+}
+
 func (v *MCPServerHTTP) Validate() error {
 	if v.Headers == nil {
 		return fmt.Errorf("headers is required")
+	}
+	for i := range v.Headers {
+		if validator, ok := any(&v.Headers[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Headers[%d]: %w", i, err)
+			}
+		}
 	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
@@ -6611,6 +7980,13 @@ func (v *MCPServerHTTP) Validate() error {
 func (v *MCPServerSSE) Validate() error {
 	if v.Headers == nil {
 		return fmt.Errorf("headers is required")
+	}
+	for i := range v.Headers {
+		if validator, ok := any(&v.Headers[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Headers[%d]: %w", i, err)
+			}
+		}
 	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
@@ -6631,15 +8007,44 @@ func (v *MCPServerStdio) Validate() error {
 	if v.Env == nil {
 		return fmt.Errorf("env is required")
 	}
+	for i := range v.Env {
+		if validator, ok := any(&v.Env[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Env[%d]: %w", i, err)
+			}
+		}
+	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
 	return nil
 }
 
-func (v *ModelInfo) Validate() error {
-	if v.Name == "" {
-		return fmt.Errorf("name is required")
+func (v *MessageMCPNotification) Validate() error {
+	if v.ConnectionID == "" {
+		return fmt.Errorf("connectionId is required")
+	}
+	if v.Method == "" {
+		return fmt.Errorf("method is required")
+	}
+	return nil
+}
+
+func (v *MessageMCPRequest) Validate() error {
+	if v.ConnectionID == "" {
+		return fmt.Errorf("connectionId is required")
+	}
+	if v.Method == "" {
+		return fmt.Errorf("method is required")
+	}
+	return nil
+}
+
+func (v *MultiSelectPropertySchema) Validate() error {
+	if validator, ok := any(&v.Items).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Items: %w", err)
+		}
 	}
 	return nil
 }
@@ -6647,6 +8052,11 @@ func (v *ModelInfo) Validate() error {
 func (v *NesDiagnostic) Validate() error {
 	if v.Message == "" {
 		return fmt.Errorf("message is required")
+	}
+	if validator, ok := any(&v.Range).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Range: %w", err)
+		}
 	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
@@ -6668,6 +8078,13 @@ func (v *NesEditSuggestion) Validate() error {
 	if v.Edits == nil {
 		return fmt.Errorf("edits is required")
 	}
+	for i := range v.Edits {
+		if validator, ok := any(&v.Edits[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Edits[%d]: %w", i, err)
+			}
+		}
+	}
 	if v.ID == "" {
 		return fmt.Errorf("id is required")
 	}
@@ -6687,6 +8104,11 @@ func (v *NesExcerpt) Validate() error {
 func (v *NesJumpSuggestion) Validate() error {
 	if v.ID == "" {
 		return fmt.Errorf("id is required")
+	}
+	if validator, ok := any(&v.Position).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Position: %w", err)
+		}
 	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
@@ -6721,6 +8143,13 @@ func (v *NesRelatedSnippet) Validate() error {
 	if v.Excerpts == nil {
 		return fmt.Errorf("excerpts is required")
 	}
+	for i := range v.Excerpts {
+		if validator, ok := any(&v.Excerpts[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Excerpts[%d]: %w", i, err)
+			}
+		}
+	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
 	}
@@ -6733,6 +8162,11 @@ func (v *NesRenameSuggestion) Validate() error {
 	}
 	if v.NewName == "" {
 		return fmt.Errorf("newName is required")
+	}
+	if validator, ok := any(&v.Position).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Position: %w", err)
+		}
 	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
@@ -6773,12 +8207,22 @@ func (v *NesTextEdit) Validate() error {
 	if v.NewText == "" {
 		return fmt.Errorf("newText is required")
 	}
+	if validator, ok := any(&v.Range).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Range: %w", err)
+		}
+	}
 	return nil
 }
 
 func (v *NesUserAction) Validate() error {
 	if v.Action == "" {
 		return fmt.Errorf("action is required")
+	}
+	if validator, ok := any(&v.Position).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Position: %w", err)
+		}
 	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
@@ -6793,10 +8237,20 @@ func (v *NewSessionRequest) Validate() error {
 	if v.MCPServers == nil {
 		return fmt.Errorf("mcpServers is required")
 	}
+	for i := range v.MCPServers {
+		if validator, ok := any(&v.MCPServers[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("MCPServers[%d]: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
 func (v *NewSessionResponse) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -6804,12 +8258,22 @@ func (v *PermissionOption) Validate() error {
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
+	if v.OptionID == "" {
+		return fmt.Errorf("optionId is required")
+	}
 	return nil
 }
 
 func (v *Plan) Validate() error {
 	if v.Entries == nil {
 		return fmt.Errorf("entries is required")
+	}
+	for i := range v.Entries {
+		if validator, ok := any(&v.Entries[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Entries[%d]: %w", i, err)
+			}
+		}
 	}
 	return nil
 }
@@ -6821,9 +8285,72 @@ func (v *PlanEntry) Validate() error {
 	return nil
 }
 
+func (v *PlanFile) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if v.URI == "" {
+		return fmt.Errorf("uri is required")
+	}
+	return nil
+}
+
+func (v *PlanItems) Validate() error {
+	if v.Entries == nil {
+		return fmt.Errorf("entries is required")
+	}
+	for i := range v.Entries {
+		if validator, ok := any(&v.Entries[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Entries[%d]: %w", i, err)
+			}
+		}
+	}
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	return nil
+}
+
+func (v *PlanMarkdown) Validate() error {
+	if v.Content == "" {
+		return fmt.Errorf("content is required")
+	}
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	return nil
+}
+
+func (v *PlanRemoved) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	return nil
+}
+
+func (v *PlanUpdate) Validate() error {
+	if validator, ok := any(&v.Plan).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Plan: %w", err)
+		}
+	}
+	return nil
+}
+
 func (v *PromptRequest) Validate() error {
 	if v.Prompt == nil {
 		return fmt.Errorf("prompt is required")
+	}
+	for i := range v.Prompt {
+		if validator, ok := any(&v.Prompt[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Prompt[%d]: %w", i, err)
+			}
+		}
+	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
 	}
 	return nil
 }
@@ -6849,9 +8376,26 @@ func (v *ProviderInfo) Validate() error {
 	return nil
 }
 
+func (v *Range) Validate() error {
+	if validator, ok := any(&v.End).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("End: %w", err)
+		}
+	}
+	if validator, ok := any(&v.Start).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Start: %w", err)
+		}
+	}
+	return nil
+}
+
 func (v *ReadTextFileRequest) Validate() error {
 	if v.Path == "" {
 		return fmt.Errorf("path is required")
+	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
 	}
 	return nil
 }
@@ -6867,10 +8411,16 @@ func (v *RejectNesNotification) Validate() error {
 	if v.ID == "" {
 		return fmt.Errorf("id is required")
 	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
 func (v *ReleaseTerminalRequest) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	if v.TerminalID == "" {
 		return fmt.Errorf("terminalId is required")
 	}
@@ -6885,10 +8435,30 @@ func (v *RequestPermissionRequest) Validate() error {
 	if v.Options == nil {
 		return fmt.Errorf("options is required")
 	}
+	for i := range v.Options {
+		if validator, ok := any(&v.Options[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Options[%d]: %w", i, err)
+			}
+		}
+	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
+	if validator, ok := any(&v.ToolCall).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("ToolCall: %w", err)
+		}
+	}
 	return nil
 }
 
 func (v *RequestPermissionResponse) Validate() error {
+	if validator, ok := any(&v.Outcome).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Outcome: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -6906,6 +8476,9 @@ func (v *ResumeSessionRequest) Validate() error {
 	if v.Cwd == "" {
 		return fmt.Errorf("cwd is required")
 	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -6913,12 +8486,41 @@ func (v *ResumeSessionResponse) Validate() error {
 	return nil
 }
 
+func (v *SelectedPermissionOutcome) Validate() error {
+	if v.OptionID == "" {
+		return fmt.Errorf("optionId is required")
+	}
+	return nil
+}
+
+func (v *SessionConfigSelect) Validate() error {
+	if v.CurrentValue == "" {
+		return fmt.Errorf("currentValue is required")
+	}
+	if validator, ok := any(&v.Options).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Options: %w", err)
+		}
+	}
+	return nil
+}
+
 func (v *SessionConfigSelectGroup) Validate() error {
+	if v.Group == "" {
+		return fmt.Errorf("group is required")
+	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
 	if v.Options == nil {
 		return fmt.Errorf("options is required")
+	}
+	for i := range v.Options {
+		if validator, ok := any(&v.Options[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Options[%d]: %w", i, err)
+			}
+		}
 	}
 	return nil
 }
@@ -6927,6 +8529,9 @@ func (v *SessionConfigSelectOption) Validate() error {
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
+	if v.Value == "" {
+		return fmt.Errorf("value is required")
+	}
 	return nil
 }
 
@@ -6934,10 +8539,16 @@ func (v *SessionInfo) Validate() error {
 	if v.Cwd == "" {
 		return fmt.Errorf("cwd is required")
 	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
 func (v *SessionMode) Validate() error {
+	if v.ID == "" {
+		return fmt.Errorf("id is required")
+	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -6948,21 +8559,32 @@ func (v *SessionModeState) Validate() error {
 	if v.AvailableModes == nil {
 		return fmt.Errorf("availableModes is required")
 	}
-	return nil
-}
-
-func (v *SessionModelState) Validate() error {
-	if v.AvailableModels == nil {
-		return fmt.Errorf("availableModels is required")
+	for i := range v.AvailableModes {
+		if validator, ok := any(&v.AvailableModes[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("AvailableModes[%d]: %w", i, err)
+			}
+		}
+	}
+	if v.CurrentModeID == "" {
+		return fmt.Errorf("currentModeId is required")
 	}
 	return nil
 }
 
 func (v *SessionNotification) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
+	if validator, ok := any(&v.Update).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Update: %w", err)
+		}
+	}
 	return nil
 }
 
-func (v *SetProvidersRequest) Validate() error {
+func (v *SetProviderRequest) Validate() error {
 	if v.BaseURL == "" {
 		return fmt.Errorf("baseUrl is required")
 	}
@@ -6972,7 +8594,7 @@ func (v *SetProvidersRequest) Validate() error {
 	return nil
 }
 
-func (v *SetProvidersResponse) Validate() error {
+func (v *SetProviderResponse) Validate() error {
 	return nil
 }
 
@@ -6980,22 +8602,27 @@ func (v *SetSessionConfigOptionResponse) Validate() error {
 	if v.ConfigOptions == nil {
 		return fmt.Errorf("configOptions is required")
 	}
+	for i := range v.ConfigOptions {
+		if validator, ok := any(&v.ConfigOptions[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("ConfigOptions[%d]: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
 func (v *SetSessionModeRequest) Validate() error {
+	if v.ModeID == "" {
+		return fmt.Errorf("modeId is required")
+	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
 func (v *SetSessionModeResponse) Validate() error {
-	return nil
-}
-
-func (v *SetSessionModelRequest) Validate() error {
-	return nil
-}
-
-func (v *SetSessionModelResponse) Validate() error {
 	return nil
 }
 
@@ -7004,10 +8631,21 @@ func (v *StartNesRequest) Validate() error {
 }
 
 func (v *StartNesResponse) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
 func (v *SuggestNesRequest) Validate() error {
+	if validator, ok := any(&v.Position).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("Position: %w", err)
+		}
+	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	if v.URI == "" {
 		return fmt.Errorf("uri is required")
 	}
@@ -7017,6 +8655,13 @@ func (v *SuggestNesRequest) Validate() error {
 func (v *SuggestNesResponse) Validate() error {
 	if v.Suggestions == nil {
 		return fmt.Errorf("suggestions is required")
+	}
+	for i := range v.Suggestions {
+		if validator, ok := any(&v.Suggestions[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("Suggestions[%d]: %w", i, err)
+			}
+		}
 	}
 	return nil
 }
@@ -7029,6 +8674,9 @@ func (v *Terminal) Validate() error {
 }
 
 func (v *TerminalOutputRequest) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	if v.TerminalID == "" {
 		return fmt.Errorf("terminalId is required")
 	}
@@ -7070,6 +8718,13 @@ func (v *TitledMultiSelectItems) Validate() error {
 	if v.AnyOf == nil {
 		return fmt.Errorf("anyOf is required")
 	}
+	for i := range v.AnyOf {
+		if validator, ok := any(&v.AnyOf[i]).(interface{ Validate() error }); ok {
+			if err := validator.Validate(); err != nil {
+				return fmt.Errorf("AnyOf[%d]: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -7077,12 +8732,22 @@ func (v *ToolCall) Validate() error {
 	if v.Title == "" {
 		return fmt.Errorf("title is required")
 	}
+	if v.ToolCallID == "" {
+		return fmt.Errorf("toolCallId is required")
+	}
 	return nil
 }
 
 func (v *ToolCallLocation) Validate() error {
 	if v.Path == "" {
 		return fmt.Errorf("path is required")
+	}
+	return nil
+}
+
+func (v *ToolCallUpdate) Validate() error {
+	if v.ToolCallID == "" {
+		return fmt.Errorf("toolCallId is required")
 	}
 	return nil
 }
@@ -7102,6 +8767,9 @@ func (v *UntitledMultiSelectItems) Validate() error {
 }
 
 func (v *WaitForTerminalExitRequest) Validate() error {
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	if v.TerminalID == "" {
 		return fmt.Errorf("terminalId is required")
 	}
@@ -7129,6 +8797,9 @@ func (v *WriteTextFileRequest) Validate() error {
 	if v.Path == "" {
 		return fmt.Errorf("path is required")
 	}
+	if v.SessionID == "" {
+		return fmt.Errorf("sessionId is required")
+	}
 	return nil
 }
 
@@ -7143,15 +8814,80 @@ func hasKey(raw map[string]json.RawMessage, key string) bool {
 	return ok && string(rm) != "null"
 }
 
+func (v *AcceptNesNotification) UnmarshalJSON(data []byte) error {
+	type Alias AcceptNesNotification
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = AcceptNesNotification(a)
+	return nil
+}
+
+func (v *AgentAuthCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias AgentAuthCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*LogoutCapabilities](raw, "logout")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = AgentAuthCapabilities(a)
+	return nil
+}
+
 func (v *AgentCapabilities) UnmarshalJSON(data []byte) error {
 	type Alias AgentCapabilities
 	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
+	strictErr := json.Unmarshal(data, &a)
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
+		if strictErr != nil {
+			return strictErr
+		}
 		return fmt.Errorf("AgentCapabilities: decode raw fields: %w", err)
+	}
+	if strictErr != nil {
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*AgentAuthCapabilities](raw, "auth")
+		dropIfUndecodable[bool](raw, "loadSession")
+		dropIfUndecodable[*MCPCapabilities](raw, "mcpCapabilities")
+		dropIfUndecodable[*NesCapabilities](raw, "nes")
+		dropIfUndecodable[*PositionEncodingKind](raw, "positionEncoding")
+		dropIfUndecodable[*PromptCapabilities](raw, "promptCapabilities")
+		dropIfUndecodable[*ProvidersCapabilities](raw, "providers")
+		dropIfUndecodable[*SessionCapabilities](raw, "sessionCapabilities")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
 	}
 	if rm, ok := raw["auth"]; !ok || string(rm) == "null" {
 		if err := json.Unmarshal([]byte("{}"), &a.Auth); err != nil {
@@ -7164,12 +8900,12 @@ func (v *AgentCapabilities) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if rm, ok := raw["mcpCapabilities"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("{\"http\":false,\"sse\":false}"), &a.MCPCapabilities); err != nil {
+		if err := json.Unmarshal([]byte("{\"http\":false,\"sse\":false,\"acp\":false}"), &a.MCPCapabilities); err != nil {
 			return fmt.Errorf("AgentCapabilities: apply default for mcpCapabilities: %w", err)
 		}
 	}
 	if rm, ok := raw["promptCapabilities"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("{\"audio\":false,\"embeddedContext\":false,\"image\":false}"), &a.PromptCapabilities); err != nil {
+		if err := json.Unmarshal([]byte("{\"image\":false,\"audio\":false,\"embeddedContext\":false}"), &a.PromptCapabilities); err != nil {
 			return fmt.Errorf("AgentCapabilities: apply default for promptCapabilities: %w", err)
 		}
 	}
@@ -7182,15 +8918,76 @@ func (v *AgentCapabilities) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (v *Annotations) UnmarshalJSON(data []byte) error {
+	type Alias Annotations
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[Role](raw, "audience")
+		dropIfUndecodable[string](raw, "lastModified")
+		dropIfUndecodable[*float64](raw, "priority")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = Annotations(a)
+	return nil
+}
+
+func (v *AudioContent) UnmarshalJSON(data []byte) error {
+	type Alias AudioContent
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*Annotations](raw, "annotations")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = AudioContent(a)
+	return nil
+}
+
 func (v *AuthCapabilities) UnmarshalJSON(data []byte) error {
 	type Alias AuthCapabilities
 	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
+	strictErr := json.Unmarshal(data, &a)
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
+		if strictErr != nil {
+			return strictErr
+		}
 		return fmt.Errorf("AuthCapabilities: decode raw fields: %w", err)
+	}
+	if strictErr != nil {
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[bool](raw, "terminal")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
 	}
 	if rm, ok := raw["terminal"]; !ok || string(rm) == "null" {
 		if err := json.Unmarshal([]byte("false"), &a.Terminal); err != nil {
@@ -7204,12 +9001,27 @@ func (v *AuthCapabilities) UnmarshalJSON(data []byte) error {
 func (v *AuthEnvVar) UnmarshalJSON(data []byte) error {
 	type Alias AuthEnvVar
 	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
+	strictErr := json.Unmarshal(data, &a)
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
+		if strictErr != nil {
+			return strictErr
+		}
 		return fmt.Errorf("AuthEnvVar: decode raw fields: %w", err)
+	}
+	if strictErr != nil {
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "label")
+		dropIfUndecodable[bool](raw, "optional")
+		dropIfUndecodable[bool](raw, "secret")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
 	}
 	if rm, ok := raw["optional"]; !ok || string(rm) == "null" {
 		if err := json.Unmarshal([]byte("false"), &a.Optional); err != nil {
@@ -7225,15 +9037,312 @@ func (v *AuthEnvVar) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (v *AuthMethodAgent) UnmarshalJSON(data []byte) error {
+	type Alias AuthMethodAgent
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "description")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = AuthMethodAgent(a)
+	return nil
+}
+
+func (v *AuthMethodEnvVar) UnmarshalJSON(data []byte) error {
+	type Alias AuthMethodEnvVar
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "description")
+		dropIfUndecodable[string](raw, "link")
+		keepDecodableItems[AuthEnvVar](raw, "vars")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = AuthMethodEnvVar(a)
+	return nil
+}
+
+func (v *AuthMethodTerminal) UnmarshalJSON(data []byte) error {
+	type Alias AuthMethodTerminal
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[string](raw, "args")
+		dropIfUndecodable[string](raw, "description")
+		dropIfUndecodable[map[string]string](raw, "env")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = AuthMethodTerminal(a)
+	return nil
+}
+
+func (v *AuthenticateRequest) UnmarshalJSON(data []byte) error {
+	type Alias AuthenticateRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = AuthenticateRequest(a)
+	return nil
+}
+
+func (v *AuthenticateResponse) UnmarshalJSON(data []byte) error {
+	type Alias AuthenticateResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = AuthenticateResponse(a)
+	return nil
+}
+
+func (v *AvailableCommand) UnmarshalJSON(data []byte) error {
+	type Alias AvailableCommand
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*AvailableCommandInput](raw, "input")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = AvailableCommand(a)
+	return nil
+}
+
+func (v *AvailableCommandsUpdate) UnmarshalJSON(data []byte) error {
+	type Alias AvailableCommandsUpdate
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[AvailableCommand](raw, "availableCommands")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = AvailableCommandsUpdate(a)
+	return nil
+}
+
+func (v *BlobResourceContents) UnmarshalJSON(data []byte) error {
+	type Alias BlobResourceContents
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "mimeType")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = BlobResourceContents(a)
+	return nil
+}
+
+func (v *BooleanConfigOptionCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias BooleanConfigOptionCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = BooleanConfigOptionCapabilities(a)
+	return nil
+}
+
+func (v *BooleanPropertySchema) UnmarshalJSON(data []byte) error {
+	type Alias BooleanPropertySchema
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*bool](raw, "default")
+		dropIfUndecodable[string](raw, "description")
+		dropIfUndecodable[string](raw, "title")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = BooleanPropertySchema(a)
+	return nil
+}
+
+func (v *CancelNotification) UnmarshalJSON(data []byte) error {
+	type Alias CancelNotification
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = CancelNotification(a)
+	return nil
+}
+
+func (v *CancelRequestNotification) UnmarshalJSON(data []byte) error {
+	type Alias CancelRequestNotification
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = CancelRequestNotification(a)
+	return nil
+}
+
 func (v *ClientCapabilities) UnmarshalJSON(data []byte) error {
 	type Alias ClientCapabilities
 	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
+	strictErr := json.Unmarshal(data, &a)
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
+		if strictErr != nil {
+			return strictErr
+		}
 		return fmt.Errorf("ClientCapabilities: decode raw fields: %w", err)
+	}
+	if strictErr != nil {
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*AuthCapabilities](raw, "auth")
+		dropIfUndecodable[*ElicitationCapabilities](raw, "elicitation")
+		dropIfUndecodable[*FileSystemCapabilities](raw, "fs")
+		dropIfUndecodable[*ClientNesCapabilities](raw, "nes")
+		dropIfUndecodable[*PlanCapabilities](raw, "plan")
+		keepDecodableItems[PositionEncodingKind](raw, "positionEncodings")
+		dropIfUndecodable[*ClientSessionCapabilities](raw, "session")
+		dropIfUndecodable[bool](raw, "terminal")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
 	}
 	if rm, ok := raw["auth"]; !ok || string(rm) == "null" {
 		if err := json.Unmarshal([]byte("{\"terminal\":false}"), &a.Auth); err != nil {
@@ -7254,15 +9363,728 @@ func (v *ClientCapabilities) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (v *ClientNesCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias ClientNesCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*NesJumpCapabilities](raw, "jump")
+		dropIfUndecodable[*NesRenameCapabilities](raw, "rename")
+		dropIfUndecodable[*NesSearchAndReplaceCapabilities](raw, "searchAndReplace")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ClientNesCapabilities(a)
+	return nil
+}
+
+func (v *ClientSessionCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias ClientSessionCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*SessionConfigOptionsCapabilities](raw, "configOptions")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ClientSessionCapabilities(a)
+	return nil
+}
+
+func (v *CloseNesRequest) UnmarshalJSON(data []byte) error {
+	type Alias CloseNesRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = CloseNesRequest(a)
+	return nil
+}
+
+func (v *CloseNesResponse) UnmarshalJSON(data []byte) error {
+	type Alias CloseNesResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = CloseNesResponse(a)
+	return nil
+}
+
+func (v *CloseSessionRequest) UnmarshalJSON(data []byte) error {
+	type Alias CloseSessionRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = CloseSessionRequest(a)
+	return nil
+}
+
+func (v *CloseSessionResponse) UnmarshalJSON(data []byte) error {
+	type Alias CloseSessionResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = CloseSessionResponse(a)
+	return nil
+}
+
+func (v *CompleteElicitationNotification) UnmarshalJSON(data []byte) error {
+	type Alias CompleteElicitationNotification
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = CompleteElicitationNotification(a)
+	return nil
+}
+
+func (v *ConfigOptionUpdate) UnmarshalJSON(data []byte) error {
+	type Alias ConfigOptionUpdate
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[SessionConfigOption](raw, "configOptions")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ConfigOptionUpdate(a)
+	return nil
+}
+
+func (v *ConnectMCPRequest) UnmarshalJSON(data []byte) error {
+	type Alias ConnectMCPRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ConnectMCPRequest(a)
+	return nil
+}
+
+func (v *ConnectMCPResponse) UnmarshalJSON(data []byte) error {
+	type Alias ConnectMCPResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ConnectMCPResponse(a)
+	return nil
+}
+
+func (v *Content) UnmarshalJSON(data []byte) error {
+	type Alias Content
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = Content(a)
+	return nil
+}
+
+func (v *ContentChunk) UnmarshalJSON(data []byte) error {
+	type Alias ContentChunk
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*MessageID](raw, "messageId")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ContentChunk(a)
+	return nil
+}
+
+func (v *Cost) UnmarshalJSON(data []byte) error {
+	type Alias Cost
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = Cost(a)
+	return nil
+}
+
+func (v *CreateTerminalRequest) UnmarshalJSON(data []byte) error {
+	type Alias CreateTerminalRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[string](raw, "args")
+		dropIfUndecodable[string](raw, "cwd")
+		keepDecodableItems[EnvVariable](raw, "env")
+		dropIfUndecodable[*int64](raw, "outputByteLimit")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = CreateTerminalRequest(a)
+	return nil
+}
+
+func (v *CreateTerminalResponse) UnmarshalJSON(data []byte) error {
+	type Alias CreateTerminalResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = CreateTerminalResponse(a)
+	return nil
+}
+
+func (v *CurrentModeUpdate) UnmarshalJSON(data []byte) error {
+	type Alias CurrentModeUpdate
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = CurrentModeUpdate(a)
+	return nil
+}
+
+func (v *DeleteSessionRequest) UnmarshalJSON(data []byte) error {
+	type Alias DeleteSessionRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = DeleteSessionRequest(a)
+	return nil
+}
+
+func (v *DeleteSessionResponse) UnmarshalJSON(data []byte) error {
+	type Alias DeleteSessionResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = DeleteSessionResponse(a)
+	return nil
+}
+
+func (v *DidChangeDocumentNotification) UnmarshalJSON(data []byte) error {
+	type Alias DidChangeDocumentNotification
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[TextDocumentContentChangeEvent](raw, "contentChanges")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = DidChangeDocumentNotification(a)
+	return nil
+}
+
+func (v *DidCloseDocumentNotification) UnmarshalJSON(data []byte) error {
+	type Alias DidCloseDocumentNotification
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = DidCloseDocumentNotification(a)
+	return nil
+}
+
+func (v *DidFocusDocumentNotification) UnmarshalJSON(data []byte) error {
+	type Alias DidFocusDocumentNotification
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = DidFocusDocumentNotification(a)
+	return nil
+}
+
+func (v *DidOpenDocumentNotification) UnmarshalJSON(data []byte) error {
+	type Alias DidOpenDocumentNotification
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = DidOpenDocumentNotification(a)
+	return nil
+}
+
+func (v *DidSaveDocumentNotification) UnmarshalJSON(data []byte) error {
+	type Alias DidSaveDocumentNotification
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = DidSaveDocumentNotification(a)
+	return nil
+}
+
+func (v *Diff) UnmarshalJSON(data []byte) error {
+	type Alias Diff
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "oldText")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = Diff(a)
+	return nil
+}
+
+func (v *DisableProviderRequest) UnmarshalJSON(data []byte) error {
+	type Alias DisableProviderRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = DisableProviderRequest(a)
+	return nil
+}
+
+func (v *DisableProviderResponse) UnmarshalJSON(data []byte) error {
+	type Alias DisableProviderResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = DisableProviderResponse(a)
+	return nil
+}
+
+func (v *DisconnectMCPRequest) UnmarshalJSON(data []byte) error {
+	type Alias DisconnectMCPRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = DisconnectMCPRequest(a)
+	return nil
+}
+
+func (v *DisconnectMCPResponse) UnmarshalJSON(data []byte) error {
+	type Alias DisconnectMCPResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = DisconnectMCPResponse(a)
+	return nil
+}
+
+func (v *ElicitationAcceptAction) UnmarshalJSON(data []byte) error {
+	type Alias ElicitationAcceptAction
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]ElicitationContentValue](raw, "content")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ElicitationAcceptAction(a)
+	return nil
+}
+
+func (v *ElicitationCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias ElicitationCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*ElicitationFormCapabilities](raw, "form")
+		dropIfUndecodable[*ElicitationURLCapabilities](raw, "url")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ElicitationCapabilities(a)
+	return nil
+}
+
+func (v *ElicitationFormCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias ElicitationFormCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ElicitationFormCapabilities(a)
+	return nil
+}
+
 func (v *ElicitationSchema) UnmarshalJSON(data []byte) error {
 	type Alias ElicitationSchema
 	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
+	strictErr := json.Unmarshal(data, &a)
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
+		if strictErr != nil {
+			return strictErr
+		}
 		return fmt.Errorf("ElicitationSchema: decode raw fields: %w", err)
+	}
+	if strictErr != nil {
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "description")
+		dropIfUndecodable[map[string]ElicitationPropertySchema](raw, "properties")
+		keepDecodableItems[string](raw, "required")
+		dropIfUndecodable[string](raw, "title")
+		dropIfUndecodable[*ElicitationSchemaType](raw, "type")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
 	}
 	if rm, ok := raw["properties"]; !ok || string(rm) == "null" {
 		if err := json.Unmarshal([]byte("{}"), &a.Properties); err != nil {
@@ -7278,15 +10100,140 @@ func (v *ElicitationSchema) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (v *ElicitationSessionScope) UnmarshalJSON(data []byte) error {
+	type Alias ElicitationSessionScope
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[*ToolCallID](raw, "toolCallId")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ElicitationSessionScope(a)
+	return nil
+}
+
+func (v *ElicitationURLCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias ElicitationURLCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ElicitationURLCapabilities(a)
+	return nil
+}
+
+func (v *EmbeddedResource) UnmarshalJSON(data []byte) error {
+	type Alias EmbeddedResource
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*Annotations](raw, "annotations")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = EmbeddedResource(a)
+	return nil
+}
+
+func (v *EnumOption) UnmarshalJSON(data []byte) error {
+	type Alias EnumOption
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = EnumOption(a)
+	return nil
+}
+
+func (v *EnvVariable) UnmarshalJSON(data []byte) error {
+	type Alias EnvVariable
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = EnvVariable(a)
+	return nil
+}
+
 func (v *FileSystemCapabilities) UnmarshalJSON(data []byte) error {
 	type Alias FileSystemCapabilities
 	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
+	strictErr := json.Unmarshal(data, &a)
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
+		if strictErr != nil {
+			return strictErr
+		}
 		return fmt.Errorf("FileSystemCapabilities: decode raw fields: %w", err)
+	}
+	if strictErr != nil {
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[bool](raw, "readTextFile")
+		dropIfUndecodable[bool](raw, "writeTextFile")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
 	}
 	if rm, ok := raw["readTextFile"]; !ok || string(rm) == "null" {
 		if err := json.Unmarshal([]byte("false"), &a.ReadTextFile); err != nil {
@@ -7302,18 +10249,149 @@ func (v *FileSystemCapabilities) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (v *ForkSessionRequest) UnmarshalJSON(data []byte) error {
+	type Alias ForkSessionRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[string](raw, "additionalDirectories")
+		keepDecodableItems[MCPServer](raw, "mcpServers")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ForkSessionRequest(a)
+	return nil
+}
+
+func (v *ForkSessionResponse) UnmarshalJSON(data []byte) error {
+	type Alias ForkSessionResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[SessionConfigOption](raw, "configOptions")
+		dropIfUndecodable[*SessionModeState](raw, "modes")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ForkSessionResponse(a)
+	return nil
+}
+
+func (v *HTTPHeader) UnmarshalJSON(data []byte) error {
+	type Alias HTTPHeader
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = HTTPHeader(a)
+	return nil
+}
+
+func (v *ImageContent) UnmarshalJSON(data []byte) error {
+	type Alias ImageContent
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*Annotations](raw, "annotations")
+		dropIfUndecodable[string](raw, "uri")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ImageContent(a)
+	return nil
+}
+
+func (v *Implementation) UnmarshalJSON(data []byte) error {
+	type Alias Implementation
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "title")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = Implementation(a)
+	return nil
+}
+
 func (v *InitializeRequest) UnmarshalJSON(data []byte) error {
 	type Alias InitializeRequest
 	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
+	strictErr := json.Unmarshal(data, &a)
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
+		if strictErr != nil {
+			return strictErr
+		}
 		return fmt.Errorf("InitializeRequest: decode raw fields: %w", err)
 	}
+	if strictErr != nil {
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*ClientCapabilities](raw, "clientCapabilities")
+		dropIfUndecodable[*Implementation](raw, "clientInfo")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
 	if rm, ok := raw["clientCapabilities"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("{\"auth\":{\"terminal\":false},\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false}"), &a.ClientCapabilities); err != nil {
+		if err := json.Unmarshal([]byte("{\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false,\"auth\":{\"terminal\":false}}"), &a.ClientCapabilities); err != nil {
 			return fmt.Errorf("InitializeRequest: apply default for clientCapabilities: %w", err)
 		}
 	}
@@ -7324,15 +10402,30 @@ func (v *InitializeRequest) UnmarshalJSON(data []byte) error {
 func (v *InitializeResponse) UnmarshalJSON(data []byte) error {
 	type Alias InitializeResponse
 	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
+	strictErr := json.Unmarshal(data, &a)
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
+		if strictErr != nil {
+			return strictErr
+		}
 		return fmt.Errorf("InitializeResponse: decode raw fields: %w", err)
 	}
+	if strictErr != nil {
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*AgentCapabilities](raw, "agentCapabilities")
+		dropIfUndecodable[*Implementation](raw, "agentInfo")
+		keepDecodableItems[AuthMethod](raw, "authMethods")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
 	if rm, ok := raw["agentCapabilities"]; !ok || string(rm) == "null" {
-		if err := json.Unmarshal([]byte("{\"auth\":{},\"loadSession\":false,\"mcpCapabilities\":{\"http\":false,\"sse\":false},\"promptCapabilities\":{\"audio\":false,\"embeddedContext\":false,\"image\":false},\"sessionCapabilities\":{}}"), &a.AgentCapabilities); err != nil {
+		if err := json.Unmarshal([]byte("{\"loadSession\":false,\"promptCapabilities\":{\"image\":false,\"audio\":false,\"embeddedContext\":false},\"mcpCapabilities\":{\"http\":false,\"sse\":false,\"acp\":false},\"sessionCapabilities\":{},\"auth\":{}}"), &a.AgentCapabilities); err != nil {
 			return fmt.Errorf("InitializeResponse: apply default for agentCapabilities: %w", err)
 		}
 	}
@@ -7345,15 +10438,313 @@ func (v *InitializeResponse) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (v *IntegerPropertySchema) UnmarshalJSON(data []byte) error {
+	type Alias IntegerPropertySchema
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*int64](raw, "default")
+		dropIfUndecodable[string](raw, "description")
+		dropIfUndecodable[*int64](raw, "maximum")
+		dropIfUndecodable[*int64](raw, "minimum")
+		dropIfUndecodable[string](raw, "title")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = IntegerPropertySchema(a)
+	return nil
+}
+
+func (v *KillTerminalRequest) UnmarshalJSON(data []byte) error {
+	type Alias KillTerminalRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = KillTerminalRequest(a)
+	return nil
+}
+
+func (v *KillTerminalResponse) UnmarshalJSON(data []byte) error {
+	type Alias KillTerminalResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = KillTerminalResponse(a)
+	return nil
+}
+
+func (v *ListProvidersRequest) UnmarshalJSON(data []byte) error {
+	type Alias ListProvidersRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ListProvidersRequest(a)
+	return nil
+}
+
+func (v *ListProvidersResponse) UnmarshalJSON(data []byte) error {
+	type Alias ListProvidersResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[ProviderInfo](raw, "providers")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ListProvidersResponse(a)
+	return nil
+}
+
+func (v *ListSessionsRequest) UnmarshalJSON(data []byte) error {
+	type Alias ListSessionsRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "cursor")
+		dropIfUndecodable[string](raw, "cwd")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ListSessionsRequest(a)
+	return nil
+}
+
+func (v *ListSessionsResponse) UnmarshalJSON(data []byte) error {
+	type Alias ListSessionsResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "nextCursor")
+		keepDecodableItems[SessionInfo](raw, "sessions")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ListSessionsResponse(a)
+	return nil
+}
+
+func (v *LoadSessionRequest) UnmarshalJSON(data []byte) error {
+	type Alias LoadSessionRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[string](raw, "additionalDirectories")
+		keepDecodableItems[MCPServer](raw, "mcpServers")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = LoadSessionRequest(a)
+	return nil
+}
+
+func (v *LoadSessionResponse) UnmarshalJSON(data []byte) error {
+	type Alias LoadSessionResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[SessionConfigOption](raw, "configOptions")
+		dropIfUndecodable[*SessionModeState](raw, "modes")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = LoadSessionResponse(a)
+	return nil
+}
+
+func (v *LogoutCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias LogoutCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = LogoutCapabilities(a)
+	return nil
+}
+
+func (v *LogoutRequest) UnmarshalJSON(data []byte) error {
+	type Alias LogoutRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = LogoutRequest(a)
+	return nil
+}
+
+func (v *LogoutResponse) UnmarshalJSON(data []byte) error {
+	type Alias LogoutResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = LogoutResponse(a)
+	return nil
+}
+
 func (v *MCPCapabilities) UnmarshalJSON(data []byte) error {
 	type Alias MCPCapabilities
 	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
+	strictErr := json.Unmarshal(data, &a)
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
+		if strictErr != nil {
+			return strictErr
+		}
 		return fmt.Errorf("MCPCapabilities: decode raw fields: %w", err)
+	}
+	if strictErr != nil {
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[bool](raw, "acp")
+		dropIfUndecodable[bool](raw, "http")
+		dropIfUndecodable[bool](raw, "sse")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	if rm, ok := raw["acp"]; !ok || string(rm) == "null" {
+		if err := json.Unmarshal([]byte("false"), &a.Acp); err != nil {
+			return fmt.Errorf("MCPCapabilities: apply default for acp: %w", err)
+		}
 	}
 	if rm, ok := raw["http"]; !ok || string(rm) == "null" {
 		if err := json.Unmarshal([]byte("false"), &a.HTTP); err != nil {
@@ -7369,15 +10760,1225 @@ func (v *MCPCapabilities) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (v *MCPServerAcp) UnmarshalJSON(data []byte) error {
+	type Alias MCPServerAcp
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = MCPServerAcp(a)
+	return nil
+}
+
+func (v *MCPServerHTTP) UnmarshalJSON(data []byte) error {
+	type Alias MCPServerHTTP
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[HTTPHeader](raw, "headers")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = MCPServerHTTP(a)
+	return nil
+}
+
+func (v *MCPServerSSE) UnmarshalJSON(data []byte) error {
+	type Alias MCPServerSSE
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[HTTPHeader](raw, "headers")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = MCPServerSSE(a)
+	return nil
+}
+
+func (v *MCPServerStdio) UnmarshalJSON(data []byte) error {
+	type Alias MCPServerStdio
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[string](raw, "args")
+		keepDecodableItems[EnvVariable](raw, "env")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = MCPServerStdio(a)
+	return nil
+}
+
+func (v *MessageMCPNotification) UnmarshalJSON(data []byte) error {
+	type Alias MessageMCPNotification
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[map[string]any](raw, "params")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = MessageMCPNotification(a)
+	return nil
+}
+
+func (v *MessageMCPRequest) UnmarshalJSON(data []byte) error {
+	type Alias MessageMCPRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[map[string]any](raw, "params")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = MessageMCPRequest(a)
+	return nil
+}
+
+func (v *MultiSelectPropertySchema) UnmarshalJSON(data []byte) error {
+	type Alias MultiSelectPropertySchema
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[string](raw, "default")
+		dropIfUndecodable[string](raw, "description")
+		dropIfUndecodable[*int64](raw, "maxItems")
+		dropIfUndecodable[*int64](raw, "minItems")
+		dropIfUndecodable[string](raw, "title")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = MultiSelectPropertySchema(a)
+	return nil
+}
+
+func (v *NesCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*NesContextCapabilities](raw, "context")
+		dropIfUndecodable[*NesEventCapabilities](raw, "events")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesCapabilities(a)
+	return nil
+}
+
+func (v *NesContextCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesContextCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*NesDiagnosticsCapabilities](raw, "diagnostics")
+		dropIfUndecodable[*NesEditHistoryCapabilities](raw, "editHistory")
+		dropIfUndecodable[*NesOpenFilesCapabilities](raw, "openFiles")
+		dropIfUndecodable[*NesRecentFilesCapabilities](raw, "recentFiles")
+		dropIfUndecodable[*NesRelatedSnippetsCapabilities](raw, "relatedSnippets")
+		dropIfUndecodable[*NesUserActionsCapabilities](raw, "userActions")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesContextCapabilities(a)
+	return nil
+}
+
+func (v *NesDiagnostic) UnmarshalJSON(data []byte) error {
+	type Alias NesDiagnostic
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesDiagnostic(a)
+	return nil
+}
+
+func (v *NesDiagnosticsCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesDiagnosticsCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesDiagnosticsCapabilities(a)
+	return nil
+}
+
+func (v *NesDocumentDidChangeCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesDocumentDidChangeCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesDocumentDidChangeCapabilities(a)
+	return nil
+}
+
+func (v *NesDocumentDidCloseCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesDocumentDidCloseCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesDocumentDidCloseCapabilities(a)
+	return nil
+}
+
+func (v *NesDocumentDidFocusCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesDocumentDidFocusCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesDocumentDidFocusCapabilities(a)
+	return nil
+}
+
+func (v *NesDocumentDidOpenCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesDocumentDidOpenCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesDocumentDidOpenCapabilities(a)
+	return nil
+}
+
+func (v *NesDocumentDidSaveCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesDocumentDidSaveCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesDocumentDidSaveCapabilities(a)
+	return nil
+}
+
+func (v *NesDocumentEventCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesDocumentEventCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*NesDocumentDidChangeCapabilities](raw, "didChange")
+		dropIfUndecodable[*NesDocumentDidCloseCapabilities](raw, "didClose")
+		dropIfUndecodable[*NesDocumentDidFocusCapabilities](raw, "didFocus")
+		dropIfUndecodable[*NesDocumentDidOpenCapabilities](raw, "didOpen")
+		dropIfUndecodable[*NesDocumentDidSaveCapabilities](raw, "didSave")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesDocumentEventCapabilities(a)
+	return nil
+}
+
+func (v *NesEditHistoryCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesEditHistoryCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*int64](raw, "maxCount")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesEditHistoryCapabilities(a)
+	return nil
+}
+
+func (v *NesEditHistoryEntry) UnmarshalJSON(data []byte) error {
+	type Alias NesEditHistoryEntry
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesEditHistoryEntry(a)
+	return nil
+}
+
+func (v *NesEditSuggestion) UnmarshalJSON(data []byte) error {
+	type Alias NesEditSuggestion
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*Position](raw, "cursorPosition")
+		keepDecodableItems[NesTextEdit](raw, "edits")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesEditSuggestion(a)
+	return nil
+}
+
+func (v *NesEventCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesEventCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*NesDocumentEventCapabilities](raw, "document")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesEventCapabilities(a)
+	return nil
+}
+
+func (v *NesExcerpt) UnmarshalJSON(data []byte) error {
+	type Alias NesExcerpt
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesExcerpt(a)
+	return nil
+}
+
+func (v *NesJumpCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesJumpCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesJumpCapabilities(a)
+	return nil
+}
+
+func (v *NesJumpSuggestion) UnmarshalJSON(data []byte) error {
+	type Alias NesJumpSuggestion
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesJumpSuggestion(a)
+	return nil
+}
+
+func (v *NesOpenFile) UnmarshalJSON(data []byte) error {
+	type Alias NesOpenFile
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*int64](raw, "lastFocusedMs")
+		dropIfUndecodable[*Range](raw, "visibleRange")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesOpenFile(a)
+	return nil
+}
+
+func (v *NesOpenFilesCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesOpenFilesCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesOpenFilesCapabilities(a)
+	return nil
+}
+
+func (v *NesRecentFile) UnmarshalJSON(data []byte) error {
+	type Alias NesRecentFile
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesRecentFile(a)
+	return nil
+}
+
+func (v *NesRecentFilesCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesRecentFilesCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*int64](raw, "maxCount")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesRecentFilesCapabilities(a)
+	return nil
+}
+
+func (v *NesRelatedSnippet) UnmarshalJSON(data []byte) error {
+	type Alias NesRelatedSnippet
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[NesExcerpt](raw, "excerpts")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesRelatedSnippet(a)
+	return nil
+}
+
+func (v *NesRelatedSnippetsCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesRelatedSnippetsCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesRelatedSnippetsCapabilities(a)
+	return nil
+}
+
+func (v *NesRenameCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesRenameCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesRenameCapabilities(a)
+	return nil
+}
+
+func (v *NesRenameSuggestion) UnmarshalJSON(data []byte) error {
+	type Alias NesRenameSuggestion
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesRenameSuggestion(a)
+	return nil
+}
+
+func (v *NesRepository) UnmarshalJSON(data []byte) error {
+	type Alias NesRepository
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesRepository(a)
+	return nil
+}
+
+func (v *NesSearchAndReplaceCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesSearchAndReplaceCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesSearchAndReplaceCapabilities(a)
+	return nil
+}
+
+func (v *NesSearchAndReplaceSuggestion) UnmarshalJSON(data []byte) error {
+	type Alias NesSearchAndReplaceSuggestion
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*bool](raw, "isRegex")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesSearchAndReplaceSuggestion(a)
+	return nil
+}
+
+func (v *NesSuggestContext) UnmarshalJSON(data []byte) error {
+	type Alias NesSuggestContext
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[NesDiagnostic](raw, "diagnostics")
+		keepDecodableItems[NesEditHistoryEntry](raw, "editHistory")
+		keepDecodableItems[NesOpenFile](raw, "openFiles")
+		keepDecodableItems[NesRecentFile](raw, "recentFiles")
+		keepDecodableItems[NesRelatedSnippet](raw, "relatedSnippets")
+		keepDecodableItems[NesUserAction](raw, "userActions")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesSuggestContext(a)
+	return nil
+}
+
+func (v *NesTextEdit) UnmarshalJSON(data []byte) error {
+	type Alias NesTextEdit
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesTextEdit(a)
+	return nil
+}
+
+func (v *NesUserAction) UnmarshalJSON(data []byte) error {
+	type Alias NesUserAction
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesUserAction(a)
+	return nil
+}
+
+func (v *NesUserActionsCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias NesUserActionsCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*int64](raw, "maxCount")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NesUserActionsCapabilities(a)
+	return nil
+}
+
+func (v *NewSessionRequest) UnmarshalJSON(data []byte) error {
+	type Alias NewSessionRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[string](raw, "additionalDirectories")
+		keepDecodableItems[MCPServer](raw, "mcpServers")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NewSessionRequest(a)
+	return nil
+}
+
+func (v *NewSessionResponse) UnmarshalJSON(data []byte) error {
+	type Alias NewSessionResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[SessionConfigOption](raw, "configOptions")
+		dropIfUndecodable[*SessionModeState](raw, "modes")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NewSessionResponse(a)
+	return nil
+}
+
+func (v *NumberPropertySchema) UnmarshalJSON(data []byte) error {
+	type Alias NumberPropertySchema
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*float64](raw, "default")
+		dropIfUndecodable[string](raw, "description")
+		dropIfUndecodable[*float64](raw, "maximum")
+		dropIfUndecodable[*float64](raw, "minimum")
+		dropIfUndecodable[string](raw, "title")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = NumberPropertySchema(a)
+	return nil
+}
+
+func (v *PermissionOption) UnmarshalJSON(data []byte) error {
+	type Alias PermissionOption
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = PermissionOption(a)
+	return nil
+}
+
+func (v *Plan) UnmarshalJSON(data []byte) error {
+	type Alias Plan
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[PlanEntry](raw, "entries")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = Plan(a)
+	return nil
+}
+
+func (v *PlanCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias PlanCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = PlanCapabilities(a)
+	return nil
+}
+
+func (v *PlanEntry) UnmarshalJSON(data []byte) error {
+	type Alias PlanEntry
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = PlanEntry(a)
+	return nil
+}
+
+func (v *PlanFile) UnmarshalJSON(data []byte) error {
+	type Alias PlanFile
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = PlanFile(a)
+	return nil
+}
+
+func (v *PlanItems) UnmarshalJSON(data []byte) error {
+	type Alias PlanItems
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[PlanEntry](raw, "entries")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = PlanItems(a)
+	return nil
+}
+
+func (v *PlanMarkdown) UnmarshalJSON(data []byte) error {
+	type Alias PlanMarkdown
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = PlanMarkdown(a)
+	return nil
+}
+
+func (v *PlanRemoved) UnmarshalJSON(data []byte) error {
+	type Alias PlanRemoved
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = PlanRemoved(a)
+	return nil
+}
+
+func (v *PlanUpdate) UnmarshalJSON(data []byte) error {
+	type Alias PlanUpdate
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = PlanUpdate(a)
+	return nil
+}
+
+func (v *Position) UnmarshalJSON(data []byte) error {
+	type Alias Position
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = Position(a)
+	return nil
+}
+
 func (v *PromptCapabilities) UnmarshalJSON(data []byte) error {
 	type Alias PromptCapabilities
 	var a Alias
-	if err := json.Unmarshal(data, &a); err != nil {
-		return err
-	}
+	strictErr := json.Unmarshal(data, &a)
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
+		if strictErr != nil {
+			return strictErr
+		}
 		return fmt.Errorf("PromptCapabilities: decode raw fields: %w", err)
+	}
+	if strictErr != nil {
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[bool](raw, "audio")
+		dropIfUndecodable[bool](raw, "embeddedContext")
+		dropIfUndecodable[bool](raw, "image")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
 	}
 	if rm, ok := raw["audio"]; !ok || string(rm) == "null" {
 		if err := json.Unmarshal([]byte("false"), &a.Audio); err != nil {
@@ -7398,6 +11999,1488 @@ func (v *PromptCapabilities) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (v *PromptRequest) UnmarshalJSON(data []byte) error {
+	type Alias PromptRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[ContentBlock](raw, "prompt")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = PromptRequest(a)
+	return nil
+}
+
+func (v *PromptResponse) UnmarshalJSON(data []byte) error {
+	type Alias PromptResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*Usage](raw, "usage")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = PromptResponse(a)
+	return nil
+}
+
+func (v *ProviderCurrentConfig) UnmarshalJSON(data []byte) error {
+	type Alias ProviderCurrentConfig
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ProviderCurrentConfig(a)
+	return nil
+}
+
+func (v *ProviderInfo) UnmarshalJSON(data []byte) error {
+	type Alias ProviderInfo
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*ProviderCurrentConfig](raw, "current")
+		keepDecodableItems[LlmProtocol](raw, "supported")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ProviderInfo(a)
+	return nil
+}
+
+func (v *ProvidersCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias ProvidersCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ProvidersCapabilities(a)
+	return nil
+}
+
+func (v *Range) UnmarshalJSON(data []byte) error {
+	type Alias Range
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = Range(a)
+	return nil
+}
+
+func (v *ReadTextFileRequest) UnmarshalJSON(data []byte) error {
+	type Alias ReadTextFileRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*int64](raw, "limit")
+		dropIfUndecodable[*int64](raw, "line")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ReadTextFileRequest(a)
+	return nil
+}
+
+func (v *ReadTextFileResponse) UnmarshalJSON(data []byte) error {
+	type Alias ReadTextFileResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ReadTextFileResponse(a)
+	return nil
+}
+
+func (v *RejectNesNotification) UnmarshalJSON(data []byte) error {
+	type Alias RejectNesNotification
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*NesRejectReason](raw, "reason")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = RejectNesNotification(a)
+	return nil
+}
+
+func (v *ReleaseTerminalRequest) UnmarshalJSON(data []byte) error {
+	type Alias ReleaseTerminalRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ReleaseTerminalRequest(a)
+	return nil
+}
+
+func (v *ReleaseTerminalResponse) UnmarshalJSON(data []byte) error {
+	type Alias ReleaseTerminalResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ReleaseTerminalResponse(a)
+	return nil
+}
+
+func (v *RequestPermissionRequest) UnmarshalJSON(data []byte) error {
+	type Alias RequestPermissionRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[PermissionOption](raw, "options")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = RequestPermissionRequest(a)
+	return nil
+}
+
+func (v *RequestPermissionResponse) UnmarshalJSON(data []byte) error {
+	type Alias RequestPermissionResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = RequestPermissionResponse(a)
+	return nil
+}
+
+func (v *ResourceLink) UnmarshalJSON(data []byte) error {
+	type Alias ResourceLink
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*Annotations](raw, "annotations")
+		dropIfUndecodable[string](raw, "description")
+		dropIfUndecodable[string](raw, "mimeType")
+		dropIfUndecodable[*int64](raw, "size")
+		dropIfUndecodable[string](raw, "title")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ResourceLink(a)
+	return nil
+}
+
+func (v *ResumeSessionRequest) UnmarshalJSON(data []byte) error {
+	type Alias ResumeSessionRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[string](raw, "additionalDirectories")
+		keepDecodableItems[MCPServer](raw, "mcpServers")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ResumeSessionRequest(a)
+	return nil
+}
+
+func (v *ResumeSessionResponse) UnmarshalJSON(data []byte) error {
+	type Alias ResumeSessionResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[SessionConfigOption](raw, "configOptions")
+		dropIfUndecodable[*SessionModeState](raw, "modes")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ResumeSessionResponse(a)
+	return nil
+}
+
+func (v *SelectedPermissionOutcome) UnmarshalJSON(data []byte) error {
+	type Alias SelectedPermissionOutcome
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SelectedPermissionOutcome(a)
+	return nil
+}
+
+func (v *SessionAdditionalDirectoriesCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias SessionAdditionalDirectoriesCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionAdditionalDirectoriesCapabilities(a)
+	return nil
+}
+
+func (v *SessionCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias SessionCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*SessionAdditionalDirectoriesCapabilities](raw, "additionalDirectories")
+		dropIfUndecodable[*SessionCloseCapabilities](raw, "close")
+		dropIfUndecodable[*SessionDeleteCapabilities](raw, "delete")
+		dropIfUndecodable[*SessionForkCapabilities](raw, "fork")
+		dropIfUndecodable[*SessionListCapabilities](raw, "list")
+		dropIfUndecodable[*SessionResumeCapabilities](raw, "resume")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionCapabilities(a)
+	return nil
+}
+
+func (v *SessionCloseCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias SessionCloseCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionCloseCapabilities(a)
+	return nil
+}
+
+func (v *SessionConfigOptionsCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias SessionConfigOptionsCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*BooleanConfigOptionCapabilities](raw, "boolean")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionConfigOptionsCapabilities(a)
+	return nil
+}
+
+func (v *SessionConfigSelectGroup) UnmarshalJSON(data []byte) error {
+	type Alias SessionConfigSelectGroup
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[SessionConfigSelectOption](raw, "options")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionConfigSelectGroup(a)
+	return nil
+}
+
+func (v *SessionConfigSelectOption) UnmarshalJSON(data []byte) error {
+	type Alias SessionConfigSelectOption
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "description")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionConfigSelectOption(a)
+	return nil
+}
+
+func (v *SessionDeleteCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias SessionDeleteCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionDeleteCapabilities(a)
+	return nil
+}
+
+func (v *SessionForkCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias SessionForkCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionForkCapabilities(a)
+	return nil
+}
+
+func (v *SessionInfo) UnmarshalJSON(data []byte) error {
+	type Alias SessionInfo
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[string](raw, "additionalDirectories")
+		dropIfUndecodable[string](raw, "title")
+		dropIfUndecodable[string](raw, "updatedAt")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionInfo(a)
+	return nil
+}
+
+func (v *SessionInfoUpdate) UnmarshalJSON(data []byte) error {
+	type Alias SessionInfoUpdate
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "title")
+		dropIfUndecodable[string](raw, "updatedAt")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionInfoUpdate(a)
+	return nil
+}
+
+func (v *SessionListCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias SessionListCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionListCapabilities(a)
+	return nil
+}
+
+func (v *SessionMode) UnmarshalJSON(data []byte) error {
+	type Alias SessionMode
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "description")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionMode(a)
+	return nil
+}
+
+func (v *SessionModeState) UnmarshalJSON(data []byte) error {
+	type Alias SessionModeState
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[SessionMode](raw, "availableModes")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionModeState(a)
+	return nil
+}
+
+func (v *SessionNotification) UnmarshalJSON(data []byte) error {
+	type Alias SessionNotification
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionNotification(a)
+	return nil
+}
+
+func (v *SessionResumeCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias SessionResumeCapabilities
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SessionResumeCapabilities(a)
+	return nil
+}
+
+func (v *SetProviderRequest) UnmarshalJSON(data []byte) error {
+	type Alias SetProviderRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[map[string]string](raw, "headers")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SetProviderRequest(a)
+	return nil
+}
+
+func (v *SetProviderResponse) UnmarshalJSON(data []byte) error {
+	type Alias SetProviderResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SetProviderResponse(a)
+	return nil
+}
+
+func (v *SetSessionConfigOptionResponse) UnmarshalJSON(data []byte) error {
+	type Alias SetSessionConfigOptionResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[SessionConfigOption](raw, "configOptions")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SetSessionConfigOptionResponse(a)
+	return nil
+}
+
+func (v *SetSessionModeRequest) UnmarshalJSON(data []byte) error {
+	type Alias SetSessionModeRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SetSessionModeRequest(a)
+	return nil
+}
+
+func (v *SetSessionModeResponse) UnmarshalJSON(data []byte) error {
+	type Alias SetSessionModeResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SetSessionModeResponse(a)
+	return nil
+}
+
+func (v *StartNesRequest) UnmarshalJSON(data []byte) error {
+	type Alias StartNesRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*NesRepository](raw, "repository")
+		keepDecodableItems[WorkspaceFolder](raw, "workspaceFolders")
+		dropIfUndecodable[string](raw, "workspaceUri")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = StartNesRequest(a)
+	return nil
+}
+
+func (v *StartNesResponse) UnmarshalJSON(data []byte) error {
+	type Alias StartNesResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = StartNesResponse(a)
+	return nil
+}
+
+func (v *StringPropertySchema) UnmarshalJSON(data []byte) error {
+	type Alias StringPropertySchema
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "default")
+		dropIfUndecodable[string](raw, "description")
+		keepDecodableItems[string](raw, "enum")
+		dropIfUndecodable[*StringFormat](raw, "format")
+		dropIfUndecodable[*int64](raw, "maxLength")
+		dropIfUndecodable[*int64](raw, "minLength")
+		keepDecodableItems[EnumOption](raw, "oneOf")
+		dropIfUndecodable[string](raw, "pattern")
+		dropIfUndecodable[string](raw, "title")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = StringPropertySchema(a)
+	return nil
+}
+
+func (v *SuggestNesRequest) UnmarshalJSON(data []byte) error {
+	type Alias SuggestNesRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*NesSuggestContext](raw, "context")
+		dropIfUndecodable[*Range](raw, "selection")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SuggestNesRequest(a)
+	return nil
+}
+
+func (v *SuggestNesResponse) UnmarshalJSON(data []byte) error {
+	type Alias SuggestNesResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[NesSuggestion](raw, "suggestions")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = SuggestNesResponse(a)
+	return nil
+}
+
+func (v *Terminal) UnmarshalJSON(data []byte) error {
+	type Alias Terminal
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = Terminal(a)
+	return nil
+}
+
+func (v *TerminalExitStatus) UnmarshalJSON(data []byte) error {
+	type Alias TerminalExitStatus
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*int64](raw, "exitCode")
+		dropIfUndecodable[string](raw, "signal")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = TerminalExitStatus(a)
+	return nil
+}
+
+func (v *TerminalOutputRequest) UnmarshalJSON(data []byte) error {
+	type Alias TerminalOutputRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = TerminalOutputRequest(a)
+	return nil
+}
+
+func (v *TerminalOutputResponse) UnmarshalJSON(data []byte) error {
+	type Alias TerminalOutputResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*TerminalExitStatus](raw, "exitStatus")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = TerminalOutputResponse(a)
+	return nil
+}
+
+func (v *TextContent) UnmarshalJSON(data []byte) error {
+	type Alias TextContent
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*Annotations](raw, "annotations")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = TextContent(a)
+	return nil
+}
+
+func (v *TextDocumentContentChangeEvent) UnmarshalJSON(data []byte) error {
+	type Alias TextDocumentContentChangeEvent
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*Range](raw, "range")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = TextDocumentContentChangeEvent(a)
+	return nil
+}
+
+func (v *TextResourceContents) UnmarshalJSON(data []byte) error {
+	type Alias TextResourceContents
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[string](raw, "mimeType")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = TextResourceContents(a)
+	return nil
+}
+
+func (v *TitledMultiSelectItems) UnmarshalJSON(data []byte) error {
+	type Alias TitledMultiSelectItems
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[EnumOption](raw, "anyOf")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = TitledMultiSelectItems(a)
+	return nil
+}
+
+func (v *ToolCall) UnmarshalJSON(data []byte) error {
+	type Alias ToolCall
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[ToolCallContent](raw, "content")
+		dropIfUndecodable[*ToolKind](raw, "kind")
+		keepDecodableItems[ToolCallLocation](raw, "locations")
+		dropIfUndecodable[*ToolCallStatus](raw, "status")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ToolCall(a)
+	return nil
+}
+
+func (v *ToolCallLocation) UnmarshalJSON(data []byte) error {
+	type Alias ToolCallLocation
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*int64](raw, "line")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ToolCallLocation(a)
+	return nil
+}
+
+func (v *ToolCallUpdate) UnmarshalJSON(data []byte) error {
+	type Alias ToolCallUpdate
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[ToolCallContent](raw, "content")
+		dropIfUndecodable[*ToolKind](raw, "kind")
+		keepDecodableItems[ToolCallLocation](raw, "locations")
+		dropIfUndecodable[*ToolCallStatus](raw, "status")
+		dropIfUndecodable[string](raw, "title")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = ToolCallUpdate(a)
+	return nil
+}
+
+func (v *UnstructuredCommandInput) UnmarshalJSON(data []byte) error {
+	type Alias UnstructuredCommandInput
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = UnstructuredCommandInput(a)
+	return nil
+}
+
+func (v *UntitledMultiSelectItems) UnmarshalJSON(data []byte) error {
+	type Alias UntitledMultiSelectItems
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		keepDecodableItems[string](raw, "enum")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = UntitledMultiSelectItems(a)
+	return nil
+}
+
+func (v *Usage) UnmarshalJSON(data []byte) error {
+	type Alias Usage
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*int64](raw, "cachedReadTokens")
+		dropIfUndecodable[*int64](raw, "cachedWriteTokens")
+		dropIfUndecodable[*int64](raw, "thoughtTokens")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = Usage(a)
+	return nil
+}
+
+func (v *UsageUpdate) UnmarshalJSON(data []byte) error {
+	type Alias UsageUpdate
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*Cost](raw, "cost")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = UsageUpdate(a)
+	return nil
+}
+
+func (v *WaitForTerminalExitRequest) UnmarshalJSON(data []byte) error {
+	type Alias WaitForTerminalExitRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = WaitForTerminalExitRequest(a)
+	return nil
+}
+
+func (v *WaitForTerminalExitResponse) UnmarshalJSON(data []byte) error {
+	type Alias WaitForTerminalExitResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		dropIfUndecodable[*int64](raw, "exitCode")
+		dropIfUndecodable[string](raw, "signal")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = WaitForTerminalExitResponse(a)
+	return nil
+}
+
+func (v *WorkspaceFolder) UnmarshalJSON(data []byte) error {
+	type Alias WorkspaceFolder
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = WorkspaceFolder(a)
+	return nil
+}
+
+func (v *WriteTextFileRequest) UnmarshalJSON(data []byte) error {
+	type Alias WriteTextFileRequest
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = WriteTextFileRequest(a)
+	return nil
+}
+
+func (v *WriteTextFileResponse) UnmarshalJSON(data []byte) error {
+	type Alias WriteTextFileResponse
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		var raw map[string]json.RawMessage
+		if rawErr := json.Unmarshal(data, &raw); rawErr != nil {
+			return err
+		}
+		dropIfUndecodable[map[string]any](raw, "_meta")
+		fixed, mErr := json.Marshal(raw)
+		if mErr != nil {
+			return mErr
+		}
+		a = Alias{}
+		if err := json.Unmarshal(fixed, &a); err != nil {
+			return err
+		}
+	}
+	*v = WriteTextFileResponse(a)
+	return nil
+}
+
+// dropIfUndecodable removes key from raw when its value is present, non-null,
+// and fails to decode into T. It implements x-deserialize-default-on-error:
+// a wrong-typed value is dropped so the field falls back to its default (an
+// applied schema default, otherwise the Go zero value).
+func dropIfUndecodable[T any](raw map[string]json.RawMessage, key string) {
+	rm, ok := raw[key]
+	if !ok || string(rm) == "null" {
+		return
+	}
+	var probe T
+	if json.Unmarshal(rm, &probe) != nil {
+		delete(raw, key)
+	}
+}
+
+// keepDecodableItems rewrites raw[key] to retain only the array elements that
+// decode into T. It implements x-deserialize-skip-invalid-items. A present,
+// non-null value that is not an array is dropped so the field falls back to its
+// default (these fields are also x-deserialize-default-on-error).
+func keepDecodableItems[T any](raw map[string]json.RawMessage, key string) {
+	rm, ok := raw[key]
+	if !ok || string(rm) == "null" {
+		return
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(rm, &items); err != nil {
+		delete(raw, key)
+		return
+	}
+	kept := make([]json.RawMessage, 0, len(items))
+	for _, it := range items {
+		var probe T
+		if json.Unmarshal(it, &probe) == nil {
+			kept = append(kept, it)
+		}
+	}
+	out, err := json.Marshal(kept)
+	if err != nil {
+		delete(raw, key)
+		return
+	}
+	raw[key] = out
+}
+
 const (
 	// Current protocol version from metadata
 	CurrentProtocolVersion int = 1
@@ -7413,6 +13496,7 @@ var AgentMethods = struct {
 	DocumentDidSave        string
 	Initialize             string
 	Logout                 string
+	MCPMessage             string
 	NesAccept              string
 	NesClose               string
 	NesReject              string
@@ -7423,6 +13507,7 @@ var AgentMethods = struct {
 	ProvidersSet           string
 	SessionCancel          string
 	SessionClose           string
+	SessionDelete          string
 	SessionFork            string
 	SessionList            string
 	SessionLoad            string
@@ -7431,8 +13516,7 @@ var AgentMethods = struct {
 	SessionResume          string
 	SessionSetConfigOption string
 	SessionSetMode         string
-	SessionSetModel        string
-}{Authenticate: "authenticate", DocumentDidChange: "document/didChange", DocumentDidClose: "document/didClose", DocumentDidFocus: "document/didFocus", DocumentDidOpen: "document/didOpen", DocumentDidSave: "document/didSave", Initialize: "initialize", Logout: "logout", NesAccept: "nes/accept", NesClose: "nes/close", NesReject: "nes/reject", NesStart: "nes/start", NesSuggest: "nes/suggest", ProvidersDisable: "providers/disable", ProvidersList: "providers/list", ProvidersSet: "providers/set", SessionCancel: "session/cancel", SessionClose: "session/close", SessionFork: "session/fork", SessionList: "session/list", SessionLoad: "session/load", SessionNew: "session/new", SessionPrompt: "session/prompt", SessionResume: "session/resume", SessionSetConfigOption: "session/set_config_option", SessionSetMode: "session/set_mode", SessionSetModel: "session/set_model"}
+}{Authenticate: "authenticate", DocumentDidChange: "document/didChange", DocumentDidClose: "document/didClose", DocumentDidFocus: "document/didFocus", DocumentDidOpen: "document/didOpen", DocumentDidSave: "document/didSave", Initialize: "initialize", Logout: "logout", MCPMessage: "mcp/message", NesAccept: "nes/accept", NesClose: "nes/close", NesReject: "nes/reject", NesStart: "nes/start", NesSuggest: "nes/suggest", ProvidersDisable: "providers/disable", ProvidersList: "providers/list", ProvidersSet: "providers/set", SessionCancel: "session/cancel", SessionClose: "session/close", SessionDelete: "session/delete", SessionFork: "session/fork", SessionList: "session/list", SessionLoad: "session/load", SessionNew: "session/new", SessionPrompt: "session/prompt", SessionResume: "session/resume", SessionSetConfigOption: "session/set_config_option", SessionSetMode: "session/set_mode"}
 
 // ClientMethods method names
 var ClientMethods = struct {
@@ -7440,6 +13524,9 @@ var ClientMethods = struct {
 	ElicitationCreate        string
 	FSReadTextFile           string
 	FSWriteTextFile          string
+	MCPConnect               string
+	MCPDisconnect            string
+	MCPMessage               string
 	SessionRequestPermission string
 	SessionUpdate            string
 	TerminalCreate           string
@@ -7447,4 +13534,4 @@ var ClientMethods = struct {
 	TerminalOutput           string
 	TerminalRelease          string
 	TerminalWaitForExit      string
-}{ElicitationComplete: "elicitation/complete", ElicitationCreate: "elicitation/create", FSReadTextFile: "fs/read_text_file", FSWriteTextFile: "fs/write_text_file", SessionRequestPermission: "session/request_permission", SessionUpdate: "session/update", TerminalCreate: "terminal/create", TerminalKill: "terminal/kill", TerminalOutput: "terminal/output", TerminalRelease: "terminal/release", TerminalWaitForExit: "terminal/wait_for_exit"}
+}{ElicitationComplete: "elicitation/complete", ElicitationCreate: "elicitation/create", FSReadTextFile: "fs/read_text_file", FSWriteTextFile: "fs/write_text_file", MCPConnect: "mcp/connect", MCPDisconnect: "mcp/disconnect", MCPMessage: "mcp/message", SessionRequestPermission: "session/request_permission", SessionUpdate: "session/update", TerminalCreate: "terminal/create", TerminalKill: "terminal/kill", TerminalOutput: "terminal/output", TerminalRelease: "terminal/release", TerminalWaitForExit: "terminal/wait_for_exit"}

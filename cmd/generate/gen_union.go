@@ -30,6 +30,13 @@ func (g *Generator) generateDiscriminatedUnion(d Definition) {
 	s := d.Schema
 	goName := toTitleCase(d.Name)
 
+	// A discriminated union always emits json.Marshal/Unmarshal and fmt.Errorf,
+	// so record the import needs here. Generation derives the import block from
+	// the needs recorded during body emission (rather than a separate pre-scan),
+	// so each emitter must self-declare what it uses.
+	g.needJSON = true
+	g.needFmt = true
+
 	discField := ""
 	if s.Discriminator != nil {
 		discField = s.Discriminator.PropertyName
@@ -125,6 +132,7 @@ func (g *Generator) generateDiscriminatedUnion(d Definition) {
 	recv := receiverName(goName)
 	g.generateMarshalJSON(goName, recv, variantInfos, discField)
 	g.generateUnmarshalJSON(goName, recv, variantInfos, discField)
+	g.generateUnionValidate(goName, recv, variantInfos, discField)
 	g.generateAccessors(goName, recv, variantInfos)
 	g.generateConstructors(goName, variantInfos, discField)
 }
@@ -265,6 +273,81 @@ func (g *Generator) generateUnmarshalJSON(goName, recv string, variants []Varian
 	}
 	fmt.Fprintf(&g.buf, "\t}\n")
 	fmt.Fprintf(&g.buf, "}\n")
+}
+
+// generateUnionValidate emits Validate() for a discriminated union and for each
+// of its variant wrapper structs. The union method enforces exactly-one variant
+// (so a zero-value union — e.g. a required union field that was never set, or an
+// inbound JSON payload that omitted the field entirely — is rejected) and then
+// recurses into the selected variant. Each variant wrapper validates its own
+// inline required fields and recurses into the embedded ref payload's Validate()
+// when one exists.
+//
+// Without this, callers that hold a union as a required value-typed field (for
+// example SessionNotification.Update or RequestPermissionResponse.Outcome)
+// generate a guarded `any(&v.Field).(interface{ Validate() error })` recursion
+// that silently no-ops, letting a missing required union slip through Validate().
+func (g *Generator) generateUnionValidate(goName, recv string, variants []VariantInfo, discField string) {
+	g.needFmt = true
+
+	fmt.Fprintf(&g.buf, "func (%s *%s) Validate() error {\n", recv, goName)
+	fmt.Fprintf(&g.buf, "\tset := 0\n")
+	for _, vi := range variants {
+		fmt.Fprintf(&g.buf, "\tif %s.%s != nil {\n\t\tset++\n\t}\n", recv, unionVariantFieldName(goName, vi))
+	}
+	fmt.Fprintf(&g.buf, "\tif set != 1 {\n")
+	fmt.Fprintf(&g.buf, "\t\treturn fmt.Errorf(\"%s: exactly one variant must be set, got %%d\", set)\n", goName)
+	fmt.Fprintf(&g.buf, "\t}\n")
+	for _, vi := range variants {
+		fieldName := unionVariantFieldName(goName, vi)
+		fmt.Fprintf(&g.buf, "\tif %s.%s != nil {\n", recv, fieldName)
+		fmt.Fprintf(&g.buf, "\t\treturn %s.%s.Validate()\n", recv, fieldName)
+		fmt.Fprintf(&g.buf, "\t}\n")
+	}
+	fmt.Fprintf(&g.buf, "\treturn nil\n")
+	fmt.Fprintf(&g.buf, "}\n\n")
+
+	for _, vi := range variants {
+		g.generateVariantValidate(vi, discField)
+	}
+}
+
+// generateVariantValidate emits Validate() for a single discriminated-union
+// variant wrapper. It checks the variant's own inline required fields and, when
+// the variant embeds a referenced payload type, recurses into that payload's
+// Validate() via a guarded interface assertion (a no-op if the payload has none).
+func (g *Generator) generateVariantValidate(vi VariantInfo, discField string) {
+	var checks []validateCheck
+	if vi.InlineSchema != nil && vi.InlineSchema.Properties != nil {
+		inlineSchema := &Schema{
+			Properties: make(map[string]*Schema),
+			Required:   make([]string, 0, len(vi.InlineSchema.Required)),
+		}
+		for _, required := range vi.InlineSchema.Required {
+			if required != discField {
+				inlineSchema.Required = append(inlineSchema.Required, required)
+			}
+		}
+		for k, v := range vi.InlineSchema.Properties {
+			if k != discField {
+				inlineSchema.Properties[k] = v
+			}
+		}
+		checks = g.buildValidateChecks(inlineSchema)
+	}
+
+	// Receiver is named "v" to match writeValidateChecks, which references v.<Field>.
+	fmt.Fprintf(&g.buf, "func (v *%s) Validate() error {\n", vi.GoTypeName)
+	g.writeValidateChecks(checks)
+	if vi.RefTypeName != "" {
+		fmt.Fprintf(&g.buf, "\tif validator, ok := any(&v.%s).(interface{ Validate() error }); ok {\n", vi.RefTypeName)
+		fmt.Fprintf(&g.buf, "\t\tif err := validator.Validate(); err != nil {\n")
+		fmt.Fprintf(&g.buf, "\t\t\treturn err\n")
+		fmt.Fprintf(&g.buf, "\t\t}\n")
+		fmt.Fprintf(&g.buf, "\t}\n")
+	}
+	fmt.Fprintf(&g.buf, "\treturn nil\n")
+	fmt.Fprintf(&g.buf, "}\n\n")
 }
 
 func (g *Generator) generateAccessors(goName, recv string, variants []VariantInfo) {

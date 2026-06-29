@@ -27,16 +27,18 @@ type Metadata struct {
 
 // Lookup returns generated metadata for the given ACP wire method.
 func Lookup(method string) (Metadata, bool) {
-	meta, ok := methodMetadata[method]
-	return meta, ok
+	for _, meta := range methodMetadata {
+		if meta.WireMethod == method {
+			return meta, true
+		}
+	}
+	return Metadata{}, false
 }
 
 // All returns a copy of every registered method metadata entry. Useful for
 // tests that verify handler coverage.
 func All() []Metadata {
-	result := make([]Metadata, 0, len(methodMetadata))
-	for _, meta := range methodMetadata {
-		result = append(result, meta)
-	}
+	result := make([]Metadata, len(methodMetadata))
+	copy(result, methodMetadata)
 	return result
 }
