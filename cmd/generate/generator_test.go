@@ -315,11 +315,12 @@ func TestGenerateInterfacesPrefixesUnstableMethods(t *testing.T) {
 	agentText := string(agentSrc)
 
 	for _, expected := range []string{
-		"UnstableLogout(ctx context.Context, params LogoutRequest) (LogoutResponse, error)",
-		"UnstableDisableProviders(ctx context.Context, params DisableProvidersRequest) (DisableProvidersResponse, error)",
-		"UnstableSetSessionModel(ctx context.Context, params SetSessionModelRequest) (SetSessionModelResponse, error)",
-		"MethodAgentUnstableSetSessionModel",
-		`"session/set_model"`,
+		"UnstableDisableProvider(ctx context.Context, params DisableProviderRequest) (DisableProviderResponse, error)",
+		"UnstableSetProvider(ctx context.Context, params SetProviderRequest) (SetProviderResponse, error)",
+		"UnstableMessageMCP(ctx context.Context, params MessageMCPRequest) (MessageMCPResponse, error)",
+		"UnstableMCPMessage(ctx context.Context, params MessageMCPNotification) error",
+		"MethodAgentUnstableMessageMCP",
+		`"mcp/message"`,
 	} {
 		if !strings.Contains(agentText, expected) {
 			t.Fatalf("missing unstable generated fragment: %s", expected)
@@ -327,12 +328,26 @@ func TestGenerateInterfacesPrefixesUnstableMethods(t *testing.T) {
 	}
 
 	for _, unexpected := range []string{
-		"\tSetSessionModel(ctx context.Context, params SetSessionModelRequest) (SetSessionModelResponse, error)",
-		"MethodAgentSetSessionModel",
+		"\tDisableProvider(ctx context.Context, params DisableProviderRequest) (DisableProviderResponse, error)",
+		"\tSetProvider(ctx context.Context, params SetProviderRequest) (SetProviderResponse, error)",
+		"MethodAgentDisableProvider",
+		"MethodAgentSetProvider",
 	} {
 		if strings.Contains(agentText, unexpected) {
 			t.Fatalf("unexpected stable generated fragment: %s", unexpected)
 		}
+	}
+
+	for _, expected := range []string{
+		"Logout(ctx context.Context, params LogoutRequest) (LogoutResponse, error)",
+		"MethodAgentLogout",
+	} {
+		if !strings.Contains(agentText, expected) {
+			t.Fatalf("missing stable generated fragment: %s", expected)
+		}
+	}
+	if strings.Contains(agentText, "UnstableLogout(ctx context.Context, params LogoutRequest) (LogoutResponse, error)") {
+		t.Fatal("logout should no longer be prefixed unstable")
 	}
 }
 
@@ -354,16 +369,39 @@ func TestGenerateMethodMetadataIncludesSessionFlags(t *testing.T) {
 	text := string(src)
 
 	for _, expected := range []string{
-		`"session/new": {`,
+		`var methodMetadata = []Metadata{`,
+		`WireMethod:            "session/new",`,
 		`SessionCreating:`,
-		`"session/prompt": {`,
+		`WireMethod:            "session/prompt",`,
 		`SessionHeaderRequired:`,
-		`"session/update": {`,
+		`WireMethod:            "session/update",`,
 		`Notification:`,
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("missing generated fragment: %s", expected)
 		}
+	}
+}
+
+func TestGenerateUnstableMethodMetadataKeepsSharedWireMethods(t *testing.T) {
+	schema, err := LoadSchema(testFixturePath("schema.unstable.json"))
+	if err != nil {
+		t.Fatalf("load unstable schema: %v", err)
+	}
+	meta, err := LoadMeta(testFixturePath("meta.unstable.json"))
+	if err != nil {
+		t.Fatalf("load unstable meta: %v", err)
+	}
+
+	gen := NewGenerator(schema, meta)
+	src, err := gen.GenerateMethodMetadata("acp")
+	if err != nil {
+		t.Fatalf("generate method metadata: %v", err)
+	}
+	text := string(src)
+
+	if got, want := strings.Count(text, `WireMethod:            "mcp/message",`), 4; got != want {
+		t.Fatalf("mcp/message metadata entries = %d, want %d", got, want)
 	}
 }
 

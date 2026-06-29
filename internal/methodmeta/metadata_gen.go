@@ -2,8 +2,8 @@
 
 package methodmeta
 
-var methodMetadata = map[string]Metadata{
-	"authenticate": {
+var methodMetadata = []Metadata{
+	{
 		Key:                   "authenticate",
 		WireMethod:            "authenticate",
 		Side:                  SideAgent,
@@ -12,7 +12,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"document/didChange": {
+	{
 		Key:                   "document_did_change",
 		WireMethod:            "document/didChange",
 		Side:                  SideAgent,
@@ -21,7 +21,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"document/didClose": {
+	{
 		Key:                   "document_did_close",
 		WireMethod:            "document/didClose",
 		Side:                  SideAgent,
@@ -30,7 +30,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"document/didFocus": {
+	{
 		Key:                   "document_did_focus",
 		WireMethod:            "document/didFocus",
 		Side:                  SideAgent,
@@ -39,7 +39,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"document/didOpen": {
+	{
 		Key:                   "document_did_open",
 		WireMethod:            "document/didOpen",
 		Side:                  SideAgent,
@@ -48,7 +48,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"document/didSave": {
+	{
 		Key:                   "document_did_save",
 		WireMethod:            "document/didSave",
 		Side:                  SideAgent,
@@ -57,7 +57,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"elicitation/complete": {
+	{
 		Key:                   "elicitation_complete",
 		WireMethod:            "elicitation/complete",
 		Side:                  SideClient,
@@ -66,7 +66,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"elicitation/create": {
+	{
 		Key:                   "elicitation_create",
 		WireMethod:            "elicitation/create",
 		Side:                  SideClient,
@@ -75,7 +75,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"fs/read_text_file": {
+	{
 		Key:                   "fs_read_text_file",
 		WireMethod:            "fs/read_text_file",
 		Side:                  SideClient,
@@ -84,7 +84,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"fs/write_text_file": {
+	{
 		Key:                   "fs_write_text_file",
 		WireMethod:            "fs/write_text_file",
 		Side:                  SideClient,
@@ -93,7 +93,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"initialize": {
+	{
 		Key:                   "initialize",
 		WireMethod:            "initialize",
 		Side:                  SideAgent,
@@ -102,7 +102,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"logout": {
+	{
 		Key:                   "logout",
 		WireMethod:            "logout",
 		Side:                  SideAgent,
@@ -111,7 +111,61 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"nes/accept": {
+	{
+		Key:                   "mcp_connect",
+		WireMethod:            "mcp/connect",
+		Side:                  SideClient,
+		Notification:          false,
+		SessionBound:          false,
+		SessionHeaderRequired: false,
+		SessionCreating:       false,
+	},
+	{
+		Key:                   "mcp_disconnect",
+		WireMethod:            "mcp/disconnect",
+		Side:                  SideClient,
+		Notification:          false,
+		SessionBound:          false,
+		SessionHeaderRequired: false,
+		SessionCreating:       false,
+	},
+	{
+		Key:                   "mcp_message",
+		WireMethod:            "mcp/message",
+		Side:                  SideAgent,
+		Notification:          false,
+		SessionBound:          false,
+		SessionHeaderRequired: false,
+		SessionCreating:       false,
+	},
+	{
+		Key:                   "mcp_message",
+		WireMethod:            "mcp/message",
+		Side:                  SideClient,
+		Notification:          false,
+		SessionBound:          false,
+		SessionHeaderRequired: false,
+		SessionCreating:       false,
+	},
+	{
+		Key:                   "mcp_message",
+		WireMethod:            "mcp/message",
+		Side:                  SideClient,
+		Notification:          true,
+		SessionBound:          false,
+		SessionHeaderRequired: false,
+		SessionCreating:       false,
+	},
+	{
+		Key:                   "mcp_message",
+		WireMethod:            "mcp/message",
+		Side:                  SideAgent,
+		Notification:          true,
+		SessionBound:          false,
+		SessionHeaderRequired: false,
+		SessionCreating:       false,
+	},
+	{
 		Key:                   "nes_accept",
 		WireMethod:            "nes/accept",
 		Side:                  SideAgent,
@@ -120,7 +174,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"nes/close": {
+	{
 		Key:                   "nes_close",
 		WireMethod:            "nes/close",
 		Side:                  SideAgent,
@@ -129,7 +183,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"nes/reject": {
+	{
 		Key:                   "nes_reject",
 		WireMethod:            "nes/reject",
 		Side:                  SideAgent,
@@ -138,7 +192,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"nes/start": {
+	{
 		Key:                   "nes_start",
 		WireMethod:            "nes/start",
 		Side:                  SideAgent,
@@ -147,7 +201,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"nes/suggest": {
+	{
 		Key:                   "nes_suggest",
 		WireMethod:            "nes/suggest",
 		Side:                  SideAgent,
@@ -156,7 +210,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"providers/disable": {
+	{
 		Key:                   "providers_disable",
 		WireMethod:            "providers/disable",
 		Side:                  SideAgent,
@@ -165,7 +219,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"providers/list": {
+	{
 		Key:                   "providers_list",
 		WireMethod:            "providers/list",
 		Side:                  SideAgent,
@@ -174,7 +228,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"providers/set": {
+	{
 		Key:                   "providers_set",
 		WireMethod:            "providers/set",
 		Side:                  SideAgent,
@@ -183,7 +237,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"session/cancel": {
+	{
 		Key:                   "session_cancel",
 		WireMethod:            "session/cancel",
 		Side:                  SideAgent,
@@ -192,7 +246,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"session/close": {
+	{
 		Key:                   "session_close",
 		WireMethod:            "session/close",
 		Side:                  SideAgent,
@@ -201,7 +255,16 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"session/fork": {
+	{
+		Key:                   "session_delete",
+		WireMethod:            "session/delete",
+		Side:                  SideAgent,
+		Notification:          false,
+		SessionBound:          true,
+		SessionHeaderRequired: true,
+		SessionCreating:       false,
+	},
+	{
 		Key:                   "session_fork",
 		WireMethod:            "session/fork",
 		Side:                  SideAgent,
@@ -210,7 +273,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"session/list": {
+	{
 		Key:                   "session_list",
 		WireMethod:            "session/list",
 		Side:                  SideAgent,
@@ -219,7 +282,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"session/load": {
+	{
 		Key:                   "session_load",
 		WireMethod:            "session/load",
 		Side:                  SideAgent,
@@ -228,7 +291,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       true,
 	},
-	"session/new": {
+	{
 		Key:                   "session_new",
 		WireMethod:            "session/new",
 		Side:                  SideAgent,
@@ -237,7 +300,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       true,
 	},
-	"session/prompt": {
+	{
 		Key:                   "session_prompt",
 		WireMethod:            "session/prompt",
 		Side:                  SideAgent,
@@ -246,7 +309,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"session/request_permission": {
+	{
 		Key:                   "session_request_permission",
 		WireMethod:            "session/request_permission",
 		Side:                  SideClient,
@@ -255,7 +318,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"session/resume": {
+	{
 		Key:                   "session_resume",
 		WireMethod:            "session/resume",
 		Side:                  SideAgent,
@@ -264,7 +327,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"session/set_config_option": {
+	{
 		Key:                   "session_set_config_option",
 		WireMethod:            "session/set_config_option",
 		Side:                  SideAgent,
@@ -273,7 +336,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"session/set_mode": {
+	{
 		Key:                   "session_set_mode",
 		WireMethod:            "session/set_mode",
 		Side:                  SideAgent,
@@ -282,16 +345,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: true,
 		SessionCreating:       false,
 	},
-	"session/set_model": {
-		Key:                   "session_set_model",
-		WireMethod:            "session/set_model",
-		Side:                  SideAgent,
-		Notification:          false,
-		SessionBound:          true,
-		SessionHeaderRequired: true,
-		SessionCreating:       false,
-	},
-	"session/update": {
+	{
 		Key:                   "session_update",
 		WireMethod:            "session/update",
 		Side:                  SideClient,
@@ -300,7 +354,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"terminal/create": {
+	{
 		Key:                   "terminal_create",
 		WireMethod:            "terminal/create",
 		Side:                  SideClient,
@@ -309,7 +363,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"terminal/kill": {
+	{
 		Key:                   "terminal_kill",
 		WireMethod:            "terminal/kill",
 		Side:                  SideClient,
@@ -318,7 +372,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"terminal/output": {
+	{
 		Key:                   "terminal_output",
 		WireMethod:            "terminal/output",
 		Side:                  SideClient,
@@ -327,7 +381,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"terminal/release": {
+	{
 		Key:                   "terminal_release",
 		WireMethod:            "terminal/release",
 		Side:                  SideClient,
@@ -336,7 +390,7 @@ var methodMetadata = map[string]Metadata{
 		SessionHeaderRequired: false,
 		SessionCreating:       false,
 	},
-	"terminal/wait_for_exit": {
+	{
 		Key:                   "terminal_wait_for_exit",
 		WireMethod:            "terminal/wait_for_exit",
 		Side:                  SideClient,

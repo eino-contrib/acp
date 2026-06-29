@@ -30,6 +30,33 @@ type Client interface {
 	//
 	// Only available if the client supports the `fs.writeTextFile` capability.
 	WriteTextFile(ctx context.Context, params WriteTextFileRequest) (WriteTextFileResponse, error)
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Request parameters for `mcp/connect`.
+	UnstableConnectMCP(ctx context.Context, params ConnectMCPRequest) (ConnectMCPResponse, error)
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Request parameters for `mcp/disconnect`.
+	UnstableDisconnectMCP(ctx context.Context, params DisconnectMCPRequest) (DisconnectMCPResponse, error)
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Request parameters for `mcp/message`.
+	UnstableMessageMCP(ctx context.Context, params MessageMCPRequest) (MessageMCPResponse, error)
+	// **UNSTABLE**
+	//
+	// This capability is not part of the spec yet, and may be removed or changed at any point.
+	//
+	// Notification parameters for `mcp/message`.
+	//
+	// This is used when the wrapped MCP message is a notification and the outer JSON-RPC
+	// envelope has no `id`.
+	UnstableMCPMessage(ctx context.Context, params MessageMCPNotification) error
 	// Request for user permission to execute a tool call.
 	//
 	// Sent when the agent needs authorization before performing a sensitive operation.
@@ -60,6 +87,10 @@ const (
 	MethodClientUnstableCreateElicitation   = "elicitation/create"
 	MethodClientReadTextFile                = "fs/read_text_file"
 	MethodClientWriteTextFile               = "fs/write_text_file"
+	MethodClientUnstableConnectMCP          = "mcp/connect"
+	MethodClientUnstableDisconnectMCP       = "mcp/disconnect"
+	MethodClientUnstableMessageMCP          = "mcp/message"
+	MethodClientUnstableMCPMessage          = "mcp/message"
 	MethodClientRequestPermission           = "session/request_permission"
 	MethodClientSessionUpdate               = "session/update"
 	MethodClientCreateTerminal              = "terminal/create"

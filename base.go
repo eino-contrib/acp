@@ -51,8 +51,16 @@ func (BaseAgent) Initialize(context.Context, InitializeRequest) (InitializeRespo
 	return InitializeResponse{}, methodNotSupported(MethodAgentInitialize)
 }
 
-func (BaseAgent) UnstableLogout(context.Context, LogoutRequest) (LogoutResponse, error) {
-	return LogoutResponse{}, methodNotSupported(MethodAgentUnstableLogout)
+func (BaseAgent) Logout(context.Context, LogoutRequest) (LogoutResponse, error) {
+	return LogoutResponse{}, methodNotSupported(MethodAgentLogout)
+}
+
+func (BaseAgent) UnstableMessageMCP(context.Context, MessageMCPRequest) (MessageMCPResponse, error) {
+	return MessageMCPResponse{}, methodNotSupported(MethodAgentUnstableMessageMCP)
+}
+
+func (BaseAgent) UnstableMCPMessage(context.Context, MessageMCPNotification) error {
+	return notificationNotImplemented(MethodAgentUnstableMCPMessage)
 }
 
 func (BaseAgent) NesAccept(context.Context, AcceptNesNotification) error {
@@ -75,24 +83,28 @@ func (BaseAgent) SuggestNes(context.Context, SuggestNesRequest) (SuggestNesRespo
 	return SuggestNesResponse{}, methodNotSupported(MethodAgentSuggestNes)
 }
 
-func (BaseAgent) UnstableDisableProviders(context.Context, DisableProvidersRequest) (DisableProvidersResponse, error) {
-	return DisableProvidersResponse{}, methodNotSupported(MethodAgentUnstableDisableProviders)
+func (BaseAgent) UnstableDisableProvider(context.Context, DisableProviderRequest) (DisableProviderResponse, error) {
+	return DisableProviderResponse{}, methodNotSupported(MethodAgentUnstableDisableProvider)
 }
 
 func (BaseAgent) UnstableListProviders(context.Context, ListProvidersRequest) (ListProvidersResponse, error) {
 	return ListProvidersResponse{}, methodNotSupported(MethodAgentUnstableListProviders)
 }
 
-func (BaseAgent) UnstableSetProviders(context.Context, SetProvidersRequest) (SetProvidersResponse, error) {
-	return SetProvidersResponse{}, methodNotSupported(MethodAgentUnstableSetProviders)
+func (BaseAgent) UnstableSetProvider(context.Context, SetProviderRequest) (SetProviderResponse, error) {
+	return SetProviderResponse{}, methodNotSupported(MethodAgentUnstableSetProvider)
 }
 
 func (BaseAgent) SessionCancel(context.Context, CancelNotification) error {
 	return notificationNotImplemented(MethodAgentSessionCancel)
 }
 
-func (BaseAgent) UnstableCloseSession(context.Context, CloseSessionRequest) (CloseSessionResponse, error) {
-	return CloseSessionResponse{}, methodNotSupported(MethodAgentUnstableCloseSession)
+func (BaseAgent) CloseSession(context.Context, CloseSessionRequest) (CloseSessionResponse, error) {
+	return CloseSessionResponse{}, methodNotSupported(MethodAgentCloseSession)
+}
+
+func (BaseAgent) DeleteSession(context.Context, DeleteSessionRequest) (DeleteSessionResponse, error) {
+	return DeleteSessionResponse{}, methodNotSupported(MethodAgentDeleteSession)
 }
 
 func (BaseAgent) UnstableForkSession(context.Context, ForkSessionRequest) (ForkSessionResponse, error) {
@@ -115,8 +127,8 @@ func (BaseAgent) Prompt(context.Context, PromptRequest) (PromptResponse, error) 
 	return PromptResponse{}, methodNotSupported(MethodAgentPrompt)
 }
 
-func (BaseAgent) UnstableResumeSession(context.Context, ResumeSessionRequest) (ResumeSessionResponse, error) {
-	return ResumeSessionResponse{}, methodNotSupported(MethodAgentUnstableResumeSession)
+func (BaseAgent) ResumeSession(context.Context, ResumeSessionRequest) (ResumeSessionResponse, error) {
+	return ResumeSessionResponse{}, methodNotSupported(MethodAgentResumeSession)
 }
 
 func (BaseAgent) SetSessionConfigOption(context.Context, SetSessionConfigOptionRequest) (SetSessionConfigOptionResponse, error) {
@@ -125,10 +137,6 @@ func (BaseAgent) SetSessionConfigOption(context.Context, SetSessionConfigOptionR
 
 func (BaseAgent) SetSessionMode(context.Context, SetSessionModeRequest) (SetSessionModeResponse, error) {
 	return SetSessionModeResponse{}, methodNotSupported(MethodAgentSetSessionMode)
-}
-
-func (BaseAgent) UnstableSetSessionModel(context.Context, SetSessionModelRequest) (SetSessionModelResponse, error) {
-	return SetSessionModelResponse{}, methodNotSupported(MethodAgentUnstableSetSessionModel)
 }
 
 var _ Agent = BaseAgent{}
@@ -155,6 +163,22 @@ func (BaseClient) ReadTextFile(context.Context, ReadTextFileRequest) (ReadTextFi
 
 func (BaseClient) WriteTextFile(context.Context, WriteTextFileRequest) (WriteTextFileResponse, error) {
 	return WriteTextFileResponse{}, methodNotSupported(MethodClientWriteTextFile)
+}
+
+func (BaseClient) UnstableConnectMCP(context.Context, ConnectMCPRequest) (ConnectMCPResponse, error) {
+	return ConnectMCPResponse{}, methodNotSupported(MethodClientUnstableConnectMCP)
+}
+
+func (BaseClient) UnstableDisconnectMCP(context.Context, DisconnectMCPRequest) (DisconnectMCPResponse, error) {
+	return DisconnectMCPResponse{}, methodNotSupported(MethodClientUnstableDisconnectMCP)
+}
+
+func (BaseClient) UnstableMessageMCP(context.Context, MessageMCPRequest) (MessageMCPResponse, error) {
+	return MessageMCPResponse{}, methodNotSupported(MethodClientUnstableMessageMCP)
+}
+
+func (BaseClient) UnstableMCPMessage(context.Context, MessageMCPNotification) error {
+	return notificationNotImplemented(MethodClientUnstableMCPMessage)
 }
 
 func (BaseClient) RequestPermission(context.Context, RequestPermissionRequest) (RequestPermissionResponse, error) {

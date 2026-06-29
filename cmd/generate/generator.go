@@ -1216,11 +1216,11 @@ func isDispatchType(name string) bool {
 	return false
 }
 
-// isExtPayloadType returns true for extension payload types that should be
+// isExtPayloadType returns true for schema-less payload types that should be
 // generated as json.RawMessage type aliases.
 func isExtPayloadType(name string) bool {
 	switch name {
-	case "ExtNotification", "ExtRequest", "ExtResponse":
+	case "ExtNotification", "ExtRequest", "ExtResponse", "MessageMcpResponse":
 		return true
 	}
 	return false

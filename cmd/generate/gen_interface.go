@@ -41,53 +41,77 @@ func (g *Generator) buildMethods(methods map[string]string, side string) []Metho
 	var result []MethodInfo
 
 	for key, wireMethod := range methods {
-		mi := MethodInfo{
-			Key:        key,
-			WireMethod: wireMethod,
-			Side:       side,
-		}
-
 		// Find request/response types by matching x-method and x-side
 		reqName, respName, notifName := g.findTypesForMethod(wireMethod, side)
 
-		if notifName != "" {
-			mi.ReqType = toTitleCase(notifName)
-			mi.IsNotify = true
-			mi.Description = g.getDescription(notifName)
-			// Derive method name from notification type: SessionNotification → SessionUpdate (use meta key)
-			mi.GoName = toTitleCase(key)
-		} else if reqName != "" {
-			mi.ReqType = toTitleCase(reqName)
+		if reqName != "" {
+			mi := MethodInfo{
+				Key:         key,
+				WireMethod:  wireMethod,
+				Side:        side,
+				ReqType:     toTitleCase(reqName),
+				Description: g.getDescription(reqName),
+				// Derive method name from request type: ReadTextFileRequest → ReadTextFile
+				GoName: strings.TrimSuffix(toTitleCase(reqName), "Request"),
+			}
 			if respName != "" {
 				mi.RespType = toTitleCase(respName)
 			}
-			mi.Description = g.getDescription(reqName)
-			// Derive method name from request type: ReadTextFileRequest → ReadTextFile
-			mi.GoName = strings.TrimSuffix(toTitleCase(reqName), "Request")
-		} else {
-			mi.GoName = toTitleCase(key)
+			mi.applyStabilityPrefix()
+			result = append(result, mi)
 		}
 
-		mi.IsUnstable = isUnstableDescription(mi.Description)
-		if mi.IsUnstable && !strings.HasPrefix(mi.GoName, "Unstable") {
-			mi.GoName = "Unstable" + mi.GoName
+		if notifName != "" {
+			mi := MethodInfo{
+				Key:         key,
+				WireMethod:  wireMethod,
+				Side:        side,
+				ReqType:     toTitleCase(notifName),
+				Description: g.getDescription(notifName),
+				IsNotify:    true,
+				// Derive method name from notification type: SessionNotification → SessionUpdate (use meta key)
+				GoName: toTitleCase(key),
+			}
+			mi.applyStabilityPrefix()
+			result = append(result, mi)
 		}
 
-		result = append(result, mi)
+		if reqName == "" && notifName == "" {
+			mi := MethodInfo{
+				Key:        key,
+				WireMethod: wireMethod,
+				Side:       side,
+				GoName:     toTitleCase(key),
+			}
+			result = append(result, mi)
+		}
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].WireMethod < result[j].WireMethod
+		if result[i].WireMethod != result[j].WireMethod {
+			return result[i].WireMethod < result[j].WireMethod
+		}
+		if result[i].IsNotify != result[j].IsNotify {
+			return !result[i].IsNotify
+		}
+		return result[i].GoName < result[j].GoName
 	})
 
 	return result
+}
+
+func (m *MethodInfo) applyStabilityPrefix() {
+	m.IsUnstable = isUnstableDescription(m.Description)
+	if m.IsUnstable && !strings.HasPrefix(m.GoName, "Unstable") {
+		m.GoName = "Unstable" + m.GoName
+	}
 }
 
 func (g *Generator) findTypesForMethod(wireMethod, side string) (reqName, respName, notifName string) {
 	for name, schema := range g.schema.Defs {
 		xMethod, _ := schema.XMethod()
 		xSide, _ := schema.XSide()
-		if xMethod != wireMethod || xSide != side {
+		if xMethod != wireMethod || !methodSideMatches(xSide, side) {
 			continue
 		}
 
@@ -100,6 +124,10 @@ func (g *Generator) findTypesForMethod(wireMethod, side string) (reqName, respNa
 		}
 	}
 	return
+}
+
+func methodSideMatches(schemaSide, requestedSide string) bool {
+	return schemaSide == requestedSide || schemaSide == "both"
 }
 
 func (g *Generator) getDescription(defName string) string {
