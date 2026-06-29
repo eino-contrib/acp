@@ -10,24 +10,26 @@ import (
 
 // Schema represents a JSON Schema definition.
 type Schema struct {
-	Ref                  string             `json:"$ref,omitempty"`
-	Defs                 map[string]*Schema `json:"$defs,omitempty"`
-	Type                 SchemaType         `json:"type,omitempty"`
-	Title                string             `json:"title,omitempty"`
-	Description          *string            `json:"description,omitempty"`
-	Properties           map[string]*Schema `json:"properties,omitempty"`
-	Required             []string           `json:"required,omitempty"`
-	Items                *Schema            `json:"items,omitempty"`
-	Enum                 []json.RawMessage  `json:"enum,omitempty"`
-	Const                *ConstValue        `json:"const,omitempty"`
-	OneOf                []*Schema          `json:"oneOf,omitempty"`
-	AnyOf                []*Schema          `json:"anyOf,omitempty"`
-	AllOf                []*Schema          `json:"allOf,omitempty"`
-	AdditionalProperties *AdditionalProps   `json:"additionalProperties,omitempty"`
-	Discriminator        *Discriminator     `json:"discriminator,omitempty"`
-	Default              json.RawMessage    `json:"default,omitempty"`
-	XMethod_             string             `json:"x-method,omitempty"`
-	XSide_               string             `json:"x-side,omitempty"`
+	Ref                           string             `json:"$ref,omitempty"`
+	Defs                          map[string]*Schema `json:"$defs,omitempty"`
+	Type                          SchemaType         `json:"type,omitempty"`
+	Title                         string             `json:"title,omitempty"`
+	Description                   *string            `json:"description,omitempty"`
+	Properties                    map[string]*Schema `json:"properties,omitempty"`
+	Required                      []string           `json:"required,omitempty"`
+	Items                         *Schema            `json:"items,omitempty"`
+	Enum                          []json.RawMessage  `json:"enum,omitempty"`
+	Const                         *ConstValue        `json:"const,omitempty"`
+	OneOf                         []*Schema          `json:"oneOf,omitempty"`
+	AnyOf                         []*Schema          `json:"anyOf,omitempty"`
+	AllOf                         []*Schema          `json:"allOf,omitempty"`
+	AdditionalProperties          *AdditionalProps   `json:"additionalProperties,omitempty"`
+	Discriminator                 *Discriminator     `json:"discriminator,omitempty"`
+	Default                       json.RawMessage    `json:"default,omitempty"`
+	XMethod_                      string             `json:"x-method,omitempty"`
+	XSide_                        string             `json:"x-side,omitempty"`
+	XDeserializeDefaultOnError_   bool               `json:"x-deserialize-default-on-error,omitempty"`
+	XDeserializeSkipInvalidItems_ bool               `json:"x-deserialize-skip-invalid-items,omitempty"`
 }
 
 // XMethod returns the x-method extension value.
@@ -38,6 +40,19 @@ func (s *Schema) XMethod() (string, bool) {
 // XSide returns the x-side extension value.
 func (s *Schema) XSide() (string, bool) {
 	return s.XSide_, s.XSide_ != ""
+}
+
+// XDeserializeDefaultOnError reports whether this property must decode to its
+// default (schema default if present, otherwise the Go zero value) instead of
+// failing when the wire value has the wrong shape.
+func (s *Schema) XDeserializeDefaultOnError() bool {
+	return s != nil && s.XDeserializeDefaultOnError_
+}
+
+// XDeserializeSkipInvalidItems reports whether array decoding must drop
+// individual elements that fail to decode instead of failing the whole array.
+func (s *Schema) XDeserializeSkipInvalidItems() bool {
+	return s != nil && s.XDeserializeSkipInvalidItems_
 }
 
 // SchemaType handles JSON Schema type that can be a string or array of strings.

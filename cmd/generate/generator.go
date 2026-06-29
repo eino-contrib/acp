@@ -124,8 +124,9 @@ func (g *Generator) Generate(pkg string) ([]byte, error) {
 		g.buf.WriteString("}\n\n")
 	}
 
-	// Generate UnmarshalJSON with default values for struct types
-	g.generateDefaultUnmarshalers(defs)
+	// Generate UnmarshalJSON for struct types needing schema defaults or
+	// x-deserialize-* tolerance.
+	g.generateCustomUnmarshalers(defs)
 
 	// Generate method constants from meta
 	if g.meta != nil {

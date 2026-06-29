@@ -3,7 +3,7 @@
 ## 背景与目标
 > 生成的文件基于 schema.unstable.json 和 meta.unstable.json
 
-生成器为普通 struct 类型产出 `Validate()`，在请求 / 响应 / 通知边界经 dispatch 的 `validatable` 接口被调用，用于在进入业务 handler 前拦截缺失 required 字段的非法报文。
+生成器为普通 struct 类型产出 `Validate()`。入站请求与通知的 params 在进入业务 handler 前，经 dispatch 的 `validatable` 接口被调用，用于拦截缺失 required 字段的非法报文。response 类型同样产出 `Validate()`，但出站 typed response 解码路径（`SendRequestTyped`）不自动调用它，由调用方按需手动校验；本次只扩展 `Validate()` 覆盖的字段，不改变各边界是否调用它的既有行为。
 
 此前 `Validate()` 只对 Go 类型恰好是字面 `string` 的 required 字段生成非空校验。但 schema 中大量 required 字段以 `$ref` / 单元素 `allOf` 指向命名 string 别名（如 `SessionId` / `TerminalId` / `AuthMethodId` / `ToolCallId` / `MCPConnectionId`），生成后字段类型是 `SessionID` / `TerminalID` 等命名类型而非字面 `string`，于是这些 required 字段被整体跳过校验。
 
@@ -27,11 +27,11 @@
 ## 影响范围
 
 - 仅普通 struct 类型的 `Validate()` 输出受影响；带 parent shared fields 的 object union 仍走各自 `UnmarshalJSON` presence 校验与 union-level `Validate()` 路径，本次不改其形态与语义。
-- 命名 string 别名 required 字段的请求 / 响应 / 通知在 dispatch 边界恢复拦截能力。
+- 命名 string 别名 required 字段的入站请求 / 通知 params 在 dispatch 边界恢复拦截能力；response 类型的 `Validate()` 同步扩展，但仍只在调用方手动调用时生效。
 - 非 string-like 的 required 字段（枚举、整型、对象、数组等）校验形态不变。
 
 ## 测试要点
 
 - 生成器层：从 unstable schema 生成后，断言 `AuthMethodAgent.id`、`AuthenticateRequest.methodId`、`TerminalOutputRequest.sessionId` / `terminalId`、`CreateTerminalResponse.terminalId`、`SessionNotification.sessionId`、`ToolCall.toolCallId`、`ConnectMCPResponse.connectionId` 等字段均产出非空校验。
 - string-like 判定：字面 string、`$ref` / `allOf` ref 指向 string 别名、单变体 `oneOf`、可空 string 判为 string-like；枚举别名、const、整型别名、`nil` 判为非 string-like。
-- 运行时层：缺失上述命名 string required 字段时 `Validate()` 报对应 `<jsonField> is required`；字段置位后校验通过，确认是 presence 校验而非过度拒绝。
+- 运行时层：缺失上述命名 string required 字段时 `Validate()` 报对应 `<jsonField> is required`；字段置位后校验通过，确认是 presence 校验而非过度拒绝。入站请求 / 通知经 dispatch 自动触发；response 类型的 `Validate()` 在直接调用时生效，不经 `SendRequestTyped` 自动调用。
