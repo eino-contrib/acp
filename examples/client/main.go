@@ -130,10 +130,11 @@ func main() {
 	defer conn.Close()
 
 	initResp, err := conn.Initialize(ctx, acp.InitializeRequest{
-		ClientInfo: &acp.Implementation{
+		Info: acp.Implementation{
 			Name:    "example-client",
 			Version: "0.1.0",
 		},
+		ProtocolVersion: acp.ProtocolVersion(acp.CurrentProtocolVersion),
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "initialize: %v\n", err)

@@ -6,9 +6,9 @@ import acp "github.com/eino-contrib/acp"
 
 func newAgentRequestHandlers(agent acp.Agent, conn *AgentConnection) map[string]requestDispatcher {
 	return map[string]requestDispatcher{
-		acp.MethodAgentAuthenticate:            bindRequestHandler(agent.Authenticate),
+		acp.MethodAgentLoginAuth:               bindRequestHandler(agent.LoginAuth),
+		acp.MethodAgentLogoutAuth:              bindRequestHandler(agent.LogoutAuth),
 		acp.MethodAgentInitialize:              bindRequestHandler(agent.Initialize),
-		acp.MethodAgentLogout:                  bindRequestHandler(agent.Logout),
 		acp.MethodAgentCloseNes:                bindRequestHandler(agent.CloseNes),
 		acp.MethodAgentStartNes:                bindRequestHandler(agent.StartNes),
 		acp.MethodAgentSuggestNes:              bindRequestHandler(agent.SuggestNes),

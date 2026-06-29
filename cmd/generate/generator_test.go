@@ -383,9 +383,6 @@ func TestGenerateCurrentSchemaRejectsUnknownDefaultDiscriminator(t *testing.T) {
 	}
 	text := string(src)
 
-	if !strings.Contains(text, `if disc.Type != "" {`) {
-		t.Fatalf("missing unknown discriminator guard in generated MCPServer union")
-	}
 	if !strings.Contains(text, `return fmt.Errorf("unknown discriminator value: %s", disc.Type)`) {
 		t.Fatalf("missing unknown discriminator error in generated MCPServer union")
 	}

@@ -15,12 +15,12 @@ func TestBaseAgentImplementsDefaults(t *testing.T) {
 		call func() error
 	}{
 		{name: "Initialize", call: func() error { _, err := agent.Initialize(context.Background(), InitializeRequest{}); return err }},
-		{name: "Authenticate", call: func() error { _, err := agent.Authenticate(context.Background(), AuthenticateRequest{}); return err }},
+		{name: "LoginAuth", call: func() error { _, err := agent.LoginAuth(context.Background(), LoginAuthRequest{}); return err }},
+		{name: "LogoutAuth", call: func() error { _, err := agent.LogoutAuth(context.Background(), LogoutAuthRequest{}); return err }},
 		{name: "LoadSession", call: func() error { _, err := agent.LoadSession(context.Background(), LoadSessionRequest{}); return err }},
 		{name: "ListSessions", call: func() error { _, err := agent.ListSessions(context.Background(), ListSessionsRequest{}); return err }},
 		{name: "NewSession", call: func() error { _, err := agent.NewSession(context.Background(), NewSessionRequest{}); return err }},
 		{name: "Prompt", call: func() error { _, err := agent.Prompt(context.Background(), PromptRequest{}); return err }},
-		{name: "Logout", call: func() error { _, err := agent.Logout(context.Background(), LogoutRequest{}); return err }},
 		{name: "SetSessionConfigOption", call: func() error {
 			_, err := agent.SetSessionConfigOption(context.Background(), SetSessionConfigOptionRequest{})
 			return err

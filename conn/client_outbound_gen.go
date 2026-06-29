@@ -11,8 +11,12 @@ import (
 
 // --- Outbound: Client sends to Agent (generated) ---
 
-func (c *ClientConnection) Authenticate(ctx context.Context, params acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.AuthenticateResponse](c.conn, ctx, acp.MethodAgentAuthenticate, params)
+func (c *ClientConnection) LoginAuth(ctx context.Context, params acp.LoginAuthRequest) (acp.LoginAuthResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.LoginAuthResponse](c.conn, ctx, acp.MethodAgentLoginAuth, params)
+}
+
+func (c *ClientConnection) LogoutAuth(ctx context.Context, params acp.LogoutAuthRequest) (acp.LogoutAuthResponse, error) {
+	return jsonrpc.SendRequestTyped[acp.LogoutAuthResponse](c.conn, ctx, acp.MethodAgentLogoutAuth, params)
 }
 
 func (c *ClientConnection) DocumentDidChange(ctx context.Context, params acp.DidChangeDocumentNotification) error {
@@ -37,10 +41,6 @@ func (c *ClientConnection) DocumentDidSave(ctx context.Context, params acp.DidSa
 
 func (c *ClientConnection) Initialize(ctx context.Context, params acp.InitializeRequest) (acp.InitializeResponse, error) {
 	return jsonrpc.SendRequestTyped[acp.InitializeResponse](c.conn, ctx, acp.MethodAgentInitialize, params)
-}
-
-func (c *ClientConnection) Logout(ctx context.Context, params acp.LogoutRequest) (acp.LogoutResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.LogoutResponse](c.conn, ctx, acp.MethodAgentLogout, params)
 }
 
 func (c *ClientConnection) UnstableMCPMessage(ctx context.Context, params acp.MessageMCPNotification) error {

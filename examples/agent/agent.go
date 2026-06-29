@@ -33,7 +33,7 @@ func NewAgent() *Agent {
 func (a *Agent) Initialize(_ context.Context, _ acp.InitializeRequest) (acp.InitializeResponse, error) {
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersion(acp.CurrentProtocolVersion),
-		AgentInfo: &acp.Implementation{
+		Info: acp.Implementation{
 			Name:    "echo-agent",
 			Version: "0.1.0",
 		},
@@ -49,7 +49,7 @@ func (a *Agent) NewSession(_ context.Context, _ acp.NewSessionRequest) (acp.NewS
 func (a *Agent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.PromptResponse, error) {
 	userText := extractPromptText(params.Prompt)
 	a.simulateSessionUpdates(ctx, params.SessionID, userText)
-	return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
+	return acp.PromptResponse{}, nil
 }
 
 func extractPromptText(blocks []acp.ContentBlock) string {
@@ -113,6 +113,14 @@ func (a *Agent) simulateSessionUpdates(ctx context.Context, sessionID acp.Sessio
 				Text: fmt.Sprintf("根据查到的内容，关于「%s」的回答如下：这是一个示例回复，实际场景中会返回更详细的结果。", userText),
 			}),
 		}),
+	})
+
+	stopReason := acp.StopReasonEndTurn
+	a.agentConn.SessionUpdate(ctx, acp.SessionNotification{
+		SessionID: sessionID,
+		Update: acp.NewSessionUpdateStateUpdate(acp.NewStateUpdateIdle(acp.IdleStateUpdate{
+			StopReason: &stopReason,
+		})),
 	})
 }
 

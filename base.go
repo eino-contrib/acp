@@ -23,8 +23,12 @@ func notificationNotImplemented(method string) error {
 // not silently disappear during integration.
 type BaseAgent struct{}
 
-func (BaseAgent) Authenticate(context.Context, AuthenticateRequest) (AuthenticateResponse, error) {
-	return AuthenticateResponse{}, methodNotSupported(MethodAgentAuthenticate)
+func (BaseAgent) LoginAuth(context.Context, LoginAuthRequest) (LoginAuthResponse, error) {
+	return LoginAuthResponse{}, methodNotSupported(MethodAgentLoginAuth)
+}
+
+func (BaseAgent) LogoutAuth(context.Context, LogoutAuthRequest) (LogoutAuthResponse, error) {
+	return LogoutAuthResponse{}, methodNotSupported(MethodAgentLogoutAuth)
 }
 
 func (BaseAgent) DocumentDidChange(context.Context, DidChangeDocumentNotification) error {
@@ -49,10 +53,6 @@ func (BaseAgent) DocumentDidSave(context.Context, DidSaveDocumentNotification) e
 
 func (BaseAgent) Initialize(context.Context, InitializeRequest) (InitializeResponse, error) {
 	return InitializeResponse{}, methodNotSupported(MethodAgentInitialize)
-}
-
-func (BaseAgent) Logout(context.Context, LogoutRequest) (LogoutResponse, error) {
-	return LogoutResponse{}, methodNotSupported(MethodAgentLogout)
 }
 
 func (BaseAgent) UnstableMCPMessage(context.Context, MessageMCPNotification) error {

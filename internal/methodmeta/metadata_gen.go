@@ -3,9 +3,18 @@
 package methodmeta
 
 var methodMetadata = map[string]Metadata{
-	"authenticate": {
-		Key:                   "authenticate",
-		WireMethod:            "authenticate",
+	"auth/login": {
+		Key:                   "auth_login",
+		WireMethod:            "auth/login",
+		Side:                  SideAgent,
+		Notification:          false,
+		SessionBound:          false,
+		SessionHeaderRequired: false,
+		SessionCreating:       false,
+	},
+	"auth/logout": {
+		Key:                   "auth_logout",
+		WireMethod:            "auth/logout",
 		Side:                  SideAgent,
 		Notification:          false,
 		SessionBound:          false,
@@ -78,15 +87,6 @@ var methodMetadata = map[string]Metadata{
 	"initialize": {
 		Key:                   "initialize",
 		WireMethod:            "initialize",
-		Side:                  SideAgent,
-		Notification:          false,
-		SessionBound:          false,
-		SessionHeaderRequired: false,
-		SessionCreating:       false,
-	},
-	"logout": {
-		Key:                   "logout",
-		WireMethod:            "logout",
 		Side:                  SideAgent,
 		Notification:          false,
 		SessionBound:          false,

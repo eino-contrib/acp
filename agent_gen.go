@@ -6,10 +6,14 @@ import "context"
 
 // Agent defines the agent-side RPC interface.
 type Agent interface {
-	// Request parameters for the authenticate method.
+	// Request parameters for the `auth/login` method.
 	//
 	// Specifies which authentication method to use.
-	Authenticate(ctx context.Context, params AuthenticateRequest) (AuthenticateResponse, error)
+	LoginAuth(ctx context.Context, params LoginAuthRequest) (LoginAuthResponse, error)
+	// Request parameters for the `auth/logout` method.
+	//
+	// Terminates the current authenticated session.
+	LogoutAuth(ctx context.Context, params LogoutAuthRequest) (LogoutAuthResponse, error)
 	// Notification sent when a file is edited.
 	DocumentDidChange(ctx context.Context, params DidChangeDocumentNotification) error
 	// Notification sent when a file is closed.
@@ -24,12 +28,8 @@ type Agent interface {
 	//
 	// Sent by the client to establish connection and negotiate capabilities.
 	//
-	// See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
+	// See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v2/draft/initialization)
 	Initialize(ctx context.Context, params InitializeRequest) (InitializeResponse, error)
-	// Request parameters for the logout method.
-	//
-	// Terminates the current authenticated session.
-	Logout(ctx context.Context, params LogoutRequest) (LogoutResponse, error)
 	// **UNSTABLE**
 	//
 	// This capability is not part of the spec yet, and may be removed or changed at any point.
@@ -74,7 +74,7 @@ type Agent interface {
 	UnstableSetProvider(ctx context.Context, params SetProviderRequest) (SetProviderResponse, error)
 	// Notification to cancel ongoing operations for a session.
 	//
-	// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
+	// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#cancellation)
 	SessionCancel(ctx context.Context, params CancelNotification) error
 	// Request parameters for closing an active session.
 	//
@@ -107,17 +107,17 @@ type Agent interface {
 	//
 	// Only available if the Agent supports the `session.load` capability.
 	//
-	// See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
+	// See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/v2/draft/session-setup#loading-sessions)
 	LoadSession(ctx context.Context, params LoadSessionRequest) (LoadSessionResponse, error)
 	// Request parameters for creating a new session.
 	//
-	// See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
+	// See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/draft/session-setup#creating-a-session)
 	NewSession(ctx context.Context, params NewSessionRequest) (NewSessionResponse, error)
 	// Request parameters for sending a user prompt to the agent.
 	//
 	// Contains the user's message and any additional context.
 	//
-	// See protocol docs: [User Message](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message)
+	// See protocol docs: [User Message](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#1-user-message)
 	Prompt(ctx context.Context, params PromptRequest) (PromptResponse, error)
 	// Request parameters for resuming an existing session.
 	//
@@ -132,14 +132,14 @@ type Agent interface {
 
 // Agent method wire names.
 const (
-	MethodAgentAuthenticate            = "authenticate"
+	MethodAgentLoginAuth               = "auth/login"
+	MethodAgentLogoutAuth              = "auth/logout"
 	MethodAgentDocumentDidChange       = "document/didChange"
 	MethodAgentDocumentDidClose        = "document/didClose"
 	MethodAgentDocumentDidFocus        = "document/didFocus"
 	MethodAgentDocumentDidOpen         = "document/didOpen"
 	MethodAgentDocumentDidSave         = "document/didSave"
 	MethodAgentInitialize              = "initialize"
-	MethodAgentLogout                  = "logout"
 	MethodAgentUnstableMCPMessage      = "mcp/message"
 	MethodAgentNesAccept               = "nes/accept"
 	MethodAgentCloseNes                = "nes/close"

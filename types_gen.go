@@ -146,7 +146,7 @@ const (
 //
 // Used to indicate the relative importance or urgency of different
 // tasks in the execution plan.
-// See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
+// See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/v2/draft/agent-plan#plan-entries)
 type PlanEntryPriority string
 
 const (
@@ -161,7 +161,7 @@ const (
 // Status of a plan entry in the execution flow.
 //
 // Tracks the lifecycle of each task from planning through completion.
-// See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
+// See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/v2/draft/agent-plan#plan-entries)
 type PlanEntryStatus string
 
 const (
@@ -191,8 +191,10 @@ const (
 type Role string
 
 const (
+	// The assistant side of a conversation.
 	RoleAssistant Role = "assistant"
-	RoleUser      Role = "user"
+	// The user side of a conversation.
+	RoleUser Role = "user"
 )
 
 // Semantic category for a session configuration option.
@@ -211,33 +213,34 @@ const (
 	SessionConfigOptionCategoryMode SessionConfigOptionCategory = "mode"
 	// Model selector.
 	SessionConfigOptionCategoryModel SessionConfigOptionCategory = "model"
+	// Model-related configuration parameter.
+	SessionConfigOptionCategoryModelConfig SessionConfigOptionCategory = "model_config"
 	// Thought/reasoning level selector.
 	SessionConfigOptionCategoryThoughtLevel SessionConfigOptionCategory = "thought_level"
 )
 
-// Reasons why an agent stops processing a prompt turn.
+// Reasons why an agent stops active session work.
 //
-// See protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/prompt-turn#stop-reasons)
+// See protocol docs: [Stop Reasons](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#stop-reasons)
 type StopReason string
 
 const (
-	// The turn ended successfully.
+	// The active work ended successfully.
 	StopReasonEndTurn StopReason = "end_turn"
-	// The turn ended because the agent reached the maximum number of tokens.
+	// The active work ended because the agent reached the maximum number of tokens.
 	StopReasonMaxTokens StopReason = "max_tokens"
-	// The turn ended because the agent reached the maximum number of allowed
-	// agent requests between user turns.
+	// The active work ended because the agent reached the maximum number of
+	// allowed agent requests before returning idle.
 	StopReasonMaxTurnRequests StopReason = "max_turn_requests"
-	// The turn ended because the agent refused to continue. The user prompt
-	// and everything that comes after it won't be included in the next
+	// The active work ended because the agent refused to continue. The user
+	// prompt and everything that comes after it won't be included in the next
 	// prompt, so this should be reflected in the UI.
 	StopReasonRefusal StopReason = "refusal"
-	// The turn was cancelled by the client via `session/cancel`.
+	// Active session work was cancelled by the client via `session/cancel`.
 	//
-	// This stop reason MUST be returned when the client sends a `session/cancel`
-	// notification, even if the cancellation causes exceptions in underlying operations.
-	// Agents should catch these exceptions and return this semantically meaningful
-	// response to confirm successful cancellation.
+	// Agents should report this stop reason on an idle `state_update` session update
+	// when cancellation succeeds, even if cancellation causes exceptions in
+	// underlying operations.
 	StopReasonCancelled StopReason = "cancelled"
 )
 
@@ -269,7 +272,7 @@ const (
 //
 // Tool calls progress through different statuses during their lifecycle.
 //
-// See protocol docs: [Status](https://agentclientprotocol.com/protocol/tool-calls#status)
+// See protocol docs: [Status](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#status)
 type ToolCallStatus string
 
 const (
@@ -289,7 +292,7 @@ const (
 // Tool kinds help clients choose appropriate icons and optimize how they
 // display tool execution progress.
 //
-// See protocol docs: [Creating](https://agentclientprotocol.com/protocol/tool-calls#creating)
+// See protocol docs: [Creating](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#creating)
 type ToolKind string
 
 const (
@@ -544,7 +547,7 @@ type ContentBlockResource struct {
 // This structure is compatible with the Model Context Protocol (MCP), enabling
 // agents to seamlessly forward content from MCP tool outputs without transformation.
 //
-// See protocol docs: [Content](https://agentclientprotocol.com/protocol/content)
+// See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/content)
 type ContentBlock struct {
 	// Text content. May be plain text or formatted with Markdown.
 	//
@@ -1561,7 +1564,7 @@ type MCPServerStdioVariant struct {
 // MCP servers provide tools and context that the agent can use when
 // processing prompts.
 //
-// See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/session-setup#mcp-servers)
+// See protocol docs: [MCP Servers](https://agentclientprotocol.com/protocol/v2/draft/session-setup#mcp-servers)
 type MCPServer struct {
 	// HTTP transport configuration
 	//
@@ -2063,13 +2066,13 @@ func NewPlanUpdateContentMarkdown(v PlanMarkdown) PlanUpdateContent {
 	return PlanUpdateContent{Markdown: &w}
 }
 
-// The prompt turn was cancelled before the user responded.
+// Active session work was cancelled before the user responded.
 //
-// When a client sends a `session/cancel` notification to cancel an ongoing
-// prompt turn, it MUST respond to all pending `session/request_permission`
+// When a client sends a `session/cancel` notification to cancel active
+// session work, it MUST respond to all pending `session/request_permission`
 // requests with this `Cancelled` outcome.
 //
-// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
+// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#cancellation)
 type RequestPermissionOutcomeCancelled struct {
 	Outcome string `json:"outcome,omitempty"`
 }
@@ -2082,13 +2085,13 @@ type RequestPermissionOutcomeSelected struct {
 
 // The outcome of a permission request.
 type RequestPermissionOutcome struct {
-	// The prompt turn was cancelled before the user responded.
+	// Active session work was cancelled before the user responded.
 	//
-	// When a client sends a `session/cancel` notification to cancel an ongoing
-	// prompt turn, it MUST respond to all pending `session/request_permission`
+	// When a client sends a `session/cancel` notification to cancel active
+	// session work, it MUST respond to all pending `session/request_permission`
 	// requests with this `Cancelled` outcome.
 	//
-	// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
+	// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#cancellation)
 	Cancelled *RequestPermissionOutcomeCancelled `json:"-"`
 	// The user selected one of the provided options.
 	Selected *RequestPermissionOutcomeSelected `json:"-"`
@@ -2696,6 +2699,16 @@ type SessionUpdateAgentThought struct {
 	SessionUpdate string `json:"sessionUpdate,omitempty"`
 }
 
+// The agent's session state has changed.
+//
+// Agents send this to report when work starts, completes, or pauses while
+// waiting for user action. Completion of active work is reported here instead
+// of in the `session/prompt` response.
+type SessionUpdateStateUpdate struct {
+	StateUpdate
+	SessionUpdate string `json:"sessionUpdate,omitempty"`
+}
+
 // A chunk of tool-call content being streamed.
 type SessionUpdateToolCallContentChunk struct {
 	ToolCallContentChunk
@@ -2709,7 +2722,7 @@ type SessionUpdateToolCallUpdate struct {
 }
 
 // A content update for a plan identified by ID.
-// See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
+// See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/v2/draft/agent-plan)
 type SessionUpdatePlanUpdate struct {
 	PlanUpdate
 	SessionUpdate string `json:"sessionUpdate,omitempty"`
@@ -2753,7 +2766,7 @@ type SessionUpdateUsageUpdate struct {
 //
 // These updates provide real-time feedback about the agent's progress.
 //
-// See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)
+// See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#3-agent-reports-output)
 type SessionUpdate struct {
 	// A chunk of the user's message being streamed.
 	UserMessageChunk *SessionUpdateUserMessageChunk `json:"-"`
@@ -2779,12 +2792,18 @@ type SessionUpdate struct {
 	// receives another `agent_thought` update with the same `messageId`,
 	// fields in the new update patch the previous fields for that message.
 	AgentThought *SessionUpdateAgentThought `json:"-"`
+	// The agent's session state has changed.
+	//
+	// Agents send this to report when work starts, completes, or pauses while
+	// waiting for user action. Completion of active work is reported here instead
+	// of in the `session/prompt` response.
+	StateUpdate *SessionUpdateStateUpdate `json:"-"`
 	// A chunk of tool-call content being streamed.
 	ToolCallContentChunk *SessionUpdateToolCallContentChunk `json:"-"`
 	// A tool call has been created or updated.
 	ToolCallUpdate *SessionUpdateToolCallUpdate `json:"-"`
 	// A content update for a plan identified by ID.
-	// See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/agent-plan)
+	// See protocol docs: [Agent Plan](https://agentclientprotocol.com/protocol/v2/draft/agent-plan)
 	PlanUpdate *SessionUpdatePlanUpdate `json:"-"`
 	// **UNSTABLE**
 	//
@@ -2873,6 +2892,18 @@ func (s SessionUpdate) MarshalJSON() ([]byte, error) {
 			return nil, err
 		}
 		obj["sessionUpdate"], _ = json.Marshal("agent_thought")
+		return json.Marshal(obj)
+	}
+	if s.StateUpdate != nil {
+		data, err := json.Marshal(*s.StateUpdate)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["sessionUpdate"], _ = json.Marshal("state_update")
 		return json.Marshal(obj)
 	}
 	if s.ToolCallContentChunk != nil {
@@ -3024,6 +3055,13 @@ func (s *SessionUpdate) UnmarshalJSON(data []byte) error {
 		}
 		s.AgentThought = &v
 		return nil
+	case "state_update":
+		var v SessionUpdateStateUpdate
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		s.StateUpdate = &v
+		return nil
 	case "tool_call_content_chunk":
 		var v SessionUpdateToolCallContentChunk
 		if err := json.Unmarshal(data, &v); err != nil {
@@ -3125,6 +3163,13 @@ func (s *SessionUpdate) AsAgentThought() (SessionUpdateAgentThought, bool) {
 		return zero, false
 	}
 	return *s.AgentThought, true
+}
+func (s *SessionUpdate) AsStateUpdate() (SessionUpdateStateUpdate, bool) {
+	if s.StateUpdate == nil {
+		var zero SessionUpdateStateUpdate
+		return zero, false
+	}
+	return *s.StateUpdate, true
 }
 func (s *SessionUpdate) AsToolCallContentChunk() (SessionUpdateToolCallContentChunk, bool) {
 	if s.ToolCallContentChunk == nil {
@@ -3235,6 +3280,15 @@ func NewSessionUpdateAgentThought(v AgentThought) SessionUpdate {
 		SessionUpdate: "agent_thought",
 	}
 	return SessionUpdate{AgentThought: &w}
+}
+
+// NewSessionUpdateStateUpdate creates a SessionUpdate holding a StateUpdate variant.
+func NewSessionUpdateStateUpdate(v StateUpdate) SessionUpdate {
+	w := SessionUpdateStateUpdate{
+		StateUpdate:   v,
+		SessionUpdate: "state_update",
+	}
+	return SessionUpdate{StateUpdate: &w}
 }
 
 // NewSessionUpdateToolCallContentChunk creates a SessionUpdate holding a ToolCallContentChunk variant.
@@ -3598,6 +3652,161 @@ func NewSetSessionConfigOptionRequestValueID(v SetSessionConfigOptionRequestValu
 	return SetSessionConfigOptionRequest{ValueID: &v}
 }
 
+// The agent is actively processing work in the session.
+type StateUpdateRunning struct {
+	RunningStateUpdate
+	State string `json:"state,omitempty"`
+}
+
+// The agent is not currently processing work in the session.
+type StateUpdateIdle struct {
+	IdleStateUpdate
+	State string `json:"state,omitempty"`
+}
+
+// The agent is waiting on user action before it can continue.
+type StateUpdateRequiresAction struct {
+	RequiresActionStateUpdate
+	State string `json:"state,omitempty"`
+}
+
+// The agent's session state has changed.
+//
+// This update is the mechanism for reporting session activity transitions.
+// A `session/prompt` response only acknowledges that the prompt was accepted;
+// agents use `state_update` notifications to report that processing has started,
+// that the session is idle, or that progress is blocked on user action.
+type StateUpdate struct {
+	// The agent is actively processing work in the session.
+	Running *StateUpdateRunning `json:"-"`
+	// The agent is not currently processing work in the session.
+	Idle *StateUpdateIdle `json:"-"`
+	// The agent is waiting on user action before it can continue.
+	RequiresAction *StateUpdateRequiresAction `json:"-"`
+}
+
+func (s StateUpdate) MarshalJSON() ([]byte, error) {
+	if s.Running != nil {
+		data, err := json.Marshal(*s.Running)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["state"], _ = json.Marshal("running")
+		return json.Marshal(obj)
+	}
+	if s.Idle != nil {
+		data, err := json.Marshal(*s.Idle)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["state"], _ = json.Marshal("idle")
+		return json.Marshal(obj)
+	}
+	if s.RequiresAction != nil {
+		data, err := json.Marshal(*s.RequiresAction)
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, err
+		}
+		obj["state"], _ = json.Marshal("requires_action")
+		return json.Marshal(obj)
+	}
+	return nil, fmt.Errorf("no variant is set for StateUpdate")
+}
+func (s *StateUpdate) UnmarshalJSON(data []byte) error {
+	*s = StateUpdate{}
+	var disc struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(data, &disc); err != nil {
+		return err
+	}
+	switch disc.State {
+	case "running":
+		var v StateUpdateRunning
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		s.Running = &v
+		return nil
+	case "idle":
+		var v StateUpdateIdle
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		s.Idle = &v
+		return nil
+	case "requires_action":
+		var v StateUpdateRequiresAction
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		s.RequiresAction = &v
+		return nil
+	default:
+		return fmt.Errorf("unknown discriminator value: %s", disc.State)
+	}
+}
+func (s *StateUpdate) AsRunning() (StateUpdateRunning, bool) {
+	if s.Running == nil {
+		var zero StateUpdateRunning
+		return zero, false
+	}
+	return *s.Running, true
+}
+func (s *StateUpdate) AsIdle() (StateUpdateIdle, bool) {
+	if s.Idle == nil {
+		var zero StateUpdateIdle
+		return zero, false
+	}
+	return *s.Idle, true
+}
+func (s *StateUpdate) AsRequiresAction() (StateUpdateRequiresAction, bool) {
+	if s.RequiresAction == nil {
+		var zero StateUpdateRequiresAction
+		return zero, false
+	}
+	return *s.RequiresAction, true
+}
+
+// NewStateUpdateRunning creates a StateUpdate holding a Running variant.
+func NewStateUpdateRunning(v RunningStateUpdate) StateUpdate {
+	w := StateUpdateRunning{
+		RunningStateUpdate: v,
+		State:              "running",
+	}
+	return StateUpdate{Running: &w}
+}
+
+// NewStateUpdateIdle creates a StateUpdate holding a Idle variant.
+func NewStateUpdateIdle(v IdleStateUpdate) StateUpdate {
+	w := StateUpdateIdle{
+		IdleStateUpdate: v,
+		State:           "idle",
+	}
+	return StateUpdate{Idle: &w}
+}
+
+// NewStateUpdateRequiresAction creates a StateUpdate holding a RequiresAction variant.
+func NewStateUpdateRequiresAction(v RequiresActionStateUpdate) StateUpdate {
+	w := StateUpdateRequiresAction{
+		RequiresActionStateUpdate: v,
+		State:                     "requires_action",
+	}
+	return StateUpdate{RequiresAction: &w}
+}
+
 // Standard content block (text, images, resources).
 type ToolCallContentContent struct {
 	Content
@@ -3615,7 +3824,7 @@ type ToolCallContentDiff struct {
 // Tool calls can produce different types of content including
 // standard content blocks (text, images) or file diffs.
 //
-// See protocol docs: [Content](https://agentclientprotocol.com/protocol/tool-calls#content)
+// See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#content)
 type ToolCallContent struct {
 	// Standard content block (text, images, resources).
 	Content *ToolCallContentContent `json:"-"`
@@ -3721,8 +3930,7 @@ func (x AcceptNesNotification) GetSessionID() string { return string(x.SessionID
 
 // Authentication-related capabilities supported by the agent.
 type AgentAuthCapabilities struct {
-	Meta   map[string]any      `json:"_meta,omitempty"`
-	Logout *LogoutCapabilities `json:"logout,omitempty"`
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // Capabilities supported by the agent.
@@ -3730,7 +3938,7 @@ type AgentAuthCapabilities struct {
 // Advertised during initialization to inform the client about
 // available features and content types.
 //
-// See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/initialization#agent-capabilities)
+// See protocol docs: [Agent Capabilities](https://agentclientprotocol.com/protocol/v2/draft/initialization#agent-capabilities)
 type AgentCapabilities struct {
 	Meta             map[string]any         `json:"_meta,omitempty"`
 	Auth             *AgentAuthCapabilities `json:"auth,omitempty"`
@@ -3827,7 +4035,7 @@ type AuthEnvVar struct {
 type AuthMethodAgent struct {
 	Meta        map[string]any `json:"_meta,omitempty"`
 	Description string         `json:"description,omitempty"`
-	ID          string         `json:"id"`
+	ID          AuthMethodID   `json:"id"`
 	Name        string         `json:"name"`
 }
 
@@ -3841,7 +4049,7 @@ type AuthMethodAgent struct {
 type AuthMethodEnvVar struct {
 	Meta        map[string]any `json:"_meta,omitempty"`
 	Description string         `json:"description,omitempty"`
-	ID          string         `json:"id"`
+	ID          AuthMethodID   `json:"id"`
 	Link        string         `json:"link,omitempty"`
 	Name        string         `json:"name"`
 	Vars        []AuthEnvVar   `json:"vars"`
@@ -3855,25 +4063,12 @@ type AuthMethodEnvVar struct {
 //
 // The client runs an interactive terminal for the user to authenticate via a TUI.
 type AuthMethodTerminal struct {
-	Meta        map[string]any    `json:"_meta,omitempty"`
-	Args        []string          `json:"args,omitempty"`
-	Description string            `json:"description,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-}
-
-// Request parameters for the authenticate method.
-//
-// Specifies which authentication method to use.
-type AuthenticateRequest struct {
-	Meta     map[string]any `json:"_meta,omitempty"`
-	MethodID string         `json:"methodId"`
-}
-
-// Response to the `authenticate` method.
-type AuthenticateResponse struct {
-	Meta map[string]any `json:"_meta,omitempty"`
+	Meta        map[string]any `json:"_meta,omitempty"`
+	Args        []string       `json:"args,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Env         []EnvVariable  `json:"env,omitempty"`
+	ID          AuthMethodID   `json:"id"`
+	Name        string         `json:"name"`
 }
 
 // Information about a command.
@@ -3900,14 +4095,15 @@ type BlobResourceContents struct {
 
 // Schema for boolean properties in an elicitation form.
 type BooleanPropertySchema struct {
-	Default     *bool  `json:"default,omitempty"`
-	Description string `json:"description,omitempty"`
-	Title       string `json:"title,omitempty"`
+	Meta        map[string]any `json:"_meta,omitempty"`
+	Default     *bool          `json:"default,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Title       string         `json:"title,omitempty"`
 }
 
 // Notification to cancel ongoing operations for a session.
 //
-// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/prompt-turn#cancellation)
+// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#cancellation)
 type CancelNotification struct {
 	Meta      map[string]any `json:"_meta,omitempty"`
 	SessionID SessionID      `json:"sessionId"`
@@ -3921,7 +4117,7 @@ func (x CancelNotification) GetSessionID() string { return string(x.SessionID) }
 //
 // Notification to cancel an ongoing request.
 //
-// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/cancellation)
+// See protocol docs: [Cancellation](https://agentclientprotocol.com/protocol/v2/draft/cancellation)
 type CancelRequestNotification struct {
 	Meta      map[string]any `json:"_meta,omitempty"`
 	RequestID RequestID      `json:"requestId"`
@@ -3932,7 +4128,7 @@ type CancelRequestNotification struct {
 // Advertised during initialization to inform the agent about
 // available features and methods.
 //
-// See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/initialization#client-capabilities)
+// See protocol docs: [Client Capabilities](https://agentclientprotocol.com/protocol/v2/draft/initialization#client-capabilities)
 type ClientCapabilities struct {
 	Meta              map[string]any           `json:"_meta,omitempty"`
 	Auth              *AuthCapabilities        `json:"auth,omitempty"`
@@ -4035,8 +4231,9 @@ type ContentChunk struct {
 
 // Cost information for a session.
 type Cost struct {
-	Amount   float64 `json:"amount"`
-	Currency string  `json:"currency"`
+	Meta     map[string]any `json:"_meta,omitempty"`
+	Amount   float64        `json:"amount"`
+	Currency string         `json:"currency"`
 }
 
 // Request parameters for deleting an existing session from `session/list`.
@@ -4111,7 +4308,7 @@ func (x DidSaveDocumentNotification) GetSessionID() string { return string(x.Ses
 //
 // Shows changes to files in a format suitable for display in the client UI.
 //
-// See protocol docs: [Content](https://agentclientprotocol.com/protocol/tool-calls#content)
+// See protocol docs: [Content](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#content)
 type Diff struct {
 	Meta    map[string]any `json:"_meta,omitempty"`
 	NewText string         `json:"newText"`
@@ -4201,6 +4398,7 @@ type ElicitationRequestScope struct {
 // This represents a JSON Schema object with primitive-typed properties,
 // as required by the elicitation specification.
 type ElicitationSchema struct {
+	Meta        map[string]any                       `json:"_meta,omitempty"`
 	Description string                               `json:"description,omitempty"`
 	Properties  map[string]ElicitationPropertySchema `json:"properties,omitempty"`
 	Required    []string                             `json:"required,omitempty"`
@@ -4242,8 +4440,9 @@ type EmbeddedResource struct {
 
 // A titled enum option with a const value and human-readable title.
 type EnumOption struct {
-	Const string `json:"const"`
-	Title string `json:"title"`
+	Meta  map[string]any `json:"_meta,omitempty"`
+	Const string         `json:"const"`
+	Title string         `json:"title"`
 }
 
 // An environment variable to set when launching an MCP server.
@@ -4305,6 +4504,13 @@ type HTTPHeader struct {
 	Value string         `json:"value"`
 }
 
+// The agent is not currently processing work in the session.
+type IdleStateUpdate struct {
+	Meta       map[string]any `json:"_meta,omitempty"`
+	StopReason *StopReason    `json:"stopReason,omitempty"`
+	Usage      *Usage         `json:"usage,omitempty"`
+}
+
 // An image provided to or from an LLM.
 type ImageContent struct {
 	Meta        map[string]any `json:"_meta,omitempty"`
@@ -4315,7 +4521,7 @@ type ImageContent struct {
 }
 
 // Metadata about the implementation of the client or agent.
-// Describes the name and version of an MCP implementation, with an optional
+// Describes the name and version of an ACP implementation, with an optional
 // title for UI representation.
 type Implementation struct {
 	Meta    map[string]any `json:"_meta,omitempty"`
@@ -4328,11 +4534,11 @@ type Implementation struct {
 //
 // Sent by the client to establish connection and negotiate capabilities.
 //
-// See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
+// See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v2/draft/initialization)
 type InitializeRequest struct {
 	Meta            map[string]any      `json:"_meta,omitempty"`
 	Capabilities    *ClientCapabilities `json:"capabilities,omitempty"`
-	ClientInfo      *Implementation     `json:"clientInfo,omitempty"`
+	Info            Implementation      `json:"info"`
 	ProtocolVersion ProtocolVersion     `json:"protocolVersion"`
 }
 
@@ -4342,12 +4548,12 @@ func (x InitializeRequest) GetProtocolVersion() ProtocolVersion { return x.Proto
 //
 // Contains the negotiated protocol version and agent capabilities.
 //
-// See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/initialization)
+// See protocol docs: [Initialization](https://agentclientprotocol.com/protocol/v2/draft/initialization)
 type InitializeResponse struct {
 	Meta            map[string]any     `json:"_meta,omitempty"`
-	AgentInfo       *Implementation    `json:"agentInfo,omitempty"`
 	AuthMethods     []AuthMethod       `json:"authMethods,omitempty"`
 	Capabilities    *AgentCapabilities `json:"capabilities,omitempty"`
+	Info            Implementation     `json:"info"`
 	ProtocolVersion ProtocolVersion    `json:"protocolVersion"`
 }
 
@@ -4355,11 +4561,12 @@ func (x InitializeResponse) GetProtocolVersion() ProtocolVersion { return x.Prot
 
 // Schema for integer properties in an elicitation form.
 type IntegerPropertySchema struct {
-	Default     *int64 `json:"default,omitempty"`
-	Description string `json:"description,omitempty"`
-	Maximum     *int64 `json:"maximum,omitempty"`
-	Minimum     *int64 `json:"minimum,omitempty"`
-	Title       string `json:"title,omitempty"`
+	Meta        map[string]any `json:"_meta,omitempty"`
+	Default     *int64         `json:"default,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Maximum     *int64         `json:"maximum,omitempty"`
+	Minimum     *int64         `json:"minimum,omitempty"`
+	Title       string         `json:"title,omitempty"`
 }
 
 // **UNSTABLE**
@@ -4401,7 +4608,7 @@ type ListSessionsResponse struct {
 //
 // Only available if the Agent supports the `session.load` capability.
 //
-// See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/session-setup#loading-sessions)
+// See protocol docs: [Loading Sessions](https://agentclientprotocol.com/protocol/v2/draft/session-setup#loading-sessions)
 type LoadSessionRequest struct {
 	Meta                  map[string]any `json:"_meta,omitempty"`
 	AdditionalDirectories []string       `json:"additionalDirectories,omitempty"`
@@ -4418,22 +4625,28 @@ type LoadSessionResponse struct {
 	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
 }
 
-// Logout capabilities supported by the agent.
+// Request parameters for the `auth/login` method.
 //
-// By supplying `{}` it means that the agent supports the logout method.
-type LogoutCapabilities struct {
+// Specifies which authentication method to use.
+type LoginAuthRequest struct {
+	Meta     map[string]any `json:"_meta,omitempty"`
+	MethodID AuthMethodID   `json:"methodId"`
+}
+
+// Response to the `auth/login` method.
+type LoginAuthResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
-// Request parameters for the logout method.
+// Request parameters for the `auth/logout` method.
 //
 // Terminates the current authenticated session.
-type LogoutRequest struct {
+type LogoutAuthRequest struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
-// Response to the `logout` method.
-type LogoutResponse struct {
+// Response to the `auth/logout` method.
+type LogoutAuthResponse struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 }
 
@@ -4530,6 +4743,7 @@ type MessageMCPRequest struct {
 
 // Schema for multi-select (array) properties in an elicitation form.
 type MultiSelectPropertySchema struct {
+	Meta        map[string]any   `json:"_meta,omitempty"`
 	Default     []string         `json:"default,omitempty"`
 	Description string           `json:"description,omitempty"`
 	Items       MultiSelectItems `json:"items"`
@@ -4561,6 +4775,7 @@ type NesContextCapabilities struct {
 
 // A diagnostic (error, warning, etc.).
 type NesDiagnostic struct {
+	Meta     map[string]any        `json:"_meta,omitempty"`
 	Message  string                `json:"message"`
 	Range    Range                 `json:"range"`
 	Severity NesDiagnosticSeverity `json:"severity"`
@@ -4616,16 +4831,18 @@ type NesEditHistoryCapabilities struct {
 
 // An entry in the edit history.
 type NesEditHistoryEntry struct {
-	Diff string `json:"diff"`
-	URI  string `json:"uri"`
+	Meta map[string]any `json:"_meta,omitempty"`
+	Diff string         `json:"diff"`
+	URI  string         `json:"uri"`
 }
 
 // A text edit suggestion.
 type NesEditSuggestion struct {
-	CursorPosition *Position     `json:"cursorPosition,omitempty"`
-	Edits          []NesTextEdit `json:"edits"`
-	ID             string        `json:"id"`
-	URI            string        `json:"uri"`
+	Meta           map[string]any `json:"_meta,omitempty"`
+	CursorPosition *Position      `json:"cursorPosition,omitempty"`
+	Edits          []NesTextEdit  `json:"edits"`
+	ID             string         `json:"id"`
+	URI            string         `json:"uri"`
 }
 
 // Event capabilities the agent can consume.
@@ -4636,9 +4853,10 @@ type NesEventCapabilities struct {
 
 // A code excerpt from a file.
 type NesExcerpt struct {
-	EndLine   int64  `json:"endLine"`
-	StartLine int64  `json:"startLine"`
-	Text      string `json:"text"`
+	Meta      map[string]any `json:"_meta,omitempty"`
+	EndLine   int64          `json:"endLine"`
+	StartLine int64          `json:"startLine"`
+	Text      string         `json:"text"`
 }
 
 // Marker for jump suggestion support.
@@ -4648,17 +4866,19 @@ type NesJumpCapabilities struct {
 
 // A jump-to-location suggestion.
 type NesJumpSuggestion struct {
-	ID       string   `json:"id"`
-	Position Position `json:"position"`
-	URI      string   `json:"uri"`
+	Meta     map[string]any `json:"_meta,omitempty"`
+	ID       string         `json:"id"`
+	Position Position       `json:"position"`
+	URI      string         `json:"uri"`
 }
 
 // An open file in the editor.
 type NesOpenFile struct {
-	LanguageID    string `json:"languageId"`
-	LastFocusedMs *int64 `json:"lastFocusedMs,omitempty"`
-	URI           string `json:"uri"`
-	VisibleRange  *Range `json:"visibleRange,omitempty"`
+	Meta          map[string]any `json:"_meta,omitempty"`
+	LanguageID    string         `json:"languageId"`
+	LastFocusedMs *int64         `json:"lastFocusedMs,omitempty"`
+	URI           string         `json:"uri"`
+	VisibleRange  *Range         `json:"visibleRange,omitempty"`
 }
 
 // Capabilities for open files context.
@@ -4668,9 +4888,10 @@ type NesOpenFilesCapabilities struct {
 
 // A recently accessed file.
 type NesRecentFile struct {
-	LanguageID string `json:"languageId"`
-	Text       string `json:"text"`
-	URI        string `json:"uri"`
+	Meta       map[string]any `json:"_meta,omitempty"`
+	LanguageID string         `json:"languageId"`
+	Text       string         `json:"text"`
+	URI        string         `json:"uri"`
 }
 
 // Capabilities for recent files context.
@@ -4681,8 +4902,9 @@ type NesRecentFilesCapabilities struct {
 
 // A related code snippet from a file.
 type NesRelatedSnippet struct {
-	Excerpts []NesExcerpt `json:"excerpts"`
-	URI      string       `json:"uri"`
+	Meta     map[string]any `json:"_meta,omitempty"`
+	Excerpts []NesExcerpt   `json:"excerpts"`
+	URI      string         `json:"uri"`
 }
 
 // Capabilities for related snippets context.
@@ -4697,17 +4919,19 @@ type NesRenameCapabilities struct {
 
 // A rename symbol suggestion.
 type NesRenameSuggestion struct {
-	ID       string   `json:"id"`
-	NewName  string   `json:"newName"`
-	Position Position `json:"position"`
-	URI      string   `json:"uri"`
+	Meta     map[string]any `json:"_meta,omitempty"`
+	ID       string         `json:"id"`
+	NewName  string         `json:"newName"`
+	Position Position       `json:"position"`
+	URI      string         `json:"uri"`
 }
 
 // Repository metadata for an NES session.
 type NesRepository struct {
-	Name      string `json:"name"`
-	Owner     string `json:"owner"`
-	RemoteURL string `json:"remoteUrl"`
+	Meta      map[string]any `json:"_meta,omitempty"`
+	Name      string         `json:"name"`
+	Owner     string         `json:"owner"`
+	RemoteURL string         `json:"remoteUrl"`
 }
 
 // Marker for search and replace suggestion support.
@@ -4717,11 +4941,12 @@ type NesSearchAndReplaceCapabilities struct {
 
 // A search-and-replace suggestion.
 type NesSearchAndReplaceSuggestion struct {
-	ID      string `json:"id"`
-	IsRegex *bool  `json:"isRegex,omitempty"`
-	Replace string `json:"replace"`
-	Search  string `json:"search"`
-	URI     string `json:"uri"`
+	Meta    map[string]any `json:"_meta,omitempty"`
+	ID      string         `json:"id"`
+	IsRegex *bool          `json:"isRegex,omitempty"`
+	Replace string         `json:"replace"`
+	Search  string         `json:"search"`
+	URI     string         `json:"uri"`
 }
 
 // Context attached to a suggestion request.
@@ -4737,16 +4962,18 @@ type NesSuggestContext struct {
 
 // A text edit within a suggestion.
 type NesTextEdit struct {
-	NewText string `json:"newText"`
-	Range   Range  `json:"range"`
+	Meta    map[string]any `json:"_meta,omitempty"`
+	NewText string         `json:"newText"`
+	Range   Range          `json:"range"`
 }
 
 // A user action (typing, cursor movement, etc.).
 type NesUserAction struct {
-	Action      string   `json:"action"`
-	Position    Position `json:"position"`
-	TimestampMs int64    `json:"timestampMs"`
-	URI         string   `json:"uri"`
+	Meta        map[string]any `json:"_meta,omitempty"`
+	Action      string         `json:"action"`
+	Position    Position       `json:"position"`
+	TimestampMs int64          `json:"timestampMs"`
+	URI         string         `json:"uri"`
 }
 
 // Capabilities for user actions context.
@@ -4757,17 +4984,17 @@ type NesUserActionsCapabilities struct {
 
 // Request parameters for creating a new session.
 //
-// See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
+// See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/draft/session-setup#creating-a-session)
 type NewSessionRequest struct {
 	Meta                  map[string]any `json:"_meta,omitempty"`
 	AdditionalDirectories []string       `json:"additionalDirectories,omitempty"`
 	Cwd                   string         `json:"cwd"`
-	MCPServers            []MCPServer    `json:"mcpServers"`
+	MCPServers            []MCPServer    `json:"mcpServers,omitempty"`
 }
 
 // Response from creating a new session.
 //
-// See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/session-setup#creating-a-session)
+// See protocol docs: [Creating a Session](https://agentclientprotocol.com/protocol/v2/draft/session-setup#creating-a-session)
 type NewSessionResponse struct {
 	Meta          map[string]any        `json:"_meta,omitempty"`
 	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
@@ -4778,11 +5005,12 @@ func (x NewSessionResponse) GetSessionID() string { return string(x.SessionID) }
 
 // Schema for number (floating-point) properties in an elicitation form.
 type NumberPropertySchema struct {
-	Default     *float64 `json:"default,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Maximum     *float64 `json:"maximum,omitempty"`
-	Minimum     *float64 `json:"minimum,omitempty"`
-	Title       string   `json:"title,omitempty"`
+	Meta        map[string]any `json:"_meta,omitempty"`
+	Default     *float64       `json:"default,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Maximum     *float64       `json:"maximum,omitempty"`
+	Minimum     *float64       `json:"minimum,omitempty"`
+	Title       string         `json:"title,omitempty"`
 }
 
 // An option presented to the user when requesting permission.
@@ -4797,7 +5025,7 @@ type PermissionOption struct {
 //
 // Represents a task or goal that the assistant intends to accomplish
 // as part of fulfilling the user's request.
-// See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/agent-plan#plan-entries)
+// See protocol docs: [Plan Entries](https://agentclientprotocol.com/protocol/v2/draft/agent-plan#plan-entries)
 type PlanEntry struct {
 	Meta     map[string]any    `json:"_meta,omitempty"`
 	Content  string            `json:"content"`
@@ -4854,8 +5082,9 @@ type PlanUpdate struct {
 //
 // The meaning of `character` depends on the negotiated position encoding.
 type Position struct {
-	Character int64 `json:"character"`
-	Line      int64 `json:"line"`
+	Meta      map[string]any `json:"_meta,omitempty"`
+	Character int64          `json:"character"`
+	Line      int64          `json:"line"`
 }
 
 // Capabilities for audio content in prompt requests.
@@ -4876,7 +5105,7 @@ type PromptAudioCapabilities struct {
 // Indicates which content types beyond the baseline (text and resource links)
 // the agent can process.
 //
-// See protocol docs: [Prompt Capabilities](https://agentclientprotocol.com/protocol/initialization#prompt-capabilities)
+// See protocol docs: [Prompt Capabilities](https://agentclientprotocol.com/protocol/v2/draft/initialization#prompt-capabilities)
 type PromptCapabilities struct {
 	Meta            map[string]any                     `json:"_meta,omitempty"`
 	Audio           *PromptAudioCapabilities           `json:"audio,omitempty"`
@@ -4902,7 +5131,7 @@ type PromptImageCapabilities struct {
 //
 // Contains the user's message and any additional context.
 //
-// See protocol docs: [User Message](https://agentclientprotocol.com/protocol/prompt-turn#1-user-message)
+// See protocol docs: [User Message](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#1-user-message)
 type PromptRequest struct {
 	Meta      map[string]any `json:"_meta,omitempty"`
 	Prompt    []ContentBlock `json:"prompt"`
@@ -4911,15 +5140,17 @@ type PromptRequest struct {
 
 func (x PromptRequest) GetSessionID() string { return string(x.SessionID) }
 
-// Response from processing a user prompt.
+// Response acknowledging that a user prompt was accepted.
 //
-// See protocol docs: [Check for Completion](https://agentclientprotocol.com/protocol/prompt-turn#4-check-for-completion)
+// This response does not indicate that the agent has finished processing.
+// Agents report session state through `state_update` session updates.
+//
+// See protocol docs: [Prompt Accepted](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#2-prompt-accepted)
 type PromptResponse struct {
-	Meta       map[string]any `json:"_meta,omitempty"`
-	StopReason StopReason     `json:"stopReason"`
-	Usage      *Usage         `json:"usage,omitempty"`
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
+// A JSON-RPC notification object.
 type ProtocolLevelNotification struct {
 	Method string                     `json:"method"`
 	Params *CancelRequestNotification `json:"params,omitempty"`
@@ -4931,8 +5162,9 @@ type ProtocolLevelNotification struct {
 //
 // Current effective non-secret routing configuration for a provider.
 type ProviderCurrentConfig struct {
-	APIType LlmProtocol `json:"apiType"`
-	BaseURL string      `json:"baseUrl"`
+	Meta    map[string]any `json:"_meta,omitempty"`
+	APIType LlmProtocol    `json:"apiType"`
+	BaseURL string         `json:"baseUrl"`
 }
 
 // **UNSTABLE**
@@ -4961,8 +5193,9 @@ type ProvidersCapabilities struct {
 
 // A range in a text document, expressed as start and end positions.
 type Range struct {
-	End   Position `json:"end"`
-	Start Position `json:"start"`
+	Meta  map[string]any `json:"_meta,omitempty"`
+	End   Position       `json:"end"`
+	Start Position       `json:"start"`
 }
 
 // Notification sent when a suggestion is rejected.
@@ -4979,7 +5212,7 @@ func (x RejectNesNotification) GetSessionID() string { return string(x.SessionID
 //
 // Sent when the agent needs authorization before performing a sensitive operation.
 //
-// See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/tool-calls#requesting-permission)
+// See protocol docs: [Requesting Permission](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#requesting-permission)
 type RequestPermissionRequest struct {
 	Meta      map[string]any     `json:"_meta,omitempty"`
 	Options   []PermissionOption `json:"options"`
@@ -4993,6 +5226,11 @@ func (x RequestPermissionRequest) GetSessionID() string { return string(x.Sessio
 type RequestPermissionResponse struct {
 	Meta    map[string]any           `json:"_meta,omitempty"`
 	Outcome RequestPermissionOutcome `json:"outcome"`
+}
+
+// The agent is waiting on user action before it can continue.
+type RequiresActionStateUpdate struct {
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // A resource that the server is capable of reading, included in a prompt or tool call result.
@@ -5029,6 +5267,11 @@ type ResumeSessionResponse struct {
 	ConfigOptions []SessionConfigOption `json:"configOptions,omitempty"`
 }
 
+// The agent is actively processing work in the session.
+type RunningStateUpdate struct {
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
 // The user selected one of the provided options.
 type SelectedPermissionOutcome struct {
 	Meta     map[string]any     `json:"_meta,omitempty"`
@@ -5054,7 +5297,7 @@ type SessionAdditionalDirectoriesCapabilities struct {
 // prompt content types, and MCP transports by specifying additional
 // capabilities.
 //
-// See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/initialization#session-capabilities)
+// See protocol docs: [Session Capabilities](https://agentclientprotocol.com/protocol/v2/draft/initialization#session-capabilities)
 type SessionCapabilities struct {
 	Meta                  map[string]any                            `json:"_meta,omitempty"`
 	AdditionalDirectories *SessionAdditionalDirectoriesCapabilities `json:"additionalDirectories,omitempty"`
@@ -5164,7 +5407,7 @@ type SessionLoadCapabilities struct {
 //
 // Used to stream real-time progress and results during prompt processing.
 //
-// See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/prompt-turn#3-agent-reports-output)
+// See protocol docs: [Agent Reports Output](https://agentclientprotocol.com/protocol/v2/draft/prompt-lifecycle#3-agent-reports-output)
 type SessionNotification struct {
 	Meta      map[string]any `json:"_meta,omitempty"`
 	SessionID SessionID      `json:"sessionId"`
@@ -5231,15 +5474,16 @@ func (x StartNesResponse) GetSessionID() string { return string(x.SessionID) }
 // When `enum` or `oneOf` is set, this represents a single-select enum
 // with `"type": "string"`.
 type StringPropertySchema struct {
-	Default     string        `json:"default,omitempty"`
-	Description string        `json:"description,omitempty"`
-	Enum        []string      `json:"enum,omitempty"`
-	Format      *StringFormat `json:"format,omitempty"`
-	MaxLength   *int64        `json:"maxLength,omitempty"`
-	MinLength   *int64        `json:"minLength,omitempty"`
-	OneOf       []EnumOption  `json:"oneOf,omitempty"`
-	Pattern     string        `json:"pattern,omitempty"`
-	Title       string        `json:"title,omitempty"`
+	Meta        map[string]any `json:"_meta,omitempty"`
+	Default     string         `json:"default,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Enum        []string       `json:"enum,omitempty"`
+	Format      *StringFormat  `json:"format,omitempty"`
+	MaxLength   *int64         `json:"maxLength,omitempty"`
+	MinLength   *int64         `json:"minLength,omitempty"`
+	OneOf       []EnumOption   `json:"oneOf,omitempty"`
+	Pattern     string         `json:"pattern,omitempty"`
+	Title       string         `json:"title,omitempty"`
 }
 
 // Request for a code suggestion.
@@ -5285,8 +5529,9 @@ type TextContent struct {
 // When `range` is `None`, `text` is the full content of the document.
 // When `range` is `Some`, `text` replaces the given range.
 type TextDocumentContentChangeEvent struct {
-	Range *Range `json:"range,omitempty"`
-	Text  string `json:"text"`
+	Meta  map[string]any `json:"_meta,omitempty"`
+	Range *Range         `json:"range,omitempty"`
+	Text  string         `json:"text"`
 }
 
 // Text-based resource contents.
@@ -5299,7 +5544,8 @@ type TextResourceContents struct {
 
 // Items definition for titled multi-select enum properties.
 type TitledMultiSelectItems struct {
-	AnyOf []EnumOption `json:"anyOf"`
+	Meta  map[string]any `json:"_meta,omitempty"`
+	AnyOf []EnumOption   `json:"anyOf"`
 }
 
 // A streamed item of tool-call content.
@@ -5319,7 +5565,7 @@ type ToolCallContentChunk struct {
 // Enables clients to implement "follow-along" features that track
 // which files the agent is working with in real-time.
 //
-// See protocol docs: [Following the Agent](https://agentclientprotocol.com/protocol/tool-calls#following-the-agent)
+// See protocol docs: [Following the Agent](https://agentclientprotocol.com/protocol/v2/draft/tool-calls#following-the-agent)
 type ToolCallLocation struct {
 	Meta map[string]any `json:"_meta,omitempty"`
 	Line *int64         `json:"line,omitempty"`
@@ -5338,7 +5584,7 @@ type ToolCallLocation struct {
 // `null` and `[]` clear the collection. When a client receives a tool call ID it
 // has not seen before, omitted fields use client defaults.
 //
-// See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/tool-calls)
+// See protocol docs: [Tool Calls](https://agentclientprotocol.com/protocol/v2/draft/tool-calls)
 type ToolCallUpdate struct {
 	Meta       map[string]any     `json:"_meta,omitempty"`
 	Content    []ToolCallContent  `json:"content,omitempty"`
@@ -5359,6 +5605,7 @@ type UnstructuredCommandInput struct {
 
 // Items definition for untitled multi-select enum properties.
 type UntitledMultiSelectItems struct {
+	Meta map[string]any        `json:"_meta,omitempty"`
 	Enum []string              `json:"enum"`
 	Type ElicitationStringType `json:"type"`
 }
@@ -5367,14 +5614,15 @@ type UntitledMultiSelectItems struct {
 //
 // This capability is not part of the spec yet, and may be removed or changed at any point.
 //
-// Token usage information for a prompt turn.
+// Token usage information for completed session work.
 type Usage struct {
-	CachedReadTokens  *int64 `json:"cachedReadTokens,omitempty"`
-	CachedWriteTokens *int64 `json:"cachedWriteTokens,omitempty"`
-	InputTokens       int64  `json:"inputTokens"`
-	OutputTokens      int64  `json:"outputTokens"`
-	ThoughtTokens     *int64 `json:"thoughtTokens,omitempty"`
-	TotalTokens       int64  `json:"totalTokens"`
+	Meta              map[string]any `json:"_meta,omitempty"`
+	CachedReadTokens  *int64         `json:"cachedReadTokens,omitempty"`
+	CachedWriteTokens *int64         `json:"cachedWriteTokens,omitempty"`
+	InputTokens       int64          `json:"inputTokens"`
+	OutputTokens      int64          `json:"outputTokens"`
+	ThoughtTokens     *int64         `json:"thoughtTokens,omitempty"`
+	TotalTokens       int64          `json:"totalTokens"`
 }
 
 // Context window and cost update for a session.
@@ -5406,15 +5654,19 @@ type UserMessage struct {
 
 // A workspace folder.
 type WorkspaceFolder struct {
-	Name string `json:"name"`
-	URI  string `json:"uri"`
+	Meta map[string]any `json:"_meta,omitempty"`
+	Name string         `json:"name"`
+	URI  string         `json:"uri"`
 }
 
+// A JSON-RPC response object.
+// A successful JSON-RPC response.
 type AgentResponseResult struct {
 	ID     RequestID       `json:"id"`
 	Result json.RawMessage `json:"result"`
 }
 
+// A failed JSON-RPC response.
 type AgentResponseError struct {
 	Error Error     `json:"error"`
 	ID    RequestID `json:"id"`
@@ -5497,6 +5749,9 @@ func NewAgentResponseError(v AgentResponseError) AgentResponse {
 	vv := AgentResponseError(v)
 	return AgentResponse{Error: &vv}
 }
+
+// Typed identifier used for auth method values on the wire.
+type AuthMethodID string
 
 // The input specification for a command.
 // Custom or future command input specification.
@@ -5591,11 +5846,14 @@ func NewAvailableCommandInputOther(v AvailableCommandInputOther) AvailableComman
 	return AvailableCommandInput{Other: &vv}
 }
 
+// A JSON-RPC response object.
+// A successful JSON-RPC response.
 type ClientResponseResult struct {
 	ID     RequestID       `json:"id"`
 	Result json.RawMessage `json:"result"`
 }
 
+// A failed JSON-RPC response.
 type ClientResponseError struct {
 	Error Error     `json:"error"`
 	ID    RequestID `json:"id"`
@@ -5679,6 +5937,7 @@ func NewClientResponseError(v ClientResponseError) ClientResponse {
 	return ClientResponse{Error: &vv}
 }
 
+// Allowed wire representations for [`ElicitationContentValue`].
 type ElicitationContentValue struct {
 	String      *ElicitationContentValueString      `json:"-"`
 	Int64       *ElicitationContentValueInt64       `json:"-"`
@@ -6721,7 +6980,7 @@ type SessionConfigValueID string
 // Sessions maintain their own context, conversation history, and state,
 // allowing multiple independent interactions with the same agent.
 //
-// See protocol docs: [Session ID](https://agentclientprotocol.com/protocol/session-setup#session-id)
+// See protocol docs: [Session ID](https://agentclientprotocol.com/protocol/v2/draft/session-setup#session-id)
 type SessionID string
 
 // Unique identifier for a tool call within a session.
@@ -6731,21 +6990,21 @@ type ToolCallID string
 // Extension notifications provide a way to send one-way messages for custom functionality
 // while maintaining protocol compatibility.
 //
-// See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+// See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)
 type ExtNotification = json.RawMessage
 
 // Allows for sending an arbitrary request that is not part of the ACP spec.
 // Extension methods provide a way to add custom functionality while maintaining
 // protocol compatibility.
 //
-// See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+// See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)
 type ExtRequest = json.RawMessage
 
 // Allows for sending an arbitrary response to an [`ExtRequest`] that is not part of the ACP spec.
 // Extension methods provide a way to add custom functionality while maintaining
 // protocol compatibility.
 //
-// See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)
+// See protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/v2/draft/extensibility)
 type ExtResponse = json.RawMessage
 
 // **UNSTABLE**
@@ -6782,9 +7041,6 @@ func (v *AuthEnvVar) Validate() error {
 }
 
 func (v *AuthMethodAgent) Validate() error {
-	if v.ID == "" {
-		return fmt.Errorf("id is required")
-	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -6792,9 +7048,6 @@ func (v *AuthMethodAgent) Validate() error {
 }
 
 func (v *AuthMethodEnvVar) Validate() error {
-	if v.ID == "" {
-		return fmt.Errorf("id is required")
-	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -6805,23 +7058,9 @@ func (v *AuthMethodEnvVar) Validate() error {
 }
 
 func (v *AuthMethodTerminal) Validate() error {
-	if v.ID == "" {
-		return fmt.Errorf("id is required")
-	}
 	if v.Name == "" {
 		return fmt.Errorf("name is required")
 	}
-	return nil
-}
-
-func (v *AuthenticateRequest) Validate() error {
-	if v.MethodID == "" {
-		return fmt.Errorf("methodId is required")
-	}
-	return nil
-}
-
-func (v *AuthenticateResponse) Validate() error {
 	return nil
 }
 
@@ -7095,11 +7334,19 @@ func (v *LoadSessionResponse) Validate() error {
 	return nil
 }
 
-func (v *LogoutRequest) Validate() error {
+func (v *LoginAuthRequest) Validate() error {
 	return nil
 }
 
-func (v *LogoutResponse) Validate() error {
+func (v *LoginAuthResponse) Validate() error {
+	return nil
+}
+
+func (v *LogoutAuthRequest) Validate() error {
+	return nil
+}
+
+func (v *LogoutAuthResponse) Validate() error {
 	return nil
 }
 
@@ -7298,9 +7545,6 @@ func (v *NesUserAction) Validate() error {
 func (v *NewSessionRequest) Validate() error {
 	if v.Cwd == "" {
 		return fmt.Errorf("cwd is required")
-	}
-	if v.MCPServers == nil {
-		return fmt.Errorf("mcpServers is required")
 	}
 	return nil
 }
@@ -7694,14 +7938,14 @@ const (
 
 // AgentMethods method names
 var AgentMethods = struct {
-	Authenticate           string
+	AuthLogin              string
+	AuthLogout             string
 	DocumentDidChange      string
 	DocumentDidClose       string
 	DocumentDidFocus       string
 	DocumentDidOpen        string
 	DocumentDidSave        string
 	Initialize             string
-	Logout                 string
 	MCPMessage             string
 	NesAccept              string
 	NesClose               string
@@ -7721,7 +7965,7 @@ var AgentMethods = struct {
 	SessionPrompt          string
 	SessionResume          string
 	SessionSetConfigOption string
-}{Authenticate: "authenticate", DocumentDidChange: "document/didChange", DocumentDidClose: "document/didClose", DocumentDidFocus: "document/didFocus", DocumentDidOpen: "document/didOpen", DocumentDidSave: "document/didSave", Initialize: "initialize", Logout: "logout", MCPMessage: "mcp/message", NesAccept: "nes/accept", NesClose: "nes/close", NesReject: "nes/reject", NesStart: "nes/start", NesSuggest: "nes/suggest", ProvidersDisable: "providers/disable", ProvidersList: "providers/list", ProvidersSet: "providers/set", SessionCancel: "session/cancel", SessionClose: "session/close", SessionDelete: "session/delete", SessionFork: "session/fork", SessionList: "session/list", SessionLoad: "session/load", SessionNew: "session/new", SessionPrompt: "session/prompt", SessionResume: "session/resume", SessionSetConfigOption: "session/set_config_option"}
+}{AuthLogin: "auth/login", AuthLogout: "auth/logout", DocumentDidChange: "document/didChange", DocumentDidClose: "document/didClose", DocumentDidFocus: "document/didFocus", DocumentDidOpen: "document/didOpen", DocumentDidSave: "document/didSave", Initialize: "initialize", MCPMessage: "mcp/message", NesAccept: "nes/accept", NesClose: "nes/close", NesReject: "nes/reject", NesStart: "nes/start", NesSuggest: "nes/suggest", ProvidersDisable: "providers/disable", ProvidersList: "providers/list", ProvidersSet: "providers/set", SessionCancel: "session/cancel", SessionClose: "session/close", SessionDelete: "session/delete", SessionFork: "session/fork", SessionList: "session/list", SessionLoad: "session/load", SessionNew: "session/new", SessionPrompt: "session/prompt", SessionResume: "session/resume", SessionSetConfigOption: "session/set_config_option"}
 
 // ClientMethods method names
 var ClientMethods = struct {
