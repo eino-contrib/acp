@@ -1,10 +1,12 @@
-package proxy
+package proxy_test
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +14,8 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/server"
 
 	"github.com/eino-contrib/acp/internal/safe"
+	acpproxy "github.com/eino-contrib/acp/proxy"
+	proxyhertz "github.com/eino-contrib/acp/proxy/hertz"
 	"github.com/eino-contrib/acp/stream"
 	ws "github.com/eino-contrib/acp/transport/ws"
 )
@@ -79,24 +83,24 @@ func (echoFactory) NewStreamer(context.Context, map[string]string) (stream.Strea
 // newIntegrationProxy stands up a hertz server with an ACPProxy mounted on the
 // default /acp endpoint, backed by an echo Streamer. It returns the listen
 // address ("host:port").
-func newIntegrationProxy(t *testing.T, opts ...Option) string {
+func newIntegrationProxy(t *testing.T, opts ...acpproxy.Option) string {
 	t.Helper()
 
-	addr := randomTestAddress(t)
-	p, err := NewACPProxy(echoFactory{}, opts...)
+	addr := randomIntegrationAddress(t)
+	p, err := acpproxy.NewACPProxy(echoFactory{}, opts...)
 	if err != nil {
 		t.Fatalf("new proxy: %v", err)
 	}
 
 	srv := server.New(server.WithHostPorts(addr))
 	srv.NoHijackConnPool = true
-	p.Mount(srv)
+	srv.Any(acpproxy.DefaultEndpoint, proxyhertz.New(p))
 
 	errCh := make(chan error, 1)
 	safe.Go(func() { errCh <- srv.Run() })
 	// A non-WebSocket GET to /acp returns 400, but a non-nil HTTP response is
 	// enough to confirm the listener is up.
-	waitForReady(t, "http://"+addr+"/acp")
+	waitForIntegrationReady(t, "http://"+addr+"/acp")
 
 	t.Cleanup(func() {
 		_ = p.Close()
@@ -106,6 +110,31 @@ func newIntegrationProxy(t *testing.T, opts ...Option) string {
 	})
 
 	return addr
+}
+
+func randomIntegrationAddress(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := listener.Addr().String()
+	_ = listener.Close()
+	return addr
+}
+
+func waitForIntegrationReady(t *testing.T, url string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		response, err := http.Get(url)
+		if err == nil {
+			_ = response.Body.Close()
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("server did not become ready: %s", url)
 }
 
 func mustReadWithin(t *testing.T, tr *ws.WebSocketClientTransport, d time.Duration) {
@@ -123,8 +152,8 @@ func mustReadWithin(t *testing.T, tr *ws.WebSocketClientTransport, d time.Durati
 // only survives if each Ping refreshes it.
 func TestClientPingKeepsProxyConnAlive(t *testing.T) {
 	addr := newIntegrationProxy(t,
-		WithWebSocketFirstFrameTimeout(3*time.Second),
-		WithWebSocketReadTimeout(300*time.Millisecond),
+		acpproxy.WithWebSocketFirstFrameTimeout(3*time.Second),
+		acpproxy.WithWebSocketReadTimeout(300*time.Millisecond),
 	)
 
 	tr, err := ws.NewWebSocketClientTransport("ws://"+addr,
@@ -172,8 +201,8 @@ func TestClientPingKeepsProxyConnAlive(t *testing.T) {
 // context timeout).
 func TestNoClientPingTriggersProxyReadTimeout(t *testing.T) {
 	addr := newIntegrationProxy(t,
-		WithWebSocketFirstFrameTimeout(3*time.Second),
-		WithWebSocketReadTimeout(200*time.Millisecond),
+		acpproxy.WithWebSocketFirstFrameTimeout(3*time.Second),
+		acpproxy.WithWebSocketReadTimeout(200*time.Millisecond),
 	)
 
 	// pingInterval=0 disables the client ping pump; readTimeout=0 keeps the

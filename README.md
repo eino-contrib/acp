@@ -9,8 +9,8 @@ Architecture Docs: [English](./docs/ARCHITECTURE.md) | [中文](./docs/ARCHITECT
 `github.com/eino-contrib/acp` is the Go SDK for [Agent Client Protocol](https://agentclientprotocol.com/), providing:
 
 - **Bidirectional RPC abstraction**: `conn.ClientConnection` / `conn.AgentConnection` hide the JSON-RPC 2.0 details;
-- **Three transport layers**: `stdio` (subprocess), Streamable HTTP (POST + SSE), and WebSocket; the HTTP/WS server side is implemented on top of [CloudWeGo Hertz](https://github.com/cloudwego/hertz);
-- **Remote server**: `server.ACPServer` serves both HTTP and WebSocket upgrade on a single route;
+- **Three transport layers**: `stdio` (subprocess), Streamable HTTP (POST + SSE), and WebSocket; HTTP/WS servers can be hosted by [CloudWeGo Hertz](https://github.com/cloudwego/hertz) or [Gin](https://github.com/gin-gonic/gin);
+- **Remote server**: the framework-neutral `server.ACPServer` core is exposed through a Hertz or Gin adapter that serves Streamable HTTP and WebSocket on one host-owned route;
 - **Transparent proxy**: `proxy.ACPProxy` transparently forwards northbound WS traffic to downstream services (your custom RPC-based AgentServer implementation);
 - **Protocol extensibility**: supports custom Request / Notification methods prefixed with `_` ([ACP Extensibility](https://agentclientprotocol.com/protocol/extensibility#custom-requests)).
 
@@ -51,18 +51,27 @@ All code examples below use the following import aliases, so later snippets omit
 
 ```go
 import (
-	acp           "github.com/eino-contrib/acp"
-	acpconn       "github.com/eino-contrib/acp/conn"
-	acpserver     "github.com/eino-contrib/acp/server"
-	acpproxy      "github.com/eino-contrib/acp/proxy"
-	acpstream     "github.com/eino-contrib/acp/stream"
-	stdio         "github.com/eino-contrib/acp/transport/stdio"
-	acphttpclient "github.com/eino-contrib/acp/transport/http/client"
-	acpws         "github.com/eino-contrib/acp/transport/ws"
+	hertzserver      "github.com/cloudwego/hertz/pkg/app/server"
+	ginframework     "github.com/gin-gonic/gin"
+	gorillawebsocket "github.com/gorilla/websocket"
+	hertzwebsocket   "github.com/hertz-contrib/websocket"
+
+	acp            "github.com/eino-contrib/acp"
+	acpconn        "github.com/eino-contrib/acp/conn"
+	acpserver      "github.com/eino-contrib/acp/server"
+	acpservergin   "github.com/eino-contrib/acp/server/gin"
+	acpserverhertz "github.com/eino-contrib/acp/server/hertz"
+	acpproxy       "github.com/eino-contrib/acp/proxy"
+	acpproxygin    "github.com/eino-contrib/acp/proxy/gin"
+	acpproxyhertz "github.com/eino-contrib/acp/proxy/hertz"
+	acpstream      "github.com/eino-contrib/acp/stream"
+	stdio          "github.com/eino-contrib/acp/transport/stdio"
+	acphttpclient  "github.com/eino-contrib/acp/transport/http/client"
+	acpws          "github.com/eino-contrib/acp/transport/ws"
 )
 ```
 
-Where tables mention `conn.WithXxx` or `server.WithXxx`, the actual code in examples uses `acpconn.WithXxx` or `acpserver.WithXxx`. Hertz symbols such as `websocket` and `app` are used directly from their original packages (`github.com/hertz-contrib/websocket` and `github.com/cloudwego/hertz/pkg/app`).
+Where tables mention `conn.WithXxx` or `server.WithXxx`, the actual code in examples uses `acpconn.WithXxx` or `acpserver.WithXxx`. Adapter-specific upgrader types come from `github.com/hertz-contrib/websocket` for Hertz and `github.com/gorilla/websocket` for Gin.
 
 ## 4. Quick Start
 
@@ -79,11 +88,13 @@ Build once first to get `bin/agent`, `bin/client`, and `bin/proxy`:
 make build
 ```
 
+The HTTP examples accept `-http-framework=hertz|gin`. Makefile targets pass the same choice through `HTTP_FRAMEWORK` (default `hertz`); for the Proxy example it selects only the northbound adapter.
+
 ### 4.1 WebSocket Mode
 
 ```
 ┌──────────────────────┐                              ┌──────────────────────────┐
-│       Client         │                              │   ACPServer (Hertz)      │
+│       Client         │                              │  ACPServer + adapter     │
 │  ┌────────────────┐  │   ws://host:port/acp         │  ┌────────────────────┐  │
 │  │ acp.Client     │  │  ◄────── Upgrade ─────►      │  │ acp.Agent          │  │
 │  │ BaseClient     │  │                              │  │ BaseAgent          │  │
@@ -103,7 +114,7 @@ make build
 See the repository examples for a complete demo:
 
 - Agent implementation: [`examples/agent/agent.go`](./examples/agent/agent.go)
-- Hertz mount and entrypoint: [`examples/agent/main.go`](./examples/agent/main.go)
+- Hertz/Gin host registration and entrypoint: [`examples/agent/main.go`](./examples/agent/main.go)
 
 > ⚠️ **Hertz WebSocket requires `srv.NoHijackConnPool = true`**, otherwise Hertz will reclaim the upgraded connection and the WS connection will be closed immediately.
 
@@ -118,24 +129,25 @@ See the repository examples for a complete demo:
 
 ```bash
 # Terminal A: start the Agent (HTTP + WS share the same /acp route, listening on :18080)
-./bin/agent -transport=http -listen=:18080
+./bin/agent -transport=http -http-framework=hertz -listen=:18080
 
 # Terminal B: connect the Client via WebSocket
 ./bin/client -transport=ws ws://127.0.0.1:18080
 
-# Run both in one shot (start agent + client sequentially in one process and clean up automatically)
+# Run both with one command (the Agent and Client are separate processes and are cleaned up automatically)
 make run-ws
-# Custom port: make run-ws AGENT_ADDR=:9090
+# Select Gin: make run-ws HTTP_FRAMEWORK=gin
+# Custom port: make run-ws AGENT_ADDR=:9090 HTTP_FRAMEWORK=hertz
 ```
 
 ### 4.2 Streamable HTTP Mode
 
 ```
 ┌──────────────────────┐                                    ┌──────────────────────────┐
-│       Client         │                                    │   ACPServer (Hertz)      │
+│       Client         │                                    │  ACPServer + adapter     │
 │  ┌────────────────┐  │                                    │  ┌────────────────────┐  │
 │  │ acp.Client     │  │  ─── POST /acp  (JSON-RPC req) ──► │  │ acp.Agent          │  │
-│  │ BaseClient     │  │  ◄── 200 JSON / SSE response ────  │  │ BaseAgent          │  │
+│  │ BaseClient     │  │  ◄── 200 SSE response ───────────  │  │ BaseAgent          │  │
 │  └────────────────┘  │                                    │  └────────────────────┘  │
 │         ▲            │  ─── GET  /acp  (SSE listener) ──► │            ▲             │
 │         │ SSE recv   │  ◄═══ session/update  ═════════    │            │ reverse RPC │
@@ -153,12 +165,13 @@ make run-ws
 > Streamable HTTP uses both:
 > - `POST /acp` to send requests (and responses)
 > - `GET /acp` to establish the SSE reverse channel (used to receive reverse Request/Notification messages from Agent to Client)
+> - `DELETE /acp` to close the ACP connection
 >
-> If you deploy behind a load balancer or reverse proxy, you must ensure that `POST /acp` and `GET /acp` for the same ACP connection are routed to the **same** backend instance, for example through cookie-based sticky routing, header hashing, or consistent routing by `Acp-Connection-Id`. Otherwise connection state will diverge, and reverse messages may be lost or requests may fail.
+> If you deploy behind a load balancer or reverse proxy, every `POST`, `GET`, and `DELETE` carrying the same `Acp-Connection-Id` must reach the **same** backend instance, for example through cookie-based affinity, header hashing, or another sticky-routing policy. Disable response buffering on the GET SSE route so events flush immediately, and configure proxy/host write and idle timeouts for the expected long-lived stream. Otherwise messages may be delayed, connections may be terminated, or per-connection state may diverge.
 
 #### 4.2.1 Agent (Server)
 
-`ACPServer` supports both WebSocket and Streamable HTTP on the same route (default `/acp`), so the server-side implementation does not need to change. You can directly reuse the code from [4.1.1 Agent (Server)](#411-agentserver).
+One adapter handler supports both WebSocket and Streamable HTTP at its host-registered route (conventionally `/acp`), so the server-side implementation does not need to change. You can directly reuse the code from [4.1.1 Agent (Server)](#411-agentserver).
 
 #### 4.2.2 Client
 
@@ -171,13 +184,14 @@ See the repository examples for a complete demo:
 
 ```bash
 # Terminal A: start the Agent in HTTP mode (same binary as WS mode)
-./bin/agent -transport=http -listen=:18080
+./bin/agent -transport=http -http-framework=gin -listen=:18080
 
 # Terminal B: use HTTP + SSE from the Client
 ./bin/client -transport=http http://127.0.0.1:18080
 
-# Run both in one shot
+# Run the separate Agent and Client processes with one command
 make run-http
+# Select the host adapter with HTTP_FRAMEWORK=hertz or HTTP_FRAMEWORK=gin.
 ```
 
 ### 4.3 stdio Subprocess Mode
@@ -237,13 +251,13 @@ make run-stdio
 │      Client        │            │    Proxy (ACPProxy)      │            │   Upstream AgentServer   │
 │                    │            │                          │            │                          │
 │  ┌──────────────┐  │            │  ┌────────────────────┐  │            │  ┌────────────────────┐  │
-│  │ acp.Client   │  │            │  │ Hertz /acp WS      │  │            │  │ user RPC           │  │
+│  │ acp.Client   │  │            │  │ Hertz/Gin /acp WS  │  │            │  │ user RPC           │  │
 │  │ BaseClient   │  │            │  │                    │  │            │  │ (gRPC / Kitex /    │  │
 │  └──────────────┘  │            │  │  up-pump           │  │            │  │  custom WS / ...)  │  │
 │         ▲          │            │  │  down-pump         │  │            │  └────────────────────┘  │
 │         │          │  WS bytes  │  └────────────────────┘  │  Streamer  │            │             │
 │         │          ├───────────►│                          ├───────────►│            ▼             │
-│         │          │◄───────────┤  HeaderForwarder         │◄───────────┤  ┌────────────────────┐  │
+│         │          │◄───────────┤  metadata extractor      │◄───────────┤  ┌────────────────────┐  │
 │  ┌──────┴───────┐  │            │  WS keepalive            │            │  │ AgentConnection    │  │
 │  │ ws.Transport │  │            │  Max-conn cap            │            │  │ acp.Agent          │  │
 │  └──────────────┘  │            │                          │            │  │ BaseAgent          │  │
@@ -265,10 +279,12 @@ See the repository examples for a complete demo:
 
 > ⚠️ Constraints:
 > - Proxy **supports only WebSocket** as the northbound entrypoint (no Streamable HTTP).
-> - `ACPServer` and `ACPProxy` both default to `/acp`; if you mount them on the same Hertz router, you must explicitly configure different endpoints.
-> - You still need `srv.NoHijackConnPool = true`, otherwise Hertz will reclaim upgraded WebSocket connections and disconnect them.
+> - `ACPServer` and `ACPProxy` both conventionally use `/acp`; if you register both on one host router, choose distinct route paths.
+> - A Hertz host still needs `srv.NoHijackConnPool = true`, otherwise Hertz will reclaim upgraded WebSocket connections and disconnect them.
 
 The Proxy is intentionally "bytes only, protocol blind": it forwards WS frames from the external client to the downstream service (typically your own AgentServer implementation). The downstream service then feeds those bytes into ACP's stdio transport, and your agent is ultimately driven by `acpconn.NewAgentConnectionFromTransport(...)`.
+
+The example's `-http-framework=hertz|gin` flag selects only the **northbound** Proxy adapter. Its southbound WebSocket `Streamer` and example AgentServer deliberately remain on Hertz, so changing the flag does not change the downstream transport.
 
 #### 4.4.1 Downstream AgentServer (Upstream from the Proxy's Perspective)
 
@@ -283,7 +299,7 @@ Minimal runnable example built into the repository: start a WS upstream at `/acp
 Start the Proxy (northbound path fixed at `/acp`) and forward each inbound client WS connection to `ws://127.0.0.1:9090/acp-upstream`:
 
 ```bash
-./bin/proxy -role=proxy -listen=:8080 -upstream=ws://127.0.0.1:9090/acp-upstream
+./bin/proxy -role=proxy -http-framework=hertz -listen=:8080 -upstream=ws://127.0.0.1:9090/acp-upstream
 ```
 
 #### 4.4.3 Client (Connecting to the Proxy)
@@ -298,7 +314,7 @@ The complete demo can be reused directly:
 You can also run the full local chain with one command (start upstream + proxy together):
 
 ```bash
-./bin/proxy -role=all
+./bin/proxy -role=all -http-framework=gin
 ```
 
 #### 4.4.4 Run the Demo
@@ -306,16 +322,17 @@ You can also run the full local chain with one command (start upstream + proxy t
 ```bash
 # Option 1: start upstream AgentServer and Proxy separately, then start the Client
 ./bin/proxy -role=agent-server -listen=:9090                                      # Terminal A
-./bin/proxy -role=proxy -listen=:8080 -upstream=ws://127.0.0.1:9090/acp-upstream  # Terminal B
+./bin/proxy -role=proxy -http-framework=gin -listen=:8080 -upstream=ws://127.0.0.1:9090/acp-upstream  # Terminal B
 ./bin/client -transport=ws ws://127.0.0.1:8080                                    # Terminal C
 
 # Option 2: start Proxy + upstream AgentServer in one process (role=all), then start the Client
-./bin/proxy -role=all -proxy-listen=:8080 -agent-listen=:9090                     # Terminal A
+./bin/proxy -role=all -http-framework=hertz -proxy-listen=:8080 -agent-listen=:9090  # Terminal A
 ./bin/client -transport=ws ws://127.0.0.1:8080                                    # Terminal B
 
-# Run the full chain in one shot (agent-server + proxy + client orchestrated in one process)
+# Run the full chain with one command (Proxy + AgentServer share one process; Client is separate)
 make run-proxy
-# Custom ports: make run-proxy PROXY_LISTEN=:8080 PROXY_AGENT_LISTEN=:9090
+# Select Gin: make run-proxy HTTP_FRAMEWORK=gin
+# Custom ports: make run-proxy PROXY_LISTEN=:8080 PROXY_AGENT_LISTEN=:9090 HTTP_FRAMEWORK=hertz
 ```
 
 ## 5. Configuration
@@ -448,7 +465,7 @@ _ = conn.Start(ctx)
 
 Internal behavior:
 
-- `conn.NewSession(...)` / `conn.LoadSession(...)` **automatically start the GET SSE listener**, so the application does not need to worry about when the reverse channel becomes ready.
+- `conn.NewSession(...)`, `conn.LoadSession(...)`, and `conn.ResumeSession(...)` **automatically start the GET SSE listener** for the resulting session, so the application does not need to worry about when the reverse channel becomes ready.
 - The max size for a non-SSE JSON response is **8 MB**; a single SSE event is limited to **10 MB**; error bodies are read up to **4 KB** only (to avoid large bodies blowing up memory).
 - After `WithSSEReconnect()` is enabled, reconnect uses exponential backoff (default `1s -> 30s`). Failures are passed to the handler registered by `conn.WithSessionListenerErrorHandler`; they are **not** surfaced to the caller as RPC errors.
 
@@ -518,21 +535,21 @@ _ = conn.Start(ctx)
 
 Characteristics:
 
-- **Based on Hertz**: the client uses `hclient.Client` + `websocket.ClientUpgrader`, staying in the same ecosystem as the server.
+- **Hertz-based client transport**: the client uses `hclient.Client` + `websocket.ClientUpgrader`; it interoperates with either the Hertz or Gin server adapter.
 - **URL normalization**: supports `http://`, `https://`, `ws://`, `wss://`, and even bare `host:port`; the SDK automatically fills in the scheme (default `ws://`) and the endpoint path.
 - **Origin only**: the path / query / fragment in `baseURL` is discarded. The final URL is `origin + endpointPath`. To change the path, use `WithEndpointPath`.
 - **Cookie jar**: the handshake request sends the built-in `cookiejar`, and `Set-Cookie` from the response is written back into the jar. Each WS transport instance performs only one handshake, so the jar mainly exists for API consistency and has limited practical effect.
-- **Write-timeout fallback**: if the caller does not set a ctx deadline, each write uses a default **30s** deadline. During `Close`, the close frame is sent via `WriteControl` with a 5s deadline; it bypasses the application-level `writePermit` but still shares the websocket library's internal write lock with data-frame writes — if the lock is held, the 5s deadline prevents hanging.
+- **Write-timeout fallback**: if the caller does not set a ctx deadline, each write uses a default **30s** deadline. During `Close`, the close frame is sent via `WriteControl` with a 5s deadline before the socket is closed.
 - **Close order**: `Close` sends the close frame, closes the socket, waits for the read loop to exit, and then releases Hertz request/response objects, preventing use-after-free.
 - **No automatic reconnect**: the application is responsible for recreating the transport + connection if needed.
 
 **Server side:**
 
-WebSocket server support is built into `server.ACPServer`; see [5.3 ACPServer](#53-acpserver). Under the same `/acp` route, ACPServer automatically routes to the WS upgrader when it sees the `Upgrade: websocket` header.
+WebSocket protocol support is built into `server.ACPServer`; see [5.3 ACPServer](#53-acpserver). The selected Hertz or Gin adapter detects `Upgrade: websocket` on the host-owned route and performs the framework-specific upgrade before handing the connection to the core.
 
 **Common pitfalls:**
 
-1. **`srv.NoHijackConnPool = true`**: by default Hertz returns hijacked connections to the pool, which breaks WebSocket connections. You **must** set this flag when deploying ACPServer.
+1. **Hertz only — `srv.NoHijackConnPool = true`**: by default Hertz returns hijacked connections to the pool, which breaks WebSocket connections. Gin/Gorilla on `net/http` does not use this Hertz setting.
 2. **Oversized frames**: the server and client read limit is **10 MB** (`transport.DefaultMaxMessageSize`) and closes the connection directly with `1009 MessageTooBig` if exceeded.
 3. **10 consecutive parse failures**: the WS server closes the connection after **10** consecutive JSON-RPC parse errors to defend against malicious peers.
 4. **Concurrent writes are safe**: ACP's `Transport` interface requires `WriteMessage` to be concurrency-safe. The WS client uses a `writePermit` semaphore internally, so application code can call it concurrently.
@@ -545,6 +562,7 @@ WebSocket client options / defaults (`transport/ws`):
 | `WithCustomHeaders(m)` | empty |
 | `WithPingInterval(d)` | 30 s (client-initiated Ping; `0` disables ping pump — advanced/debug only) |
 | `WithReadTimeout(d)` | 75 s (read deadline; refreshed by Pong and ACP text data frames; BinaryMessage is ignored; `0` disables — not recommended) |
+| `WithConnectTimeout(d)` | 30 s (fallback dial/upgrade timeout when the `Connect` context has no deadline; `0` disables the fallback) |
 | built-in single-write deadline (when ctx has no deadline) | 30 s |
 | built-in close-frame write via `WriteControl` | 5 s deadline |
 
@@ -553,37 +571,67 @@ WebSocket client options / defaults (`transport/ws`):
 
 #### 5.3.1 Option Details
 
-All parameters are injected through `Option`:
+`ACPServer` is framework-neutral: it owns ACP protocol state and connection lifecycle, while the host owns the route and HTTP server. Create the core, adapt it for Hertz or Gin, and register the returned native handler. `server.DefaultEndpoint` is the conventional `/acp`; pass any other path directly to the host router.
+
+**Hertz host:**
 
 ```go
-remote, err := acpserver.NewACPServer(factory,
-	acpserver.WithEndpoint("/acp"),
+core, err := acpserver.NewACPServer(factory,
 	acpserver.WithRequestTimeout(5 * time.Minute),
 	acpserver.WithConnectionIdleTimeout(5 * time.Minute),
 	acpserver.WithMaxHTTPMessageSize(10 * 1024 * 1024),
 	acpserver.WithPendingQueueSize(1024),
 	acpserver.WithMaxInflightDispatch(0), // 0 = use default (4096); negative = unlimited
-	acpserver.WithWebSocketUpgrader(websocket.HertzUpgrader{
-		CheckOrigin: func(ctx *app.RequestContext) bool { return true },
-	}),
 	acpserver.WithNotificationErrorHandler(func(method string, err error) {
 		metrics.Inc("acp_notify_err", method, err.Error())
 	}),
 )
+if err != nil { log.Fatal(err) }
+
+srv := hertzserver.New(
+	hertzserver.WithHostPorts(":8080"),
+	hertzserver.WithStreamBody(true),
+)
+srv.NoHijackConnPool = true
+srv.Any(acpserver.DefaultEndpoint, acpserverhertz.New(core))
 ```
 
-| Option | Default | Description |
+`WithStreamBody(true)` is the preferred Hertz setting for a host that serves Streamable HTTP. Hertz otherwise buffers request bodies and applies its host-level limit (4 MiB by default) before the ACP handler runs, while `server.WithMaxHTTPMessageSize` defaults to 10 MiB. Enabling streaming lets bodies above the Hertz buffering threshold reach the adapter as a stream, so the SDK can enforce its configured limit while reading chunked or unknown-length bodies. If streaming cannot be enabled, set `hertzserver.WithMaxRequestBodySize(...)` to at least the configured `server.WithMaxHTTPMessageSize`; that avoids premature rejection by Hertz but can buffer the complete body up to the host limit. These Hertz options are server-wide, so use a dedicated host for the ACP route if other routes need different behavior.
+
+Both adapters use their WebSocket library's safe same-origin policy by default. Only pass a custom upgrader when you need an explicit origin allowlist, compression, buffers, or subprotocols. Do not use an unconditional `CheckOrigin: return true` on a browser-accessible service.
+
+**Gin host:**
+
+```go
+core, err := acpserver.NewACPServer(factory)
+if err != nil { log.Fatal(err) }
+
+router := ginframework.New()
+router.Any(acpserver.DefaultEndpoint, acpservergin.New(core))
+host := &http.Server{Addr: ":8080", Handler: router}
+```
+
+Core options: framework-specific origin, buffer, compression, subprotocol, and upgrader settings belong to `server/hertz` or `server/gin`, not to `server.ACPServer`.
+
+| Core option | Default | Description |
 | --- | --- | --- |
-| `server.WithEndpoint(path)` | `/acp` | route path; normalized automatically (adds leading `/`, removes trailing `/`) |
 | `server.WithRequestTimeout(d)` | 5 min | ctx deadline for each inbound handler; also applies to HTTP POST final-response wait time and each request handled by WS `AgentConnection`; `0` = unlimited |
 | `server.WithConnectionIdleTimeout(d)` | 5 min | HTTP connection idle eviction; `0` or negative = disabled |
 | `server.WithMaxHTTPMessageSize(n)` | 10 MB | POST body limit; returns `413` when exceeded |
 | `server.WithPendingQueueSize(n)` | 1024 | message buffer after session creation and before GET SSE is established |
 | `server.WithMaxInflightDispatch(n)` | 4096 | max concurrent dispatches per HTTP connection; returns `503` when exceeded; negative = unlimited |
-| `server.WithWebSocketUpgrader(u)` | `websocket.HertzUpgrader{}` | custom subprotocols / origin checks |
 | `server.WithWebSocketReadTimeout(d)` | 0 (disabled) | read deadline after initialization; refreshed on Ping and data frames; close with `1001` on timeout |
 | `server.WithWebSocketInitializeTimeout(d)` | 15 s | deadline for initialize request after upgrade; close with `4000` on timeout |
 | `server.WithNotificationErrorHandler(fn)` | none | callback for WS notification failures (not triggered for HTTP, because HTTP direct-dispatch has no read loop and notification failures are logged only) |
+
+| Adapter option | Default | Description |
+| --- | --- | --- |
+| `server/hertz.WithUpgrader(u)` | zero-value `websocket.HertzUpgrader` | Hertz origin checks, buffers, compression, and subprotocols |
+| `server/gin.WithUpgrader(u)` | zero-value `gorilla/websocket.Upgrader` | Gin/Gorilla origin checks, buffers, compression, and subprotocols |
+
+**Lifecycle:** adapters do not own resources and have no close method. On shutdown, call `core.Close()` first to reject new admissions and cancel active work, shut down the Hertz or `net/http` host so pending handlers/upgrades resolve, then call the core's context-bounded `Shutdown` to wait for the registry to drain. A host shutdown alone is not sufficient for hijacked WebSocket connections.
+
+Hertz WebSocket hosts must set `NoHijackConnPool = true`; this is independent of the Hertz request-body setting above. Gin uses Gorilla WebSocket on the standard `net/http` stack and supports the normal HTTP/1.1 upgrade path; this SDK does not claim HTTP/2 extended CONNECT support. For Streamable HTTP behind a reverse proxy, disable response buffering on the SSE route, keep proxy and server write/idle timeouts longer than the intended SSE lifetime/keepalive behavior, and use sticky routing so every request carrying the same `Acp-Connection-Id` reaches the same backend.
 
 **WebSocket Keepalive (Server)**
 
@@ -613,7 +661,7 @@ Built-in values (not configurable):
 
 #### 5.3.2 Streamable HTTP Routing Rules
 
-`ACPServer` routes based on HTTP method and headers:
+The adapter passes requests to `ACPServer`, which routes based on HTTP method and headers. The path below is illustrative: the actual path is whichever route the host registered.
 
 | Method | Scenario | Behavior |
 | --- | --- | --- |
@@ -621,6 +669,8 @@ Built-in values (not configurable):
 | `POST /acp` | existing connection (with `Acp-Connection-Id`) | reuses that connection and dispatches the body directly to it |
 | `GET /acp` | with `Acp-Connection-Id` and `Acp-Session-Id` | opens the SSE listener for that session so the server can push reverse Request/Notification messages |
 | `DELETE /acp` | with `Acp-Connection-Id` | closes the connection and releases resources |
+
+POST and GET have intentionally different `Accept` compatibility rules. POST continues to accept a missing `Accept` header for compatibility, but the effective negotiation result must permit both `application/json` and `text/event-stream`; a matching media range with `q=0` is unacceptable, and a more specific range overrides a wildcard. GET follows the Active RFD contract more strictly: it must carry an explicit `Accept` value that permits `text/event-stream`. A missing header, a different media type, or an effective SSE quality of `q=0` returns `406 Not Acceptable` before connection/session lookup or any SSE output begins.
 
 What the pending queue (default `1024`) does: after a session is created but before the client opens the GET SSE listener, the server temporarily buffers reverse messages so they are not lost. Once the client connects via GET, those messages are flushed immediately. If the number of unconsumed messages exceeds `WithPendingQueueSize`, the session is closed and an error is returned, rather than silently dropping a single message. If your application expects many reverse messages, increase `WithPendingQueueSize`.
 
@@ -633,35 +683,39 @@ Use cases: forward external client WebSocket traffic to downstream services, usu
 
 #### 5.4.1 Deployment Constraints
 
-> **`server.ACPServer` and `proxy.ACPProxy` both use `/acp` by default.** If you mount them on the same Hertz router without changing the endpoint, route registration will conflict. If they must coexist, configure different paths explicitly.
+> **The `server` and `proxy` packages both export `DefaultEndpoint == "/acp"` as a registration convention.** The core objects do not own routes. If both handlers share one Hertz or Gin router, register them on distinct paths.
 
 #### 5.4.2 Basic Usage
 
 ```go
-import hertzserver "github.com/cloudwego/hertz/pkg/app/server"
+factory := &MyStreamerFactory{...} // implements acpstream.StreamerFactory
 
-func main() {
-	factory := &MyStreamerFactory{...} // implements acpstream.StreamerFactory
+core, err := acpproxy.NewACPProxy(factory,
+	acpproxy.WithMetadataExtractor(
+		acpproxy.ForwardHeaders("Authorization", "X-Tenant-Id"),
+	),
+	acpproxy.WithMaxConcurrentConnections(10000),
+	acpproxy.WithHandshakeTimeout(15*time.Second),
+	acpproxy.WithWebSocketWriteTimeout(30*time.Second),
+	acpproxy.WithWebSocketFirstFrameTimeout(15*time.Second),
+	// Enable read timeout only after all upstream clients send WS Ping or periodic data frames.
+	// acpproxy.WithWebSocketReadTimeout(75*time.Second),
+	acpproxy.WithMaxMessageSize(10*1024*1024),
+)
+if err != nil { log.Fatal(err) }
 
-	p, err := acpproxy.NewACPProxy(factory,
-		acpproxy.WithEndpoint("/acp"),
-		acpproxy.WithHeaderForwarder(acpproxy.ForwardHeaders("Authorization", "X-Tenant-Id")),
-		acpproxy.WithMaxConcurrentConnections(10000),
-		acpproxy.WithHandshakeTimeout(15*time.Second),
-		acpproxy.WithWebSocketWriteTimeout(30*time.Second),
-		acpproxy.WithWebSocketFirstFrameTimeout(15*time.Second),
-		// Enable read timeout only after all upstream clients send WS Ping or periodic data frames.
-		// acpproxy.WithWebSocketReadTimeout(75*time.Second),
-		acpproxy.WithMaxMessageSize(10*1024*1024),
-	)
-	if err != nil { log.Fatal(err) }
+// Hertz host
+srv := hertzserver.New(hertzserver.WithHostPorts(":8080"))
+srv.NoHijackConnPool = true
+srv.Any(acpproxy.DefaultEndpoint, acpproxyhertz.New(core))
 
-	srv := hertzserver.New(hertzserver.WithHostPorts(":8080"))
-	srv.NoHijackConnPool = true
-	p.Mount(srv)
-	srv.Spin()
-}
+// Or Gin on the standard net/http server
+router := ginframework.New()
+router.Any(acpproxy.DefaultEndpoint, acpproxygin.New(core))
+host := &http.Server{Addr: ":8080", Handler: router}
 ```
+
+Choose one host block in a real process. Pass `proxy/hertz.WithUpgrader(...)` or `proxy/gin.WithUpgrader(...)` when custom origin, buffer, compression, or subprotocol behavior is required. As with `ACPServer`, call `core.Close()`, shut down the selected host, then call `core.Shutdown(ctx)` to wait for downstream factories, Streamers, pumps, and pending upgrade outcomes to leave the registry.
 
 #### 5.4.3 Streamer Interface
 
@@ -688,31 +742,31 @@ Contract requirements (must be followed, or behavior is undefined):
 - **Do not add your own timeouts**: the ctx only constrains the current call; long-lived connection lifecycle is controlled entirely by `Close`.
 - **Return `io.EOF` for clean close** so the caller can identify it with `errors.Is(err, io.EOF)`.
 
-#### 5.4.4 HeaderForwarder
+#### 5.4.4 Metadata Extraction
 
 The Proxy itself does not parse ACP, but it often needs to forward auth / tenant / trace headers to downstream services:
 
 ```go
-acpproxy.WithHeaderForwarder(acpproxy.ForwardHeaders("Authorization", "X-Tenant-Id", "X-Request-Id"))
+acpproxy.WithMetadataExtractor(
+	acpproxy.ForwardHeaders("Authorization", "X-Tenant-Id", "X-Request-Id"),
+)
 ```
 
 Or customize it:
 
 ```go
-acpproxy.WithHeaderForwarder(func(c *app.RequestContext) map[string]string {
+acpproxy.WithMetadataExtractor(func(ctx context.Context, headers acpproxy.HeaderGetter) map[string]string {
 	meta := map[string]string{
-		"trace_id": genTraceID(c),
+		"trace_id": traceIDFromContext(ctx),
 	}
-	if tok := string(c.GetHeader("Authorization")); tok != "" {
+	if tok := headers.Get("Authorization"); tok != "" {
 		meta["token"] = tok
 	}
 	return meta
 })
 ```
 
-Notes:
-- The callback runs in the same goroutine as the Hertz handler, so **do not do expensive work**.
-- The returned map becomes owned by the Proxy afterward; the callback must not mutate it again.
+The extractor is framework-neutral and receives a connection-scoped context that retains request-context values, plus a read-only header accessor. The Proxy immediately copies the returned map. Keep extraction fast; middleware data needed here should be placed in the handler's standard request context or request headers before the ACP handler runs.
 
 #### 5.4.5 Keepalive and Connection Health
 
@@ -740,6 +794,8 @@ The Proxy relies on **client-initiated Ping** for heartbeat (it no longer sends 
 
 The key invariant of Proxy is: **one client WS <-> one Streamer**, with two dedicated up/down pump goroutines, and no cross-connection interference.
 
+The transparency guarantee is at the **payload-byte** level, not the WebSocket frame-type level: northbound text and binary data frames are both accepted and their payload is passed unchanged to `Streamer`; downstream `Streamer` payloads are emitted as WebSocket text frames because the `Streamer` interface does not carry a frame type. Ping, Pong, and Close stay at the WebSocket boundary.
+
 #### 5.4.7 Northbound WS Only, No HTTP Support
 
 The Proxy intentionally **does not support** Streamable HTTP as the northbound entrypoint: Streamable HTTP consists of multiple independent HTTP requests (`POST` / `GET` / `DELETE`) and requires sticky routing by `Acp-Connection-Id` to the same backend. Without parsing the protocol, Proxy cannot guarantee that affinity, which conflicts with its design goal of **moving bytes only and not inspecting the protocol**. Non-WS requests return `400 Bad Request` directly:
@@ -749,6 +805,23 @@ proxy endpoint only supports WebSocket
 ```
 
 If you need both HTTP support and proxying, have the downstream service expose `ACPServer` directly; Proxy is only responsible for the WS path.
+
+### 5.5 Migration to Host-Owned Adapters
+
+These pre-adapter APIs were removed during the Hertz/Gin refactor. The names in the left column are shown only to help existing callers migrate; do not use them in new code.
+
+| Removed API | Current API |
+| --- | --- |
+| `(*server.ACPServer).Handler()` | `acpserverhertz.New(core)` or `acpservergin.New(core)` |
+| `(*server.ACPServer).Mount(router)` | `router.Any(path, acpserverhertz.New(core))` or `router.Any(path, acpservergin.New(core))` |
+| `server.WithEndpoint(path)` | register the adapter handler at `path`; use `server.DefaultEndpoint` for the conventional `/acp` |
+| `server.WithWebSocketUpgrader(u)` | `server/hertz.WithUpgrader(u)` or `server/gin.WithUpgrader(u)` on adapter construction |
+| `(*proxy.ACPProxy).Handler()` | `acpproxyhertz.New(core)` or `acpproxygin.New(core)` |
+| `(*proxy.ACPProxy).Mount(router)` | `router.Any(path, acpproxyhertz.New(core))` or `router.Any(path, acpproxygin.New(core))` |
+| `proxy.WithEndpoint(path)` | register the adapter handler at `path`; use `proxy.DefaultEndpoint` for the conventional `/acp` |
+| `proxy.WithHeaderForwarder(f)` / `proxy.HeaderForwarder` | `proxy.WithMetadataExtractor(f)` / `proxy.MetadataExtractor`; for named headers use `proxy.WithMetadataExtractor(proxy.ForwardHeaders(...))` |
+
+The adapter `New` functions above return the framework-native handler; they do not create another server/proxy runtime. The framework-neutral core continues to own runtime state and `Close`/`Shutdown`; the adapter owns only framework-specific handling and upgrader configuration, and the host owns route registration and HTTP-server shutdown.
 
 ## 6. Miscellaneous
 
@@ -933,10 +1006,17 @@ acp/
 │   ├── stdio/                                     // newline-delimited JSON
 │   ├── http/client/                               // Streamable HTTP client
 │   └── ws/                                        // WebSocket client
-├── server/                                        // Hertz server (HTTP + WS)
-├── proxy/                                         // transparent WS proxy
+├── server/                                        // framework-neutral ACPServer core
+│   ├── hertz/                                     // Hertz handler + upgrader option
+│   └── gin/                                       // Gin/net/http + Gorilla adapter
+├── proxy/                                         // framework-neutral transparent WS proxy core
+│   ├── hertz/                                     // Hertz northbound adapter
+│   └── gin/                                       // Gin/Gorilla northbound adapter
 ├── stream/                                        // Streamer abstraction between Proxy and AgentServer
-├── examples/                                      // runnable examples for agent / client / proxy
+├── examples/
+│   ├── agent/                                     // stdio or Hertz/Gin-hosted ACPServer
+│   ├── client/                                    // stdio, Streamable HTTP, or WS client
+│   └── proxy/                                     // Hertz/Gin northbound; Hertz southbound demo
 └── cmd/generate/                                  // schema-driven code generation
 ```
 
@@ -944,6 +1024,8 @@ acp/
 
 - **"The request timed out, but the Agent actually finished the work"**: check server-side `WithRequestTimeout` (default `5min` for HTTP) and the client ctx deadline. For long HTTP jobs, increase the server timeout.
 - **"`session/update` is missing"**: most likely the HTTP GET SSE listener was not established before the notification was sent. The SDK first buffers through `pendingQueue` (default `1024`). If it fills up, the SDK does not just drop one message: it closes the session and returns an error. Increase `WithPendingQueueSize` or ensure you call `NewSession` before pushing notifications.
-- **"WebSocket disconnects immediately after connect"**: 99% of the time, Hertz is missing `NoHijackConnPool = true`.
+- **"WebSocket disconnects immediately after connect"**: on Hertz, first check `NoHijackConnPool = true`; on Gin, confirm the host uses standard `net/http` HTTP/1.1 upgrade and that reverse proxies forward the WebSocket handshake headers.
+- **"SSE events arrive in batches or the listener disconnects"**: disable reverse-proxy buffering on the SSE route, lengthen proxy/host write and idle timeouts, and keep requests for one `Acp-Connection-Id` on the same backend.
+- **"The process stops but ACP connections remain"**: coordinate both lifecycles—run `ACPServer.Shutdown(ctx)` or `ACPProxy.Shutdown(ctx)` and also shut down the Hertz or `net/http` host.
 - **"Goroutines leak after Close"**: make sure you call `conn.Close()`; for stdio, also make sure the underlying reader/writer is closed (`cmd.Wait()` reaps the subprocess pipes).
 - **"An extension message is routed to the wrong session"**: in HTTP mode, make sure `params` includes `sessionId`.

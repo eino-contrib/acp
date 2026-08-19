@@ -88,7 +88,7 @@ func (c *ClientConnection) SessionCancel(ctx context.Context, params acp.CancelN
 }
 
 func (c *ClientConnection) CloseSession(ctx context.Context, params acp.CloseSessionRequest) (acp.CloseSessionResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.CloseSessionResponse](c.conn, ctx, acp.MethodAgentCloseSession, params)
+	return c.closeSession(ctx, params)
 }
 
 func (c *ClientConnection) DeleteSession(ctx context.Context, params acp.DeleteSessionRequest) (acp.DeleteSessionResponse, error) {
@@ -105,7 +105,7 @@ func (c *ClientConnection) ListSessions(ctx context.Context, params acp.ListSess
 
 // LoadSession sends a session/load request to the agent. When the underlying
 // transport supports session listeners (e.g. Streamable HTTP), the
-// ClientConnection automatically opens a GET SSE listener for the new
+// ClientConnection automatically opens a GET SSE listener for the resulting
 // session so that server-initiated messages are received without extra
 // caller effort.
 //
@@ -123,7 +123,7 @@ func (c *ClientConnection) LoadSession(ctx context.Context, params acp.LoadSessi
 
 // NewSession sends a session/new request to the agent. When the underlying
 // transport supports session listeners (e.g. Streamable HTTP), the
-// ClientConnection automatically opens a GET SSE listener for the new
+// ClientConnection automatically opens a GET SSE listener for the resulting
 // session so that server-initiated messages are received without extra
 // caller effort.
 //
@@ -143,8 +143,22 @@ func (c *ClientConnection) Prompt(ctx context.Context, params acp.PromptRequest)
 	return jsonrpc.SendRequestTyped[acp.PromptResponse](c.conn, ctx, acp.MethodAgentPrompt, params)
 }
 
+// ResumeSession sends a session/resume request to the agent. When the underlying
+// transport supports session listeners (e.g. Streamable HTTP), the
+// ClientConnection automatically opens a GET SSE listener for the resulting
+// session so that server-initiated messages are received without extra
+// caller effort.
+//
+// The returned error reflects the RPC outcome only. Listener failures
+// are reported via the handler registered with
+// WithSessionListenerErrorHandler (or logged if none is set).
 func (c *ClientConnection) ResumeSession(ctx context.Context, params acp.ResumeSessionRequest) (acp.ResumeSessionResponse, error) {
-	return jsonrpc.SendRequestTyped[acp.ResumeSessionResponse](c.conn, ctx, acp.MethodAgentResumeSession, params)
+	resp, err := jsonrpc.SendRequestTyped[acp.ResumeSessionResponse](c.conn, ctx, acp.MethodAgentResumeSession, params)
+	if err != nil {
+		return resp, err
+	}
+	c.startSessionListener(ctx, string(params.SessionID))
+	return resp, nil
 }
 
 func (c *ClientConnection) SetSessionConfigOption(ctx context.Context, params acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {

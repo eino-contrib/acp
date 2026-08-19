@@ -18,6 +18,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/eino-contrib/acp/internal/safe"
+	"github.com/eino-contrib/acp/internal/wsconn"
 	acptransport "github.com/eino-contrib/acp/transport"
 	"github.com/hertz-contrib/websocket"
 )
@@ -474,7 +475,7 @@ func startHertzWebSocketServer(t *testing.T, transport *Transport) (string, func
 		connID := "test-conn-id"
 		c.Response.Header.Set(acptransport.HeaderConnectionID, connID)
 		err := upgrader.Upgrade(c, func(conn *websocket.Conn) {
-			transport.ServeConn(ctx, conn)
+			transport.ServeConn(ctx, wsconn.WrapHertz(conn))
 		})
 		if err != nil {
 			c.SetStatusCode(http.StatusInternalServerError)

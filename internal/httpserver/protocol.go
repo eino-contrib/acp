@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -137,11 +138,22 @@ func (c *ProtocolConnection) LookupSession(sessionID string) (*Session, bool) {
 }
 
 // EnsureSession registers a session on the underlying HTTP connection.
-func (c *ProtocolConnection) EnsureSession(sessionID string) {
+func (c *ProtocolConnection) EnsureSession(sessionID string) bool {
 	if c == nil || c.httpConn == nil {
-		return
+		return false
 	}
-	c.httpConn.EnsureSession(sessionID)
+	_, created := c.httpConn.ensureSession(sessionID)
+	return created
+}
+
+// RemoveSession removes a session from the HTTP transport and closes its
+// active GET SSE listener. It is used after a successful session termination
+// request so transport-owned state follows the Agent's session lifecycle.
+func (c *ProtocolConnection) RemoveSession(sessionID string) bool {
+	if c == nil || c.httpConn == nil || sessionID == "" {
+		return false
+	}
+	return c.httpConn.RemoveSession(sessionID)
 }
 
 // ProtocolVersion returns the negotiated protocol version for this connection.
@@ -203,8 +215,12 @@ func HandleProtocolPost(ctx HandlerContext, server ProtocolServer) {
 		return
 	}
 
-	body, err := ctx.RequestBody()
+	body, err := ReadRequestBody(ctx, int64(maxSize))
 	if err != nil {
+		if errors.Is(err, ErrRequestBodyTooLarge) {
+			ctx.WriteError(http.StatusRequestEntityTooLarge, ErrRequestBodyTooLarge.Error())
+			return
+		}
 		ctx.WriteError(http.StatusBadRequest, "failed to read body")
 		return
 	}
@@ -253,6 +269,16 @@ func HandleProtocolPost(ctx HandlerContext, server ProtocolServer) {
 // HandleProtocolGet runs the shared Streamable HTTP GET logic.
 // It establishes a long-lived SSE stream for the server to push messages to the client.
 func HandleProtocolGet(ctx HandlerContext, server ProtocolServer) {
+	// Unlike generic HTTP negotiation (and the POST compatibility behavior),
+	// the ACP Streamable HTTP GET contract requires an explicit Accept header
+	// that permits text/event-stream. Reject before any connection/session
+	// lookup or SSE setup so an unacceptable request has no protocol effects.
+	accept := ctx.RequestHeader("Accept")
+	if accept == "" || !acceptsSSE(accept) {
+		ctx.WriteError(http.StatusNotAcceptable, "Accept must include text/event-stream")
+		return
+	}
+
 	connectionID := ctx.RequestHeader(acptransport.HeaderConnectionID)
 	sessionID := ctx.RequestHeader(acptransport.HeaderSessionID)
 
@@ -273,10 +299,15 @@ func HandleProtocolGet(ctx HandlerContext, server ProtocolServer) {
 		return
 	}
 	conn.Touch()
+	if !conn.httpConn.BeginRequest() {
+		ctx.WriteError(http.StatusNotFound, "unknown connection")
+		return
+	}
+	defer conn.httpConn.EndRequest()
 
 	// Write SSE response headers before binding the stream so that any
 	// backlog flushed by BindStream is sent after the correct headers.
-	ctx.SetResponseHeader("Content-Type", "text/event-stream")
+	ctx.SetResponseHeader("Content-Type", "text/event-stream; charset=utf-8")
 	ctx.SetResponseHeader("Cache-Control", "no-cache")
 	ctx.SetResponseHeader("Connection", "keep-alive")
 	if pv := conn.ProtocolVersion(); pv != "" {
@@ -295,10 +326,16 @@ func HandleProtocolGet(ctx HandlerContext, server ProtocolServer) {
 	ctx.Flush()
 
 	// Build a thread-safe write function that writes directly to the SSE stream.
-	var mu sync.Mutex
+	var (
+		mu           sync.Mutex
+		streamActive = true
+	)
 	writeFn := func(msg json.RawMessage) error {
 		mu.Lock()
 		defer mu.Unlock()
+		if !streamActive {
+			return ErrSessionNoActiveStream
+		}
 		if err := ctx.WriteSSEEvent(msg); err != nil {
 			return err
 		}
@@ -312,7 +349,16 @@ func HandleProtocolGet(ctx HandlerContext, server ProtocolServer) {
 	// exits instead of continuing to emit keepalives on a stream it no
 	// longer owns.
 	streamGen, evicted := sess.BindStream(writeFn)
-	defer sess.UnbindStream(streamGen)
+	defer func() {
+		// Fence this handler's response writer before unbinding. A background
+		// writer already inside writeFn completes while we wait for mu; any late
+		// call observes streamActive=false and returns without touching the
+		// framework response after this handler exits.
+		mu.Lock()
+		streamActive = false
+		mu.Unlock()
+		sess.UnbindStream(streamGen)
+	}()
 
 	// Bracket the listener with Begin/End so the idle reaper cannot evict a
 	// connection whose only current activity is a long-lived GET SSE stream.
@@ -320,9 +366,6 @@ func HandleProtocolGet(ctx HandlerContext, server ProtocolServer) {
 	// WithConnectionIdleTimeout is configured below the SSE keepalive
 	// interval, since keepalive Touches only refresh activity every
 	// SSEKeepaliveInterval.
-	conn.httpConn.BeginRequest()
-	defer conn.httpConn.EndRequest()
-
 	// Keep-alive ticker.
 	keepAlive := server.KeepAliveInterval
 	if keepAlive <= 0 {

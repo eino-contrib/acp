@@ -17,12 +17,13 @@
 //   - conn.AgentConnection dispatches inbound requests to an Agent
 //   - conn.ClientConnection dispatches inbound requests to a Client
 //
-// The server sub-package provides ACPServer for multi-client HTTP/WebSocket
-// serving.
+// The server sub-package provides the framework-neutral ACPServer runtime;
+// server/hertz and server/gin expose framework-native handlers. The proxy
+// sub-package follows the same pattern through proxy/hertz and proxy/gin.
 //
 // Transport implementations are in sub-packages:
 //
-//   - transport/http: Streamable HTTP client and server transports
-//   - transport/ws: WebSocket client and server transports
+//   - transport/http/client: Streamable HTTP client transport
+//   - transport/ws: WebSocket client transport
 //   - transport/stdio: Standard I/O transport for subprocess communication
 package acp

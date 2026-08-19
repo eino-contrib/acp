@@ -35,8 +35,8 @@ type ParsedPost struct {
 
 // ValidatePostHeaders checks Content-Type and Accept headers required by the
 // ACP Streamable HTTP spec. Media types are matched case-insensitively per
-// RFC 9110 §8.3 and the Accept header is parsed into comma-separated ranges
-// so extra parameters (quality factors, charsets) do not defeat the match.
+// RFC 9110 §8.3. Quality values and media-range precedence are honored so an
+// explicitly unacceptable representation is not re-enabled by a wildcard.
 func ValidatePostHeaders(contentType, accept string) (string, int) {
 	if !contentTypeIsJSON(contentType) {
 		return "Content-Type must be application/json", http.StatusUnsupportedMediaType
@@ -171,30 +171,106 @@ func acceptsSSE(accept string) bool {
 	return acceptsMediaType(accept, "text", "event-stream")
 }
 
-// acceptsMediaType returns true if the Accept header lists a media range
-// compatible with type/subtype. A missing Accept defaults to "*/*" per
-// RFC 9110 §12.5.1. Matching ignores case and quality parameters.
+// acceptsMediaType returns true if the Accept header lists a media range that
+// makes type/subtype acceptable. A missing Accept defaults to "*/*" per RFC
+// 9110 §12.5.1; callers whose protocol requires an explicit Accept header must
+// reject the empty value before calling this helper.
+//
+// For a particular representation, the most specific matching media range
+// determines its quality (exact type/subtype, then type wildcard, then */*).
+// This matters for headers such as "*/*;q=1, text/event-stream;q=0": the
+// exact range overrides the wildcard and makes SSE unacceptable. Invalid
+// media ranges and malformed qvalues are ignored.
 func acceptsMediaType(accept, wantType, wantSubtype string) bool {
 	if accept == "" {
 		return true
 	}
+
+	bestSpecificity := -1
+	bestQuality := -1
 	for _, entry := range strings.Split(accept, ",") {
-		mediaType, _, err := mime.ParseMediaType(entry)
+		mediaType, params, err := mime.ParseMediaType(entry)
 		if err != nil {
 			continue
 		}
-		slash := strings.IndexByte(mediaType, '/')
-		if slash < 0 {
+
+		quality := 1000
+		if qvalue, hasQuality := params["q"]; hasQuality {
+			var ok bool
+			quality, ok = parseQValue(qvalue)
+			if !ok {
+				continue
+			}
+		}
+
+		specificity, ok := matchingMediaRangeSpecificity(mediaType, wantType, wantSubtype)
+		if !ok {
 			continue
 		}
-		gotType := mediaType[:slash]
-		gotSubtype := mediaType[slash+1:]
-		if (gotType == "*" || strings.EqualFold(gotType, wantType)) &&
-			(gotSubtype == "*" || strings.EqualFold(gotSubtype, wantSubtype)) {
-			return true
+		if specificity > bestSpecificity || (specificity == bestSpecificity && quality > bestQuality) {
+			bestSpecificity = specificity
+			bestQuality = quality
 		}
 	}
-	return false
+	return bestQuality > 0
+}
+
+// matchingMediaRangeSpecificity reports whether mediaType matches the wanted
+// representation and, if so, its RFC 9110 media-range precedence. The only
+// valid wildcard forms are type/* and */*.
+func matchingMediaRangeSpecificity(mediaType, wantType, wantSubtype string) (int, bool) {
+	typeAndSubtype := strings.Split(mediaType, "/")
+	if len(typeAndSubtype) != 2 || typeAndSubtype[0] == "" || typeAndSubtype[1] == "" {
+		return 0, false
+	}
+
+	gotType, gotSubtype := typeAndSubtype[0], typeAndSubtype[1]
+	switch {
+	case gotType == "*" && gotSubtype == "*":
+		return 0, true
+	case strings.EqualFold(gotType, wantType) && gotSubtype == "*":
+		return 1, true
+	case strings.EqualFold(gotType, wantType) && strings.EqualFold(gotSubtype, wantSubtype):
+		return 2, true
+	default:
+		return 0, false
+	}
+}
+
+// parseQValue parses an explicitly supplied HTTP qvalue into thousandths. RFC
+// 9110 limits qvalues to 0..1 with at most three fractional digits.
+func parseQValue(value string) (int, bool) {
+	if value == "0" {
+		return 0, true
+	}
+	if value == "1" {
+		return 1000, true
+	}
+	if len(value) < 2 || value[1] != '.' || (value[0] != '0' && value[0] != '1') {
+		return 0, false
+	}
+
+	fraction := value[2:]
+	if len(fraction) > 3 {
+		return 0, false
+	}
+	quality := 0
+	for _, digit := range fraction {
+		if digit < '0' || digit > '9' {
+			return 0, false
+		}
+		quality = quality*10 + int(digit-'0')
+	}
+	for digits := len(fraction); digits < 3; digits++ {
+		quality *= 10
+	}
+	if value[0] == '1' {
+		if quality != 0 {
+			return 0, false
+		}
+		return 1000, true
+	}
+	return quality, true
 }
 
 // trimLeftWhitespace trims leading whitespace bytes from a byte slice.

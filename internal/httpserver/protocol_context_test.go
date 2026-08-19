@@ -59,6 +59,113 @@ func TestHandleProtocolPostPassesRequestContextToAgent(t *testing.T) {
 	}
 }
 
+// The HTTP session map owns GET SSE routing, not Agent business-session
+// truth. A session-scoped POST with valid headers must still reach the Agent
+// when no GET transport session is registered; the Agent decides whether the
+// business session exists and returns the JSON-RPC result/error.
+func TestHandleProtocolPostDoesNotUseSSESessionMapAsBusinessAuthority(t *testing.T) {
+	dispatchCalls := 0
+	conn := NewProtocolConnection(ProtocolConnectionConfig{
+		ConnectionID: "conn-agent-authority",
+		HTTPConn:     NewConnection(),
+		Dispatcher: connspi.Dispatcher{
+			Request: func(context.Context, string, json.RawMessage) (any, error) {
+				dispatchCalls++
+				return map[string]any{"agentAccepted": true}, nil
+			},
+		},
+		Done: make(chan struct{}),
+	})
+	server := ProtocolServer{
+		LookupConnection: func(connectionID string) (*ProtocolConnection, bool) {
+			return conn, connectionID == conn.ConnectionID()
+		},
+	}
+
+	ctx := newStubHandlerContext()
+	ctx.requestHeaders["Content-Type"] = "application/json"
+	ctx.requestHeaders["Accept"] = "application/json, text/event-stream"
+	ctx.requestHeaders[acptransport.HeaderConnectionID] = conn.ConnectionID()
+	ctx.requestHeaders[acptransport.HeaderSessionID] = "agent-owned-session"
+	ctx.body = []byte(`{"jsonrpc":"2.0","id":1,"method":"` + acp.MethodAgentPrompt + `","params":{"sessionId":"agent-owned-session","prompt":[]}}`)
+
+	HandleProtocolPost(ctx, server)
+
+	if dispatchCalls != 1 {
+		t.Fatalf("dispatcher calls = %d, want 1", dispatchCalls)
+	}
+	if ctx.statusCode != 200 || len(ctx.sseEvents) != 1 {
+		t.Fatalf("response status/events = %d/%d, want 200/1 (error=%q)", ctx.statusCode, len(ctx.sseEvents), ctx.errMessage)
+	}
+}
+
+func TestHandleProtocolPostRegistersResumedSession(t *testing.T) {
+	httpConn := NewConnection()
+	conn := NewProtocolConnection(ProtocolConnectionConfig{
+		ConnectionID: "conn-resume-session",
+		HTTPConn:     httpConn,
+		Dispatcher: connspi.Dispatcher{
+			Request: func(context.Context, string, json.RawMessage) (any, error) {
+				return acp.ResumeSessionResponse{}, nil
+			},
+		},
+		Done: make(chan struct{}),
+	})
+	server := ProtocolServer{
+		LookupConnection: func(connectionID string) (*ProtocolConnection, bool) {
+			return conn, connectionID == conn.ConnectionID()
+		},
+	}
+
+	ctx := newStubHandlerContext()
+	ctx.requestHeaders["Content-Type"] = "application/json"
+	ctx.requestHeaders["Accept"] = "application/json, text/event-stream"
+	ctx.requestHeaders[acptransport.HeaderConnectionID] = conn.ConnectionID()
+	ctx.requestHeaders[acptransport.HeaderSessionID] = "session-to-resume"
+	ctx.body = []byte(`{"jsonrpc":"2.0","id":1,"method":"` + acp.MethodAgentResumeSession + `","params":{"sessionId":"session-to-resume","cwd":"/tmp","mcpServers":[]}}`)
+
+	HandleProtocolPost(ctx, server)
+
+	if ctx.statusCode != 200 {
+		t.Fatalf("status = %d, want 200 (error=%q)", ctx.statusCode, ctx.errMessage)
+	}
+	if _, ok := conn.LookupSession("session-to-resume"); !ok {
+		t.Fatal("successful resume did not register its transport session")
+	}
+}
+
+func TestHandleProtocolPostRollsBackFailedResumeSession(t *testing.T) {
+	httpConn := NewConnection()
+	conn := NewProtocolConnection(ProtocolConnectionConfig{
+		ConnectionID: "conn-failed-resume",
+		HTTPConn:     httpConn,
+		Dispatcher: connspi.Dispatcher{
+			Request: func(context.Context, string, json.RawMessage) (any, error) {
+				return nil, acp.ErrInternalError("resume failed", nil)
+			},
+		},
+		Done: make(chan struct{}),
+	})
+	server := ProtocolServer{
+		LookupConnection: func(connectionID string) (*ProtocolConnection, bool) {
+			return conn, connectionID == conn.ConnectionID()
+		},
+	}
+
+	ctx := newStubHandlerContext()
+	ctx.requestHeaders["Content-Type"] = "application/json"
+	ctx.requestHeaders["Accept"] = "application/json, text/event-stream"
+	ctx.requestHeaders[acptransport.HeaderConnectionID] = conn.ConnectionID()
+	ctx.requestHeaders[acptransport.HeaderSessionID] = "failed-session"
+	ctx.body = []byte(`{"jsonrpc":"2.0","id":1,"method":"` + acp.MethodAgentResumeSession + `","params":{"sessionId":"failed-session","cwd":"/tmp","mcpServers":[]}}`)
+
+	HandleProtocolPost(ctx, server)
+
+	if _, ok := conn.LookupSession("failed-session"); ok {
+		t.Fatal("failed resume left a provisional transport session routable")
+	}
+}
+
 func TestHandleProtocolPostClosesFailedInitializeConnection(t *testing.T) {
 	type traceKey struct{}
 

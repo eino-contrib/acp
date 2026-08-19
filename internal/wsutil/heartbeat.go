@@ -3,7 +3,7 @@ package wsutil
 import (
 	"time"
 
-	"github.com/hertz-contrib/websocket"
+	"github.com/eino-contrib/acp/internal/wsconn"
 )
 
 // PongResponder builds a WebSocket PingHandler that echoes a Pong frame for
@@ -49,10 +49,10 @@ type PongResponder struct {
 	WrapWriteFailed func(err error) error
 }
 
-// Handler returns a function suitable for *websocket.Conn.SetPingHandler.
+// Handler returns a function suitable for wsconn.Conn.SetPingHandler.
 func (r PongResponder) Handler() func(appData string) error {
 	return func(appData string) error {
-		if err := r.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(ControlWriteDeadline)); err != nil {
+		if err := r.WriteControl(wsconn.PongMessage, []byte(appData), time.Now().Add(ControlWriteDeadline)); err != nil {
 			if IsControlWriteContention(err) {
 				if r.OnContention != nil {
 					r.OnContention(err)

@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/eino-contrib/acp/internal/wsconn"
 )
 
 func TestProxyOptions(t *testing.T) {
@@ -49,9 +52,8 @@ func TestProxyOptions(t *testing.T) {
 	// WithWebSocketPongTimeout aliases WithWebSocketReadTimeout.
 	t.Run("WithWebSocketPingInterval_is_noop", func(t *testing.T) {
 		opts := defaultOptions()
-		// options contains an un-comparable websocket.HertzUpgrader field, so
-		// snapshot only the timeout-related fields the heartbeat refactor
-		// could plausibly touch.
+		// Snapshot the timeout-related fields the compatibility option could
+		// plausibly touch.
 		beforeRead := opts.wsReadTimeout
 		beforeWrite := opts.wsWriteTimeout
 		beforeFirst := opts.firstFrameTimeout
@@ -103,5 +105,20 @@ func TestProxyDefaultOptions(t *testing.T) {
 	}
 	if opts.maxConcurrent != DefaultMaxConcurrentConnections {
 		t.Fatalf("default maxConcurrent: want %v, got %v", DefaultMaxConcurrentConnections, opts.maxConcurrent)
+	}
+}
+
+func TestClassifyReadLimitDoesNotDuplicateLibraryCloseFrame(t *testing.T) {
+	action := classifyPumpErr(fmt.Errorf("read: %w", wsconn.ErrReadLimit))
+	if action.SendFrame {
+		t.Fatalf("read-limit action requested a duplicate close frame: %#v", action)
+	}
+	if action.Reason != "message too big" {
+		t.Fatalf("reason = %q, want %q", action.Reason, "message too big")
+	}
+
+	downstream := classifyPumpErr(fmt.Errorf("downstream: %w", errPayloadTooLarge))
+	if !downstream.SendFrame || downstream.Code != wsconn.CloseMessageTooBig {
+		t.Fatalf("downstream oversize action = %#v, want one 1009 frame", downstream)
 	}
 }

@@ -55,9 +55,9 @@ type Streamer interface {
 //     timeout, so the ctx can fire well before the ACP connection ends.
 //     Teardown is driven exclusively through Streamer.Close, which the Proxy
 //     invokes when the ACP connection ends.
-//   - meta carries the north-bound headers that the Proxy's HeaderForwarder
-//     decided to propagate to the AgentServer (authn token, tenant id, trace
-//     id, ...). Implementations attach these to the south-bound RPC request
+//   - meta carries the values that the Proxy's MetadataExtractor decided to
+//     propagate to the AgentServer (for example an auth token, tenant id, or
+//     trace id). Implementations attach these to the south-bound RPC request
 //     however the chosen RPC framework expects (metadata, headers, ...).
 //
 // NewStreamer MUST block until the stream is ready for payload flow. A nil

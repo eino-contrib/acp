@@ -10,11 +10,15 @@ import "context"
 // reconnect retries are exhausted, or reconnect is disabled). Startup
 // failures are reported through Start's return value instead and must not
 // also trigger onFailure, so the caller sees each failure exactly once.
-// onFailure is not invoked when the listener is stopped explicitly via
-// Stop or when the transport is closing.
+// onFailure is not invoked when the listener is stopped by a completed
+// session close / StopAll or when the transport is closing.
 type SessionListenerHook struct {
-	Start func(ctx context.Context, sessionID string, onFailure func(error)) error
-	Stop  func()
+	Start         func(ctx context.Context, sessionID string, onFailure func(error)) error
+	BeginClose    func(sessionID string) bool
+	CompleteClose func(sessionID string)
+	ForceClose    func(sessionID string)
+	AbortClose    func(sessionID string) bool
+	StopAll       func()
 }
 
 // SessionListenerHookKey is the argument type transports must accept on

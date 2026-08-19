@@ -6,9 +6,8 @@ import (
 )
 
 // HandlerContext abstracts the HTTP request/response for framework-agnostic
-// handler logic. The current implementation is the Hertz adapter (see
-// adapter_hertz.go); additional adapters can be added without touching the
-// core protocol logic.
+// handler logic. Hertz and net/http adapters share this contract so the core
+// protocol logic does not depend on either framework.
 type HandlerContext interface {
 	// Context returns the request-scoped context so protocol handlers can
 	// preserve request values, traces, and cancellation semantics.
