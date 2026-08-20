@@ -31,6 +31,8 @@ type Connection struct {
 	// active handlers to avoid evicting connections that are busy
 	// processing long-running work.
 	activeHandlers atomic.Int64
+	handlersMu     sync.Mutex
+	handlersDone   chan struct{}
 
 	// protocolVersion is the negotiated ACP protocol version extracted from
 	// the initialize response. It is set in Acp-Protocol-Version headers on
@@ -44,9 +46,16 @@ type Connection struct {
 	// sessionsMu protects sessions.
 	sessionsMu sync.RWMutex
 	sessions   map[string]*Session
+	// writers tracks every session writer ever created for this connection,
+	// including generations belonging to a session removed from sessions after
+	// pending overflow. Connection shutdown waits on this owner-level registry.
+	writersMu     sync.Mutex
+	writers       sync.WaitGroup
+	writersClosed bool
 
 	closeOnce sync.Once
 	closed    atomic.Bool
+	closeDone chan struct{}
 }
 
 func (c *Connection) setProtocolVersion(version string) {
@@ -86,10 +95,10 @@ const defaultOutboxSendTimeout = 10 * time.Second
 // defaultWriterStopTimeout caps how long awaitWriterStop waits for the SSE
 // writer goroutine to exit. SSE writes (WriteSSEEvent + Flush) are not
 // interruptible from Go, so if the underlying network write is stuck on a
-// dead/slow peer the writer goroutine may remain blocked inside writeFn. We
-// accept leaking that goroutine after the deadline rather than pinning the
-// awaitWriterStop caller (and thereby UnbindStream / BindStream /
-// CloseSession) forever.
+// dead/slow peer the writer goroutine may remain blocked inside writeFn. A
+// listener handoff stops waiting after this deadline rather than pinning
+// BindStream / UnbindStream / CloseSession; connection shutdown separately
+// tracks every writer and waits for actual termination.
 const defaultWriterStopTimeout = 5 * time.Second
 
 // Session tracks a single session within a connection.
@@ -105,7 +114,18 @@ const defaultWriterStopTimeout = 5 * time.Second
 // mirroring the outbox model used by the WebSocket server transport.
 type Session struct {
 	SessionID string
+	// writerStopTimeout overrides the bounded listener-handoff wait in tests.
+	// Zero uses defaultWriterStopTimeout. Connection shutdown separately waits
+	// for actual writer termination and does not use this bound.
+	writerStopTimeout time.Duration
 
+	// bindMu serializes the complete listener handoff across BindStream and
+	// UnbindStream, including intervals where either operation drops mu while
+	// waiting for the previous writer/senders to exit. Without this guard a new
+	// Bind can publish its writer before an old Unbind restores accepted outbox
+	// messages to pending. CloseSession does not need this mutex: streamEvict is
+	// cleared under mu before a handoff starts waiting.
+	bindMu      sync.Mutex
 	mu          sync.Mutex
 	writeFn     func(json.RawMessage) error // GET SSE write function; nil = no active stream
 	streamGen   uint64                      // incremented on each BindStream; used by UnbindStream
@@ -126,13 +146,17 @@ type Session struct {
 	// deliberately NEVER closed: concurrent Send callers may have observed
 	// the pointer under s.mu and released the lock before their channel
 	// send, and sending on a closed channel panics. Writer shutdown is
-	// signalled via writerStop; the orphaned outbox is GC'd once no caller
-	// references remain. A racing Send that lands on an orphaned outbox
-	// writes into its buffer (no reader, message is dropped) or times out
-	// on defaultOutboxSendTimeout — acceptable because the stream is gone.
-	outbox           chan json.RawMessage
+	// signalled via writerStop. Listener replacement drains messages already
+	// accepted into the detached outbox back into pending. Terminal close uses
+	// an in-band drain marker so messages already accepted by Send are written
+	// before the listener is evicted; overflow may still discard them because
+	// the session is already irrecoverably over capacity.
+	outbox           chan sessionOutboxEntry
+	outboxSenders    *sync.WaitGroup   // sends that captured this outbox generation
 	writerStop       chan struct{}     // closed to signal writer goroutine exit
 	writerDone       chan struct{}     // closed when writer goroutine exits
+	writers          sync.WaitGroup    // every writer, including timed-out detached generations
+	connection       *Connection       // owner-level tracker survives removal from Connection.sessions
 	pending          []json.RawMessage // messages queued while no stream is bound
 	pendingQueueSize int               // max buffered messages; 0 means DefaultPendingQueueSize
 	done             chan struct{}
@@ -146,6 +170,14 @@ type Session struct {
 	// Set by EnsureSession; nil-guarded in case a Session is constructed
 	// directly in tests.
 	remove func()
+}
+
+// sessionOutboxEntry is either one SSE payload or an in-band terminal drain
+// marker. The marker shares the writer's FIFO, so observing its acknowledgement
+// proves every message accepted before it has completed writeFn.
+type sessionOutboxEntry struct {
+	message json.RawMessage
+	drained chan struct{}
 }
 
 // ErrSessionClosed is returned by Send and BindStream after the session has
@@ -191,6 +223,9 @@ func (s *Session) Done() <-chan struct{} {
 // pass will pick up. The loop exits once a pass finds s.pending empty and we
 // can publish writeFn atomically under the lock.
 func (s *Session) BindStream(writeFn func(json.RawMessage) error) (uint64, <-chan struct{}) {
+	s.bindMu.Lock()
+	defer s.bindMu.Unlock()
+
 	if s.closed.Load() {
 		evict := make(chan struct{})
 		close(evict)
@@ -205,12 +240,21 @@ func (s *Session) BindStream(writeFn func(json.RawMessage) error) (uint64, <-cha
 	}
 	// Evict previous stream: close evict channel and shut down previous outbox.
 	if s.streamEvict != nil {
-		close(s.streamEvict)
+		// Clear the shared pointer before dropping s.mu to wait for the old
+		// writer. CloseSession may run during that wait; leaving the already
+		// closed channel published lets it close the same channel again and
+		// panic the process. The old GET handler already owns its returned copy.
+		oldEvict := s.streamEvict
+		s.streamEvict = nil
+		close(oldEvict)
 	}
-	writerDone := s.detachWriterLocked()
-	if writerDone != nil {
+	oldOutbox, writerDone, oldSenders := s.detachWriterLocked()
+	if writerDone != nil || oldSenders != nil {
 		s.mu.Unlock()
 		s.awaitWriterStop(writerDone)
+		if oldSenders != nil {
+			oldSenders.Wait()
+		}
 		s.mu.Lock()
 		if s.closed.Load() {
 			s.mu.Unlock()
@@ -218,11 +262,21 @@ func (s *Session) BindStream(writeFn func(json.RawMessage) error) (uint64, <-cha
 			close(evict)
 			return 0, evict
 		}
+		// Send/SendLive transfers ownership when it successfully enqueues a
+		// message. Preserve anything the old writer had not consumed by moving
+		// the detached outbox in front of messages queued while we waited.
+		s.prependDetachedOutboxLocked(oldOutbox)
 	}
 
 	s.streamEvict = make(chan struct{})
 	myEvict := s.streamEvict
 	s.streamGen++
+	// Generation zero is reserved as the inactive activeWriterGen sentinel.
+	// Skip it if the counter ever wraps so a live writer is never mistaken
+	// for an inactive one.
+	if s.streamGen == 0 {
+		s.streamGen++
+	}
 	gen := s.streamGen
 
 	// Drain pending into writeFn synchronously (same as before) to preserve
@@ -231,7 +285,7 @@ func (s *Session) BindStream(writeFn func(json.RawMessage) error) (uint64, <-cha
 		batch := s.pending
 		s.pending = nil
 		if len(batch) == 0 {
-			// Pending drained. Start writer goroutine and publish outbox.
+			// Pending drained. Start the replacement writer.
 			s.writeFn = writeFn
 			s.startWriterLocked(writeFn)
 			s.mu.Unlock()
@@ -269,6 +323,16 @@ func (s *Session) BindStream(writeFn func(json.RawMessage) error) (uint64, <-cha
 			} else {
 				s.pending = append([]json.RawMessage(nil), remaining...)
 			}
+			// The listener never became active. Retire this generation and
+			// wake its GET handler; a later BindStream will allocate a fresh
+			// generation and retry the pending tail. CloseSession may have
+			// already cleared the channel while writeFn was running, so only
+			// close the channel when it is still owned by this bind.
+			s.writeFn = nil
+			if s.streamGen == gen && s.streamEvict == myEvict {
+				close(myEvict)
+				s.streamEvict = nil
+			}
 			s.mu.Unlock()
 			return gen, myEvict
 		}
@@ -281,26 +345,63 @@ func (s *Session) BindStream(writeFn func(json.RawMessage) error) (uint64, <-cha
 // detachWriterLocked), s.done (CloseSession), or a writeFn error. outbox is
 // NOT closed by the shutdown path — see the field doc on s.outbox.
 func (s *Session) startWriterLocked(writeFn func(json.RawMessage) error) {
-	outbox := make(chan json.RawMessage, defaultOutboxSize)
+	outbox := make(chan sessionOutboxEntry, defaultOutboxSize)
 	writerStop := make(chan struct{})
 	writerDone := make(chan struct{})
 	s.outbox = outbox
+	s.outboxSenders = &sync.WaitGroup{}
 	s.writerStop = writerStop
 	s.writerDone = writerDone
 
 	myGen := s.streamGen
+	myEvict := s.streamEvict
 	s.activeWriterGen.Store(myGen)
 
 	done := s.done
+	s.writers.Add(1)
+	if s.connection != nil && !s.connection.beginWriter() {
+		// Connection shutdown fenced new writers before this generation could be
+		// published. Undo the session-local count and leave no live state behind.
+		s.writers.Done()
+		s.activeWriterGen.Store(0)
+		s.writeFn = nil
+		s.outbox = nil
+		s.outboxSenders = nil
+		s.writerStop = nil
+		s.writerDone = nil
+		if s.streamEvict == myEvict && myEvict != nil {
+			close(myEvict)
+			s.streamEvict = nil
+		}
+		close(writerDone)
+		return
+	}
 	safe.Go(func() {
+		if s.connection != nil {
+			defer s.connection.endWriter()
+		}
+		defer s.writers.Done()
 		defer close(writerDone)
 		for {
+			// Give detachment priority before waiting for another message. This
+			// keeps an old writer from consuming the replacement's backlog after
+			// it finishes an in-flight network write.
+			select {
+			case <-writerStop:
+				return
+			default:
+			}
 			select {
 			case <-writerStop:
 				return
 			case <-done:
 				return
-			case msg := <-outbox:
+			case entry := <-outbox:
+				if entry.drained != nil {
+					close(entry.drained)
+					return
+				}
+				msg := entry.message
 				// Double-check the stop signal before invoking writeFn so a
 				// writerStop that became ready concurrently with this outbox
 				// receive does not cause one last message to be emitted on an
@@ -308,6 +409,10 @@ func (s *Session) startWriterLocked(writeFn func(json.RawMessage) error) {
 				// ready cases).
 				select {
 				case <-writerStop:
+					// The receive raced with detachment. Route the accepted
+					// message through current session state: pending while the
+					// replacement binds, or its new outbox after a slow detach.
+					_ = s.send(msg, false)
 					return
 				default:
 				}
@@ -316,14 +421,22 @@ func (s *Session) startWriterLocked(writeFn func(json.RawMessage) error) {
 				// attached writer holds a unique generation token, and
 				// detachWriterLocked clears activeWriterGen atomically under
 				// s.mu. Bailing here guarantees an evicted writer never
-				// emits on writeFn — the pending outbox entry is dropped
-				// (the new stream's pending-buffer drain already delivered
-				// anything that needed to survive the swap).
+				// emits on writeFn. Route the accepted message through the
+				// current session state for the replacement stream.
 				if s.activeWriterGen.Load() != myGen {
+					_ = s.send(msg, false)
 					return
 				}
 				if err := writeFn(msg); err != nil {
 					acplog.Debug("sse outbox write: %v", err)
+					// Retire the failed generation asynchronously. A concurrent
+					// BindStream may already hold bindMu while waiting for this
+					// writer's writerDone; doing the handoff inline would deadlock
+					// that replacement. The identity checks below make cleanup a
+					// no-op when replacement or close won ownership first.
+					safe.Go(func() {
+						s.deactivateFailedWriter(myGen, outbox, writerStop, writerDone, myEvict)
+					})
 					return
 				}
 			}
@@ -331,11 +444,71 @@ func (s *Session) startWriterLocked(writeFn func(json.RawMessage) error) {
 	})
 }
 
+// deactivateFailedWriter atomically retires a writer whose writeFn failed.
+// The identity checks are essential because BindStream may detach this writer,
+// time out waiting for its blocked writeFn, and install a newer generation
+// before the old writeFn eventually returns. In that case the old writer must
+// not clear the replacement's state. CloseSession follows the same detach
+// path, so a writer that loses ownership simply has nothing left to clean up.
+//
+// The failed writer schedules this handoff asynchronously immediately before it
+// returns. bindMu serializes the outbox recovery with replacement and Unbind;
+// if either already detached the generation, the identity checks make this a
+// no-op because that path owns the same recovery.
+func (s *Session) deactivateFailedWriter(
+	gen uint64,
+	outbox chan sessionOutboxEntry,
+	writerStop chan struct{},
+	writerDone chan struct{},
+	evict chan struct{},
+) {
+	s.bindMu.Lock()
+	defer s.bindMu.Unlock()
+
+	s.mu.Lock()
+	if s.streamGen != gen ||
+		s.outbox != outbox ||
+		s.writerStop != writerStop ||
+		s.writerDone != writerDone {
+		s.mu.Unlock()
+		return
+	}
+
+	// Clear the generation fence before unpublishing the outbox, mirroring
+	// detachWriterLocked. Send and SendLive inspect the outbox under s.mu,
+	// so calls beginning after this critical section observe one coherent
+	// inactive state.
+	s.activeWriterGen.Store(0)
+	s.writeFn = nil
+	s.outbox = nil
+	senders := s.outboxSenders
+	s.outboxSenders = nil
+	s.writerStop = nil
+	s.writerDone = nil
+	if s.streamEvict == evict && evict != nil {
+		close(evict)
+		s.streamEvict = nil
+	}
+	s.mu.Unlock()
+
+	// Send transfers ownership only after enqueueing successfully. Wait for
+	// every sender that captured this generation before draining its outbox, so
+	// no accepted tail message can arrive after the handoff snapshot.
+	if senders != nil {
+		senders.Wait()
+	}
+	s.mu.Lock()
+	if !s.closed.Load() {
+		s.prependDetachedOutboxLocked(outbox)
+	}
+	s.mu.Unlock()
+}
+
 // detachWriterLocked signals the writer goroutine to exit and clears the
 // writer-related fields (outbox/writerStop/writerDone). Must be called with
-// s.mu held. Returns the writerDone channel so the caller can wait for the
-// writer to actually exit after releasing the lock; returns nil if no writer
-// was running.
+// s.mu held. It returns the detached outbox and writerDone channel so a
+// listener replacement can wait for the writer, then preserve any messages
+// that were accepted but not consumed.
 //
 // outbox is deliberately NOT closed. Concurrent Send callers read the outbox
 // pointer under s.mu and release the lock before their channel send;
@@ -347,20 +520,52 @@ func (s *Session) startWriterLocked(writeFn func(json.RawMessage) error) {
 // Callers MUST release s.mu before calling awaitWriterStop(writerDone),
 // otherwise a writer blocked inside writeFn on a wedged peer would deadlock
 // any Send / BindStream caller contending for s.mu.
-func (s *Session) detachWriterLocked() <-chan struct{} {
+func (s *Session) detachWriterLocked() (chan sessionOutboxEntry, <-chan struct{}, *sync.WaitGroup) {
 	if s.writerStop == nil {
-		return nil
+		return nil, nil, nil
 	}
 	// Clear the gen fence first: any writer that observes a post-detach
 	// store will bail before touching writeFn, even if its select loop has
 	// already pulled a message out of the now-orphaned outbox.
 	s.activeWriterGen.Store(0)
 	close(s.writerStop)
+	outbox := s.outbox
 	writerDone := s.writerDone
+	senders := s.outboxSenders
 	s.outbox = nil
+	s.outboxSenders = nil
 	s.writerStop = nil
 	s.writerDone = nil
-	return writerDone
+	return outbox, writerDone, senders
+}
+
+// prependDetachedOutboxLocked drains the buffered tail of a stopped writer and
+// places it before messages queued after detachment. The writer must have
+// exited before this runs, so it cannot consume concurrently.
+func (s *Session) prependDetachedOutboxLocked(outbox <-chan sessionOutboxEntry) {
+	if outbox == nil {
+		return
+	}
+	remaining := make([]json.RawMessage, 0, len(outbox))
+	for {
+		select {
+		case entry := <-outbox:
+			if entry.drained != nil {
+				close(entry.drained)
+				continue
+			}
+			remaining = append(remaining, entry.message)
+		default:
+			if len(remaining) == 0 {
+				return
+			}
+			merged := make([]json.RawMessage, 0, len(remaining)+len(s.pending))
+			merged = append(merged, remaining...)
+			merged = append(merged, s.pending...)
+			s.pending = merged
+			return
+		}
+	}
 }
 
 // awaitWriterStop blocks (without holding s.mu) until the writer goroutine
@@ -372,12 +577,16 @@ func (s *Session) awaitWriterStop(writerDone <-chan struct{}) {
 	if writerDone == nil {
 		return
 	}
-	timer := time.NewTimer(defaultWriterStopTimeout)
+	timeout := s.writerStopTimeout
+	if timeout <= 0 {
+		timeout = defaultWriterStopTimeout
+	}
+	timer := time.NewTimer(timeout)
 	select {
 	case <-writerDone:
 		timer.Stop()
 	case <-timer.C:
-		acplog.Debug("sse stop writer timed out after %v for session %s; writer goroutine abandoned", defaultWriterStopTimeout, s.SessionID)
+		acplog.Debug("sse stop writer timed out after %v for session %s; writer goroutine remains tracked for shutdown", timeout, s.SessionID)
 	}
 }
 
@@ -385,14 +594,31 @@ func (s *Session) awaitWriterStop(writerDone <-chan struct{}) {
 // generation matches gen. This prevents a finishing GET request from clearing a
 // writeFn that was already replaced by a newer GET request.
 func (s *Session) UnbindStream(gen uint64) {
+	s.bindMu.Lock()
+	defer s.bindMu.Unlock()
+
 	s.mu.Lock()
-	var writerDone <-chan struct{}
+	var (
+		outbox     chan sessionOutboxEntry
+		writerDone <-chan struct{}
+		senders    *sync.WaitGroup
+	)
 	if s.streamGen == gen {
 		s.writeFn = nil
-		writerDone = s.detachWriterLocked()
+		outbox, writerDone, senders = s.detachWriterLocked()
 	}
 	s.mu.Unlock()
 	s.awaitWriterStop(writerDone)
+	if senders != nil {
+		senders.Wait()
+	}
+	if outbox != nil {
+		s.mu.Lock()
+		if !s.closed.Load() {
+			s.prependDetachedOutboxLocked(outbox)
+		}
+		s.mu.Unlock()
+	}
 }
 
 // Send sends a message to the client via the bound GET SSE stream's outbox.
@@ -431,6 +657,7 @@ func (s *Session) send(msg json.RawMessage, requireStream bool) error {
 		return ErrSessionClosed
 	}
 	outbox := s.outbox
+	senders := s.outboxSenders
 	if outbox == nil {
 		if requireStream {
 			s.mu.Unlock()
@@ -445,7 +672,7 @@ func (s *Session) send(msg json.RawMessage, requireStream bool) error {
 			s.closed.Store(true)
 			s.pending = nil
 			s.writeFn = nil
-			writerDone := s.detachWriterLocked() // nil when no writer is running
+			_, writerDone, _ := s.detachWriterLocked() // nil when no writer is running
 			if s.streamEvict != nil {
 				close(s.streamEvict)
 				s.streamEvict = nil
@@ -462,13 +689,15 @@ func (s *Session) send(msg json.RawMessage, requireStream bool) error {
 		s.mu.Unlock()
 		return nil
 	}
+	senders.Add(1)
 	s.mu.Unlock()
+	defer senders.Done()
 	// Stream bound — send to outbox with a timeout so a backed-up outbox
 	// (slow client) does not block the caller indefinitely.
 	timer := time.NewTimer(defaultOutboxSendTimeout)
 	defer timer.Stop()
 	select {
-	case outbox <- cloned:
+	case outbox <- sessionOutboxEntry{message: cloned}:
 		// Re-check s.done to close the ambiguity window: Go's select picks
 		// at random when multiple cases are ready, so a concurrent
 		// CloseSession that closed s.done could race with the send case.
@@ -488,19 +717,80 @@ func (s *Session) send(msg json.RawMessage, requireStream bool) error {
 	}
 }
 
-// CloseSession closes the session, unbinding any active stream.
+// CloseSession closes the session, draining messages already accepted by the
+// active writer before evicting its stream. New Send/Bind calls are rejected as
+// soon as close begins. The drain remains bounded by writerStopTimeout so a
+// wedged network writer cannot make terminal cleanup block forever.
 func (s *Session) CloseSession() {
 	s.closed.Store(true)
-	s.doneOnce.Do(func() { close(s.done) })
+	s.mu.Lock()
+	outbox := s.outbox
+	var writerDone <-chan struct{} = s.writerDone
+	senders := s.outboxSenders
+	s.mu.Unlock()
+
+	// A sender increments this generation's WaitGroup while holding s.mu,
+	// before close can publish the closed flag and snapshot the generation.
+	// Waiting here guarantees the terminal marker is ordered after every Send
+	// that can still return success.
+	if senders != nil {
+		senders.Wait()
+	}
+	s.drainWriter(outbox, writerDone)
+
 	s.mu.Lock()
 	s.writeFn = nil
-	writerDone := s.detachWriterLocked()
+	_, writerDone, _ = s.detachWriterLocked()
 	if s.streamEvict != nil {
 		close(s.streamEvict)
 		s.streamEvict = nil
 	}
+	s.pending = nil
 	s.mu.Unlock()
+	s.doneOnce.Do(func() { close(s.done) })
 	s.awaitWriterStop(writerDone)
+}
+
+// drainWriter places a terminal marker behind every accepted outbox payload
+// and waits for the writer to acknowledge it. It returns early if the writer
+// has already failed and uses the same bounded wait as listener handoff.
+func (s *Session) drainWriter(outbox chan sessionOutboxEntry, writerDone <-chan struct{}) {
+	if outbox == nil || writerDone == nil {
+		return
+	}
+	timeout := s.writerStopTimeout
+	if timeout <= 0 {
+		timeout = defaultWriterStopTimeout
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	drained := make(chan struct{})
+	select {
+	case outbox <- sessionOutboxEntry{drained: drained}:
+	case <-writerDone:
+		return
+	case <-timer.C:
+		acplog.Debug("sse terminal drain enqueue timed out after %v for session %s", timeout, s.SessionID)
+		return
+	}
+
+	select {
+	case <-drained:
+	case <-writerDone:
+	case <-timer.C:
+		acplog.Debug("sse terminal drain timed out after %v for session %s", timeout, s.SessionID)
+	}
+}
+
+// WaitWriters waits for every writer generation to actually exit, including
+// a detached writer that exceeded the bounded listener-handoff wait. It is
+// used only by connection shutdown so Close remains asynchronous while
+// Shutdown can truthfully report whether all SDK-owned work has converged.
+func (s *Session) WaitWriters() {
+	if s != nil {
+		s.writers.Wait()
+	}
 }
 
 // IsClosed reports whether the connection has been closed.
@@ -523,16 +813,42 @@ func (c *Connection) Touch() {
 // connection. Call EndRequest when the handler finishes. Notifications use
 // the same pair so the idle reaper does not evict a connection whose only
 // activity is a long-running notification handler.
-func (c *Connection) BeginRequest() {
-	c.activeHandlers.Add(1)
+func (c *Connection) BeginRequest() bool {
+	c.handlersMu.Lock()
+	if c.closed.Load() {
+		c.handlersMu.Unlock()
+		return false
+	}
+	if c.activeHandlers.Add(1) == 1 {
+		c.handlersDone = make(chan struct{})
+	}
+	c.handlersMu.Unlock()
 	c.Touch()
+	return true
 }
 
 // EndRequest decrements the active handler counter and touches the
 // connection.
 func (c *Connection) EndRequest() {
-	c.activeHandlers.Add(-1)
+	c.handlersMu.Lock()
+	if c.activeHandlers.Add(-1) == 0 && c.handlersDone != nil {
+		close(c.handlersDone)
+	}
+	c.handlersMu.Unlock()
 	c.Touch()
+}
+
+func (c *Connection) WaitHandlers() {
+	if c == nil {
+		return
+	}
+	c.handlersMu.Lock()
+	done := c.handlersDone
+	active := c.activeHandlers.Load()
+	c.handlersMu.Unlock()
+	if active > 0 && done != nil {
+		<-done
+	}
 }
 
 // IsIdle reports whether the connection has been idle for at least the given
@@ -558,6 +874,7 @@ func NewConnection() *Connection {
 	return &Connection{
 		CreatedAt: time.Now(),
 		sessions:  make(map[string]*Session),
+		closeDone: make(chan struct{}),
 	}
 }
 
@@ -565,22 +882,32 @@ func NewConnection() *Connection {
 // if needed. Returns nil if the connection has already been closed, so that
 // late-arriving requests cannot resurrect sessions in a closed connection.
 func (c *Connection) EnsureSession(sessionID string) *Session {
+	sess, _ := c.ensureSession(sessionID)
+	return sess
+}
+
+func (c *Connection) ensureSession(sessionID string) (*Session, bool) {
 	if sessionID == "" {
-		return nil
+		return nil, false
 	}
 	c.sessionsMu.Lock()
 	defer c.sessionsMu.Unlock()
 	if c.closed.Load() {
-		return nil
+		return nil, false
 	}
 	sess, ok := c.sessions[sessionID]
 	if ok {
-		return sess
+		return sess, false
 	}
-	sess = &Session{SessionID: sessionID, pendingQueueSize: c.PendingQueueSize, done: make(chan struct{})}
+	sess = &Session{
+		SessionID:        sessionID,
+		pendingQueueSize: c.PendingQueueSize,
+		done:             make(chan struct{}),
+		connection:       c,
+	}
 	sess.remove = func() { c.detachSession(sessionID, sess) }
 	c.sessions[sessionID] = sess
-	return sess
+	return sess, true
 }
 
 // detachSession removes a session from the connection map if the stored
@@ -605,7 +932,7 @@ func (c *Connection) LookupSession(sessionID string) (*Session, bool) {
 }
 
 // RemoveSession removes and closes a single session by ID.
-func (c *Connection) RemoveSession(sessionID string) {
+func (c *Connection) RemoveSession(sessionID string) bool {
 	c.sessionsMu.Lock()
 	sess, ok := c.sessions[sessionID]
 	if ok {
@@ -615,6 +942,7 @@ func (c *Connection) RemoveSession(sessionID string) {
 	if ok {
 		sess.CloseSession()
 	}
+	return ok
 }
 
 // SessionCount returns the number of active sessions.
@@ -628,23 +956,51 @@ func (c *Connection) SessionCount() int {
 // session references so pending message buffers can be garbage-collected.
 //
 // The sessions map is snapshotted and cleared under sessionsMu, then each
-// Session is closed after the lock has been released. CloseSession waits for
-// the per-session SSE writer goroutine to exit (up to defaultWriterStopTimeout
-// per session); holding sessionsMu across that wait would serialize every
-// session's teardown behind the slowest one and block concurrent
-// LookupSession/EnsureSession/RemoveSession/detachSession callers for the
-// duration of the close.
+// Session is closed after the lock has been released. CloseSession performs a
+// bounded handoff wait, then CloseConnection waits for all writer generations
+// to actually exit. Holding sessionsMu across either wait would block concurrent
+// LookupSession/EnsureSession/RemoveSession/detachSession callers.
 func CloseConnection(conn *Connection) {
 	conn.closeOnce.Do(func() {
+		defer close(conn.closeDone)
+		conn.handlersMu.Lock()
 		conn.closed.Store(true)
+		conn.handlersMu.Unlock()
 
 		conn.sessionsMu.Lock()
 		sessions := conn.sessions
 		conn.sessions = make(map[string]*Session)
 		conn.sessionsMu.Unlock()
+		conn.writersMu.Lock()
+		conn.writersClosed = true
+		conn.writersMu.Unlock()
 
 		for _, sess := range sessions {
 			sess.CloseSession()
 		}
+		conn.writers.Wait()
 	})
+}
+
+func (c *Connection) beginWriter() bool {
+	c.writersMu.Lock()
+	defer c.writersMu.Unlock()
+	if c.writersClosed {
+		return false
+	}
+	c.writers.Add(1)
+	return true
+}
+
+func (c *Connection) endWriter() {
+	c.writers.Done()
+}
+
+// WaitClosed blocks until CloseConnection has finished closing every session
+// and its SSE writer. A nil channel is tolerated for directly constructed test
+// connections that predate NewConnection.
+func (c *Connection) WaitClosed() {
+	if c != nil && c.closeDone != nil {
+		<-c.closeDone
+	}
 }

@@ -8,13 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hertz-contrib/websocket"
-
+	"github.com/eino-contrib/acp/internal/wsconn"
 	"github.com/eino-contrib/acp/internal/wsutil"
 	"github.com/eino-contrib/acp/transport"
 )
 
-// mockServerConn implements the full messageConn contract used by ServeConn.
+// mockServerConn implements the framework-neutral wsconn.Conn contract.
 type mockServerConn struct {
 	mu sync.Mutex
 
@@ -89,14 +88,14 @@ func (m *mockServerConn) ReadMessage() (int, []byte, error) {
 				timer.Stop()
 			}
 			if !ok {
-				return 0, nil, &websocket.CloseError{Code: websocket.CloseNormalClosure}
+				return 0, nil, &wsconn.CloseError{Code: wsconn.CloseNormalClosure}
 			}
 			// Simulate the library dispatching control frames through the
 			// installed PingHandler instead of returning them from
 			// ReadMessage. A handler that returns an error mimics
-			// hertz-contrib/websocket's behaviour of propagating the
+			// WebSocket library's behaviour of propagating the
 			// handler error out of ReadMessage.
-			if msg.messageType == websocket.PingMessage {
+			if msg.messageType == wsconn.PingMessage {
 				h := m.getPingHandler()
 				if h == nil {
 					continue
@@ -111,7 +110,7 @@ func (m *mockServerConn) ReadMessage() (int, []byte, error) {
 			if timer != nil {
 				timer.Stop()
 			}
-			return 0, nil, &websocket.CloseError{Code: websocket.CloseNormalClosure}
+			return 0, nil, &wsconn.CloseError{Code: wsconn.CloseNormalClosure}
 		case <-timerC:
 			return 0, nil, &netTimeoutError{}
 		}
@@ -174,7 +173,7 @@ func (m *mockServerConn) WriteControl(messageType int, data []byte, deadline tim
 		Data:        append([]byte(nil), data...),
 		Deadline:    deadline,
 	})
-	if messageType == websocket.PongMessage && m.pongWriteErr != nil {
+	if messageType == wsconn.PongMessage && m.pongWriteErr != nil {
 		return m.pongWriteErr
 	}
 	return nil
@@ -185,7 +184,7 @@ func (m *mockServerConn) enqueue(messageType int, data []byte) {
 }
 
 func (m *mockServerConn) enqueueText(data string) {
-	m.enqueue(websocket.TextMessage, []byte(data))
+	m.enqueue(wsconn.TextMessage, []byte(data))
 }
 
 func (m *mockServerConn) getReadDeadlines() []time.Time {
@@ -233,7 +232,7 @@ func TestInitializeTimeout(t *testing.T) {
 	controls := conn.getControlWrites()
 	found := false
 	for _, cw := range controls {
-		if cw.MessageType == websocket.CloseMessage {
+		if cw.MessageType == wsconn.CloseMessage {
 			found = true
 			if len(cw.Data) < 2 {
 				t.Fatal("close frame payload too short to contain close code")
@@ -340,7 +339,7 @@ func TestPingHandlerBeforeInit_OnlyEchoesPong(t *testing.T) {
 	if len(controls) == 0 {
 		t.Fatal("expected Pong to be written")
 	}
-	if controls[0].MessageType != websocket.PongMessage {
+	if controls[0].MessageType != wsconn.PongMessage {
 		t.Fatalf("expected PongMessage, got %d", controls[0].MessageType)
 	}
 	if string(controls[0].Data) != "hello" {
@@ -392,7 +391,7 @@ func TestPingHandlerAfterInit_RefreshesDeadline(t *testing.T) {
 	controls := conn.getControlWrites()
 	foundPong := false
 	for _, cw := range controls {
-		if cw.MessageType == websocket.PongMessage {
+		if cw.MessageType == wsconn.PongMessage {
 			foundPong = true
 			break
 		}
@@ -516,7 +515,7 @@ func TestPingHandlerWriteControlUsesControlWriteDeadline(t *testing.T) {
 	}
 
 	pongWrite := controls[len(controls)-1]
-	if pongWrite.MessageType != websocket.PongMessage {
+	if pongWrite.MessageType != wsconn.PongMessage {
 		t.Fatalf("expected PongMessage, got %d", pongWrite.MessageType)
 	}
 
@@ -560,14 +559,14 @@ func TestReadTimeoutAfterInit_ClosesWithGoingAway(t *testing.T) {
 	controls := conn.getControlWrites()
 	found := false
 	for _, cw := range controls {
-		if cw.MessageType == websocket.CloseMessage {
+		if cw.MessageType == wsconn.CloseMessage {
 			found = true
 			if len(cw.Data) < 2 {
 				t.Fatal("close frame payload too short to contain close code")
 			}
 			code := int(cw.Data[0])<<8 | int(cw.Data[1])
-			if code != websocket.CloseGoingAway {
-				t.Fatalf("expected close code %d (GoingAway), got %d", websocket.CloseGoingAway, code)
+			if code != wsconn.CloseGoingAway {
+				t.Fatalf("expected close code %d (GoingAway), got %d", wsconn.CloseGoingAway, code)
 			}
 			break
 		}
@@ -577,14 +576,14 @@ func TestReadTimeoutAfterInit_ClosesWithGoingAway(t *testing.T) {
 	}
 }
 
-// Verify mockServerConn satisfies the full messageConn contract.
+// Verify mockServerConn satisfies the framework-neutral connection contract.
 var (
-	_ messageConn = (*mockServerConn)(nil)
+	_ wsconn.Conn = (*mockServerConn)(nil)
 )
 
 // fakeWriteTimeout simulates a real socket-write deadline expiry: a
 // net.Error with Timeout()==true whose message is NOT
-// hertz-contrib/websocket's lock-wait sentinel. This is the case where
+// the supported WebSocket libraries' lock-wait sentinel. This is the case where
 // IsControlWriteContention must return false and the failure must reach
 // OnWriteFailed / WrapWriteFailed.
 type fakeWriteTimeout struct{}
@@ -629,7 +628,7 @@ func TestPongWriteFailureNotMisclassifiedAsReadTimeout(t *testing.T) {
 	// installed PingHandler, whose pong WriteControl returns
 	// fakeWriteTimeout, which the responder wraps with errPongWriteFailed
 	// and propagates out of ReadMessage.
-	conn.enqueue(websocket.PingMessage, []byte("p"))
+	conn.enqueue(wsconn.PingMessage, []byte("p"))
 
 	// Wait for ServeConn to return.
 	deadline := time.Now().Add(500 * time.Millisecond)
@@ -645,7 +644,7 @@ func TestPongWriteFailureNotMisclassifiedAsReadTimeout(t *testing.T) {
 	// circuit and closeWS must observe closeSent==true (set by
 	// OnWriteFailed) and skip the NormalClosure write.
 	for _, cw := range conn.getControlWrites() {
-		if cw.MessageType == websocket.CloseMessage {
+		if cw.MessageType == wsconn.CloseMessage {
 			code := -1
 			if len(cw.Data) >= 2 {
 				code = int(cw.Data[0])<<8 | int(cw.Data[1])

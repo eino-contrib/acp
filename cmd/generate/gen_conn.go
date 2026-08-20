@@ -65,12 +65,13 @@ func (g *Generator) renderAgentOutbound(pkg string, clientMethods []MethodInfo) 
 	return formatSource(buf.String())
 }
 
-// sessionCreatingMethods lists wire methods whose client outbound
+// sessionListenerWireMethods lists wire methods whose client outbound
 // implementation needs to start a session listener after the RPC call
 // succeeds (for Streamable HTTP transports).
-var sessionCreatingWireMethods = map[string]bool{
-	"session/new":  true,
-	"session/load": true,
+var sessionListenerWireMethods = map[string]bool{
+	"session/new":    true,
+	"session/load":   true,
+	"session/resume": true,
 }
 
 // sessionIDExpr returns the Go expression to extract the session ID for a
@@ -90,9 +91,9 @@ func (g *Generator) sessionIDExpr(m MethodInfo) string {
 // renderClientOutbound generates outbound methods on ClientConnection.
 // The client sends to the agent, so it uses Agent-side method constants and types.
 //
-// Session-creating methods (session/new, session/load) get extra logic to
-// automatically start a GET SSE listener for the new session on Streamable
-// HTTP transports.
+// Session-establishing methods (new/load/resume) get extra logic to
+// automatically start a GET SSE listener for the resulting session on
+// Streamable HTTP transports.
 func (g *Generator) renderClientOutbound(pkg string, agentMethods []MethodInfo) ([]byte, error) {
 	var buf strings.Builder
 
@@ -114,17 +115,16 @@ func (g *Generator) renderClientOutbound(pkg string, agentMethods []MethodInfo) 
 				m.GoName, m.ReqType)
 			fmt.Fprintf(&buf, "\treturn c.conn.SendNotification(ctx, %s, params)\n", constName)
 			buf.WriteString("}\n\n")
-		} else if sessionCreatingWireMethods[m.WireMethod] {
-			// Session-creating request: after the RPC succeeds, delegate
+		} else if sessionListenerWireMethods[m.WireMethod] {
+			// Session-establishing request: after the RPC succeeds, delegate
 			// session-listener startup to ClientConnection.startSessionListener.
-			// The session ID source depends on the method:
-			//   session/new  → resp.SessionID  (allocated by the agent)
-			//   session/load → params.SessionID (provided by the client)
+			// session/new gets its ID from the response; load/resume get it from
+			// the request.
 			sessionIDExpr := g.sessionIDExpr(m)
 
 			fmt.Fprintf(&buf, "// %s sends a %s request to the agent. When the underlying\n", m.GoName, m.WireMethod)
 			fmt.Fprintf(&buf, "// transport supports session listeners (e.g. Streamable HTTP), the\n")
-			fmt.Fprintf(&buf, "// ClientConnection automatically opens a GET SSE listener for the new\n")
+			fmt.Fprintf(&buf, "// ClientConnection automatically opens a GET SSE listener for the resulting\n")
 			fmt.Fprintf(&buf, "// session so that server-initiated messages are received without extra\n")
 			fmt.Fprintf(&buf, "// caller effort.\n")
 			fmt.Fprintf(&buf, "//\n")
@@ -140,6 +140,11 @@ func (g *Generator) renderClientOutbound(pkg string, agentMethods []MethodInfo) 
 			buf.WriteString("\t}\n")
 			fmt.Fprintf(&buf, "\tc.startSessionListener(ctx, string(%s))\n", sessionIDExpr)
 			buf.WriteString("\treturn resp, nil\n")
+			buf.WriteString("}\n\n")
+		} else if m.WireMethod == "session/close" {
+			fmt.Fprintf(&buf, "func (c *ClientConnection) %s(ctx context.Context, params acp.%s) (acp.%s, error) {\n",
+				m.GoName, m.ReqType, m.RespType)
+			buf.WriteString("\treturn c.closeSession(ctx, params)\n")
 			buf.WriteString("}\n\n")
 		} else {
 			fmt.Fprintf(&buf, "func (c *ClientConnection) %s(ctx context.Context, params acp.%s) (acp.%s, error) {\n",

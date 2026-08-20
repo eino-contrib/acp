@@ -383,6 +383,41 @@ func TestGenerateMethodMetadataIncludesSessionFlags(t *testing.T) {
 	}
 }
 
+func TestGenerateClientOutboundSessionLifecycleHooks(t *testing.T) {
+	schema, err := LoadSchema(testFixturePath("schema.unstable.json"))
+	if err != nil {
+		t.Fatalf("load schema: %v", err)
+	}
+	meta, err := LoadMeta(testFixturePath("meta.unstable.json"))
+	if err != nil {
+		t.Fatalf("load meta: %v", err)
+	}
+
+	gen := NewGenerator(schema, meta)
+	_, clientOutbound, _, err := gen.GenerateConnFiles("conn")
+	if err != nil {
+		t.Fatalf("generate conn files: %v", err)
+	}
+	text := string(clientOutbound)
+	for _, expected := range []string{
+		"func (c *ClientConnection) CloseSession",
+		"func (c *ClientConnection) DeleteSession",
+		"return c.closeSession(ctx, params)",
+		"return jsonrpc.SendRequestTyped[acp.DeleteSessionResponse]",
+		"func (c *ClientConnection) ResumeSession",
+		"c.startSessionListener(ctx, string(params.SessionID))",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("missing generated session-termination fragment: %s", expected)
+		}
+	}
+	if strings.Contains(text, "func (c *ClientConnection) UnstableForkSession"+
+		"(ctx context.Context, params acp.ForkSessionRequest) (acp.ForkSessionResponse, error) {\n"+
+		"\tresp, err :=") {
+		t.Fatal("unstable session/fork unexpectedly gained automatic listener lifecycle handling")
+	}
+}
+
 func TestGenerateUnstableMethodMetadataKeepsSharedWireMethods(t *testing.T) {
 	schema, err := LoadSchema(testFixturePath("schema.unstable.json"))
 	if err != nil {

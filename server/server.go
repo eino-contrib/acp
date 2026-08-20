@@ -2,17 +2,16 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sync"
 	"time"
 
-	"github.com/cloudwego/hertz/pkg/route"
-	"github.com/hertz-contrib/websocket"
-
 	acp "github.com/eino-contrib/acp"
 	acpconn "github.com/eino-contrib/acp/conn"
-	"github.com/eino-contrib/acp/internal/endpoint"
 	acphttpserver "github.com/eino-contrib/acp/internal/httpserver"
 	"github.com/eino-contrib/acp/internal/wsutil"
 	acptransport "github.com/eino-contrib/acp/transport"
@@ -47,27 +46,55 @@ type ConnectionAwareAgent interface {
 	SetClientConnection(*acpconn.AgentConnection)
 }
 
+// HTTPContext is the framework-neutral HTTP/SSE request contract consumed by
+// ServeHTTP. Framework adapters implement it over their native request and
+// response objects; application code normally does not need to implement it.
+type HTTPContext interface {
+	Context() context.Context
+	RequestHeader(key string) string
+	RequestBody() ([]byte, error)
+	// RequestBodyLimited must stop reading after maxBytes+1 bytes and return
+	// ErrRequestBodyTooLarge when the body exceeds maxBytes.
+	RequestBodyLimited(maxBytes int64) ([]byte, error)
+	SetResponseHeader(key, value string)
+	WriteError(code int, msg string)
+	SetStatusCode(code int)
+	Flush()
+	Done() <-chan struct{}
+	WriteSSEEvent(msg json.RawMessage) error
+	WriteSSEKeepAlive() error
+	CloseSSE()
+}
+
+// WebSocketConn is the framework-neutral, already-upgraded WebSocket contract
+// accepted by WebSocketAdmission. The built-in Hertz and Gin adapters provide
+// implementations; custom adapters may implement the same method set.
+type WebSocketConn interface {
+	ReadMessage() (messageType int, payload []byte, err error)
+	WriteMessage(messageType int, payload []byte) error
+	WriteControl(messageType int, payload []byte, deadline time.Time) error
+	SetReadLimit(limit int64)
+	SetReadDeadline(deadline time.Time) error
+	SetWriteDeadline(deadline time.Time) error
+	SetPingHandler(handler func(appData string) error)
+	Close() error
+}
+
 // Option configures an ACPServer.
 type Option func(*ACPServer)
 
-// WithEndpoint overrides the HTTP endpoint. The default is /acp. The path is
-// normalized (leading '/' ensured, trailing '/' stripped) so callers cannot
-// pick up silent routing mismatches from "looks-right but 404" inputs.
-func WithEndpoint(endpointPath string) Option {
-	return func(s *ACPServer) {
-		if endpointPath != "" {
-			s.endpoint = endpoint.NormalizePath(endpointPath)
-		}
-	}
-}
+// ErrServerClosed is returned when a new connection is attempted after the
+// server has begun shutting down.
+var ErrServerClosed = errors.New("acp: server is closed")
 
-// WithWebSocketUpgrader overrides the WebSocket upgrader.
-// The default is a zero-value websocket.HertzUpgrader.
-func WithWebSocketUpgrader(upgrader websocket.HertzUpgrader) Option {
-	return func(s *ACPServer) {
-		s.upgrader = upgrader
-	}
-}
+// ErrRequestBodyTooLarge is returned by HTTPContext.RequestBodyLimited when a
+// request body exceeds the maximum size passed by ACPServer.
+var ErrRequestBodyTooLarge = acphttpserver.ErrRequestBodyTooLarge
+
+// DefaultEndpoint is the conventional route on which an adapter may be
+// registered. The route itself is owned by the host router; ACPServer does
+// not store or mount an endpoint.
+const DefaultEndpoint = acptransport.DefaultACPEndpointPath
 
 // WithRequestTimeout sets the maximum duration for a single Streamable HTTP
 // POST request to wait for its final response. Zero disables the timeout.
@@ -168,8 +195,6 @@ func WithWebSocketInitializeTimeout(d time.Duration) Option {
 // requests/notifications unambiguous.
 type ACPServer struct {
 	factory                  AgentFactory
-	endpoint                 string
-	upgrader                 websocket.HertzUpgrader
 	requestTimeout           time.Duration
 	connectionIdleTimeout    time.Duration
 	pendingQueueSize         int
@@ -183,12 +208,16 @@ type ACPServer struct {
 	done       chan struct{}
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
-	once       sync.Once
 
-	// wsConns tracks active WebSocket connections so Close() can shut them
-	// down. HTTP connections are tracked separately in connTable.
-	wsConnsMu sync.Mutex
-	wsConns   map[string]*wsConn
+	// lifecycleMu is the admission boundary shared by Close, HTTP connection
+	// registration, and WebSocket registration. Once closing flips to true,
+	// no connection can be added to either registry.
+	lifecycleMu  sync.Mutex
+	closing      bool
+	wsAdmissions map[*WebSocketAdmission]struct{}
+	active       sync.WaitGroup
+	closeOnce    sync.Once
+	drained      chan struct{}
 }
 
 // NewACPServer builds a remote ACP server without mounting it.
@@ -197,7 +226,8 @@ type ACPServer struct {
 // ConnectionAwareAgent, the server injects the per-connection
 // AgentConnection automatically so the agent can make reverse calls.
 //
-// Call Mount or HertzHandler to attach it to a Hertz router.
+// Use server/hertz or server/gin to create a framework-native handler, then
+// register that handler on a route owned by the host application.
 func NewACPServer(factory AgentFactory, opts ...Option) (*ACPServer, error) {
 	if factory == nil {
 		return nil, fmt.Errorf("acp: agent factory must not be nil")
@@ -206,29 +236,86 @@ func NewACPServer(factory AgentFactory, opts ...Option) (*ACPServer, error) {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	s := &ACPServer{
 		factory:               factory,
-		endpoint:              acptransport.DefaultACPEndpointPath,
 		requestTimeout:        defaultRequestTimeout,
 		connectionIdleTimeout: defaultConnectionIdleTimeout,
 		wsInitializeTimeout:   defaultWSInitializeTimeout,
 		done:                  make(chan struct{}),
+		drained:               make(chan struct{}),
 		rootCtx:               rootCtx,
 		rootCancel:            rootCancel,
-		upgrader:              websocket.HertzUpgrader{},
+		wsAdmissions:          make(map[*WebSocketAdmission]struct{}),
 	}
 	for _, opt := range opts {
-		opt(s)
+		if opt != nil {
+			opt(s)
+		}
 	}
 	s.conns = newConnTable(s.connectionIdleTimeout)
-	s.wsConns = make(map[string]*wsConn)
 	return s, nil
 }
 
-// Mount registers the remote ACP endpoint on the given Hertz router.
-func (s *ACPServer) Mount(router route.IRoutes) {
-	if router == nil {
+// createAgent invokes user code behind a panic boundary. A factory panic is a
+// connection-local setup failure: HTTP callers receive the existing generic
+// 5xx response and an already-upgraded WebSocket receives a generic 1011.
+// The recovered value is retained in the internal error for diagnostics but
+// is never written to the peer.
+func (s *ACPServer) createAgent(ctx context.Context) (agent acp.Agent, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			agent = nil
+			err = fmt.Errorf("agent factory panic: %v", recovered)
+		}
+	}()
+	agent = s.factory(ctx)
+	if isNilAgent(agent) {
+		return nil, fmt.Errorf("agent factory returned nil")
+	}
+	return agent, nil
+}
+
+// setClientConnection invokes the optional connection hook behind the same
+// connection-setup panic boundary as AgentFactory. Implementations are user
+// code, so a panic must fail only this connection rather than escape through
+// the HTTP or WebSocket serving stack.
+func setClientConnection(agent acp.Agent, conn *acpconn.AgentConnection) (err error) {
+	aware, ok := agent.(ConnectionAwareAgent)
+	if !ok {
+		return nil
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("set client connection panic: %v", recovered)
+		}
+	}()
+	aware.SetClientConnection(conn)
+	return nil
+}
+
+func isNilAgent(agent acp.Agent) bool {
+	if agent == nil {
+		return true
+	}
+	value := reflect.ValueOf(agent)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
+// ServeHTTP dispatches one Streamable HTTP request through the shared ACP
+// protocol implementation. This is an adapter-facing SPI; framework adapters
+// construct the internal HTTP context and pass the native request method.
+func (s *ACPServer) ServeHTTP(ctx HTTPContext, method string) {
+	if s == nil || ctx == nil {
 		return
 	}
-	router.Any(s.endpoint, s.Handler())
+	if s.IsClosing() {
+		ctx.WriteError(http.StatusServiceUnavailable, "ACP server is shutting down")
+		return
+	}
+	acphttpserver.ServeHTTPProtocol(ctx, s.protocolServer(), method)
 }
 
 // protocolServer builds the strategy object consumed by internal/httpserver
@@ -238,6 +325,9 @@ func (s *ACPServer) protocolServer() acphttpserver.ProtocolServer {
 		CreateConnection: func(ctx context.Context) (*acphttpserver.ProtocolConnection, int, error) {
 			conn, err := s.newHTTPConnection(ctx)
 			if err != nil {
+				if errors.Is(err, ErrServerClosed) {
+					return nil, http.StatusServiceUnavailable, err
+				}
 				return nil, http.StatusInternalServerError, err
 			}
 			return conn.ProtocolConnection(), 0, nil
@@ -259,43 +349,84 @@ func (s *ACPServer) protocolServer() acphttpserver.ProtocolServer {
 	}
 }
 
-// Close terminates every active remote connection.
+// beginAdmission reserves one lifecycle slot. The returned release function
+// is idempotent so setup failure and connection Close paths may safely race.
+func (s *ACPServer) beginAdmission() (func(), error) {
+	if s == nil {
+		return nil, ErrServerClosed
+	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if s.closing {
+		return nil, ErrServerClosed
+	}
+	s.active.Add(1)
+	var once sync.Once
+	return func() { once.Do(s.active.Done) }, nil
+}
+
+// IsClosing reports whether Close or Shutdown has started. Adapters normally
+// use WebSocket admission rather than checking this value themselves.
+func (s *ACPServer) IsClosing() bool {
+	if s == nil {
+		return true
+	}
+	s.lifecycleMu.Lock()
+	closing := s.closing
+	s.lifecycleMu.Unlock()
+	return closing
+}
+
+// Close atomically stops admission, cancels connection contexts, and starts
+// resource cleanup. It is idempotent and intentionally does not wait for
+// connection handlers or user factories to return; use Shutdown to wait.
 func (s *ACPServer) Close() error {
-	s.once.Do(func() {
+	if s == nil {
+		return nil
+	}
+	s.closeOnce.Do(func() {
+		s.lifecycleMu.Lock()
+		s.closing = true
 		if s.rootCancel != nil {
 			s.rootCancel()
 		}
 		close(s.done)
-		s.conns.close()
-		s.closeAllWSConns()
+		wsAdmissions := make([]*WebSocketAdmission, 0, len(s.wsAdmissions))
+		for admission := range s.wsAdmissions {
+			wsAdmissions = append(wsAdmissions, admission)
+		}
+		s.lifecycleMu.Unlock()
+
+		go func() {
+			s.conns.close()
+			for _, admission := range wsAdmissions {
+				admission.closeFromServer()
+			}
+			s.active.Wait()
+			close(s.drained)
+		}()
 	})
 	return nil
 }
 
-// trackWSConn registers a WebSocket connection for lifecycle management.
-func (s *ACPServer) trackWSConn(wc *wsConn) {
-	s.wsConnsMu.Lock()
-	s.wsConns[wc.id] = wc
-	s.wsConnsMu.Unlock()
+// Shutdown starts Close and waits until all admitted HTTP and WebSocket
+// connections have released their lifecycle slots, or ctx expires.
+func (s *ACPServer) Shutdown(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_ = s.Close()
+	select {
+	case <-s.drained:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
-// untrackWSConn removes a WebSocket connection from tracking.
-func (s *ACPServer) untrackWSConn(id string) {
-	s.wsConnsMu.Lock()
-	delete(s.wsConns, id)
-	s.wsConnsMu.Unlock()
-}
-
-// closeAllWSConns closes every tracked WebSocket connection.
-func (s *ACPServer) closeAllWSConns() {
-	s.wsConnsMu.Lock()
-	conns := make([]*wsConn, 0, len(s.wsConns))
-	for id, wc := range s.wsConns {
-		conns = append(conns, wc)
-		delete(s.wsConns, id)
-	}
-	s.wsConnsMu.Unlock()
-	for _, wc := range conns {
-		wc.Close()
-	}
+func (s *ACPServer) releaseWSAdmission(admission *WebSocketAdmission) {
+	s.lifecycleMu.Lock()
+	delete(s.wsAdmissions, admission)
+	s.lifecycleMu.Unlock()
+	s.active.Done()
 }

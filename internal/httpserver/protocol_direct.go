@@ -97,7 +97,10 @@ func handleDirectRequestPost(ctx HandlerContext, server ProtocolServer, conn *Pr
 	// would let the idle reaper reclaim the connection while a background
 	// handler holds references to it (Session.Send, sseWriter, …), producing
 	// use-after-close failures on long-lived connections.
-	conn.httpConn.BeginRequest()
+	if !conn.httpConn.BeginRequest() {
+		ctx.WriteError(http.StatusNotFound, "unknown connection")
+		return outcome
+	}
 
 	// Set up SSE response headers.
 	ctx.SetResponseHeader(acptransport.HeaderConnectionID, conn.ConnectionID())
@@ -107,7 +110,7 @@ func handleDirectRequestPost(ctx HandlerContext, server ProtocolServer, conn *Pr
 	if sessionID != "" {
 		ctx.SetResponseHeader(acptransport.HeaderSessionID, sessionID)
 	}
-	ctx.SetResponseHeader("Content-Type", "text/event-stream")
+	ctx.SetResponseHeader("Content-Type", "text/event-stream; charset=utf-8")
 	ctx.SetResponseHeader("Cache-Control", "no-cache")
 	ctx.SetResponseHeader("Connection", "keep-alive")
 	ctx.SetStatusCode(http.StatusOK)
@@ -135,9 +138,9 @@ func handleDirectRequestPost(ctx HandlerContext, server ProtocolServer, conn *Pr
 	// Monitor connection/request close.
 	safe.CancelOnDone(cancel, reqCtx.Done(), ctx.Done(), conn.Done())
 
-	// Pre-register the session only for session/load, where the client
+	// Pre-register the session for session/load and session/resume, where the client
 	// provides the session ID and handler callbacks (notifications, reverse
-	// requests) during load must route to that session entry.
+	// requests) during setup must route to that session entry.
 	//
 	// We intentionally do NOT EnsureSession for:
 	//   - session/new: the authoritative sessionId is returned by the
@@ -146,8 +149,16 @@ func handleDirectRequestPost(ctx HandlerContext, server ProtocolServer, conn *Pr
 	//   - other session-scoped methods: the session must already exist from
 	//     a prior session/new or session/load. Creating one here would let
 	//     any client spawn ghost sessions that bypass the normal lifecycle.
-	if sessionID != "" && msg.Method == acp.MethodAgentLoadSession {
-		conn.EnsureSession(sessionID)
+	provisionalResumeSession := false
+	if sessionID != "" {
+		switch msg.Method {
+		case acp.MethodAgentLoadSession:
+			// Preserve the established load behavior: the handler may replay
+			// session/update notifications before returning its response.
+			conn.EnsureSession(sessionID)
+		case acp.MethodAgentResumeSession:
+			provisionalResumeSession = conn.EnsureSession(sessionID)
+		}
 	}
 
 	// Dispatch the handler in a separate goroutine so that a configured
@@ -199,6 +210,9 @@ func handleDirectRequestPost(ctx HandlerContext, server ProtocolServer, conn *Pr
 	}
 
 	if aborted {
+		if provisionalResumeSession {
+			conn.RemoveSession(sessionID)
+		}
 		return outcome
 	}
 
@@ -207,16 +221,6 @@ func handleDirectRequestPost(ctx HandlerContext, server ProtocolServer, conn *Pr
 		outcome.rpcErr = jsonrpc.ToResponseError(handlerErr)
 		if jsonrpc.IsHiddenInternalError(outcome.rpcErr) {
 			acplog.CtxError(reqCtx, "direct dispatch handler error on method %q: %v", msg.Method, handlerErr)
-		}
-	}
-
-	// For session-creating methods where the session ID was not known before
-	// dispatch (e.g. agent/newSession generates the ID), register the session
-	// from the result so that a subsequent GET SSE listener from the client
-	// finds it already present.
-	if outcome.rpcErr == nil && sessionID == "" && acp.IsSessionCreatingMethod(msg.Method) {
-		if sid := extractSessionIDFromResult(result); sid != "" {
-			conn.EnsureSession(sid)
 		}
 	}
 
@@ -230,6 +234,28 @@ func handleDirectRequestPost(ctx HandlerContext, server ProtocolServer, conn *Pr
 	if writeErr := sseWriter.WriteResponse(msg.ID, result, outcome.rpcErr); writeErr != nil {
 		outcome.writeErr = writeErr
 		acplog.CtxError(reqCtx, "failed to write direct dispatch response: %v", writeErr)
+	}
+
+	// session/new obtains its authoritative ID from the response. load is
+	// registered before dispatch so replay notifications can be routed. resume
+	// likewise uses the request ID, but rolls back a newly-created transport
+	// entry if dispatch or response delivery fails.
+	if outcome.rpcErr == nil && outcome.writeErr == nil && sessionID == "" && acp.IsSessionCreatingMethod(msg.Method) {
+		if sid := extractSessionIDFromResult(result); sid != "" {
+			conn.EnsureSession(sid)
+		}
+	} else if (outcome.rpcErr != nil || outcome.writeErr != nil) && provisionalResumeSession {
+		conn.RemoveSession(sessionID)
+	}
+
+	// A successful session/close ends the transport session as well as the
+	// Agent's active business session. Remove it after flushing the POST response
+	// so a blocked GET SSE writer cannot delay that response; removal immediately
+	// makes the session unroutable and evicts its listener. session/delete is
+	// intentionally excluded: ACP defines deletion as removal from session/list,
+	// and an Agent may keep a deleted session active.
+	if outcome.rpcErr == nil && sessionID != "" && msg.Method == acp.MethodAgentCloseSession {
+		conn.RemoveSession(sessionID)
 	}
 
 	return outcome
@@ -257,7 +283,10 @@ func handleDirectNotification(ctx HandlerContext, conn *ProtocolConnection, msg 
 	// Bracket the notification handler with Begin/End so the idle reaper
 	// does not evict the connection while a long-running notification is
 	// still processing. This mirrors the request path.
-	conn.httpConn.BeginRequest()
+	if !conn.httpConn.BeginRequest() {
+		ctx.WriteError(http.StatusNotFound, "unknown connection")
+		return
+	}
 	defer conn.httpConn.EndRequest()
 
 	// Dispatch to agent notification handler.

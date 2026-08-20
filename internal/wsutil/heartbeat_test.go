@@ -6,17 +6,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hertz-contrib/websocket"
+	"github.com/eino-contrib/acp/internal/wsconn"
 )
 
-// hertzWriteLockTimeoutErr is the local stand-in for the hertz-contrib
-// write-lock sentinel. Identical to the version in deadline_test.go's
-// fakeNetError but kept inline so this test is self-contained.
-type hertzWriteLockTimeoutErr struct{}
+// websocketWriteLockTimeoutErr is a local stand-in for the unexported
+// Gorilla-family write-lock sentinel. It is kept inline so this test remains
+// self-contained.
+type websocketWriteLockTimeoutErr struct{}
 
-func (hertzWriteLockTimeoutErr) Error() string   { return "websocket: write timeout" }
-func (hertzWriteLockTimeoutErr) Timeout() bool   { return true }
-func (hertzWriteLockTimeoutErr) Temporary() bool { return true }
+func (websocketWriteLockTimeoutErr) Error() string   { return "websocket: write timeout" }
+func (websocketWriteLockTimeoutErr) Timeout() bool   { return true }
+func (websocketWriteLockTimeoutErr) Temporary() bool { return true }
 
 // TestPongResponderContentionKeepsConnectionAlive verifies the connection-
 // survival contract for Pong write-lock contention documented in
@@ -37,10 +37,10 @@ func TestPongResponderContentionKeepsConnectionAlive(t *testing.T) {
 
 	r := PongResponder{
 		WriteControl: func(messageType int, data []byte, deadline time.Time) error {
-			if messageType != websocket.PongMessage {
+			if messageType != wsconn.PongMessage {
 				t.Fatalf("expected PongMessage, got %d", messageType)
 			}
-			return hertzWriteLockTimeoutErr{}
+			return websocketWriteLockTimeoutErr{}
 		},
 		SetReadDeadline: func(time.Time) error {
 			setDeadlineCount.Add(1)
@@ -129,7 +129,7 @@ func TestPongResponderContentionDoesNotRefreshWhenDisabled(t *testing.T) {
 			)
 			r := PongResponder{
 				WriteControl: func(int, []byte, time.Time) error {
-					return hertzWriteLockTimeoutErr{}
+					return websocketWriteLockTimeoutErr{}
 				},
 				SetReadDeadline: func(time.Time) error {
 					setDeadlineCount.Add(1)

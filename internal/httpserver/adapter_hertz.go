@@ -44,6 +44,31 @@ func (h *hertzContext) RequestBody() ([]byte, error) {
 	return body, nil
 }
 
+// RequestBodyLimited reads at most maxBytes+1 bytes when Hertz exposes the
+// request as a stream. Buffered requests are still copied so callers never
+// retain Hertz-owned request memory. A non-positive limit means unlimited.
+func (h *hertzContext) RequestBodyLimited(maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		return h.RequestBody()
+	}
+	if h.c.Request.IsBodyStream() {
+		// Do not call Request.CloseBodyStream here. Hertz owns its inbound
+		// bodyStream and, after the handler returns, ReleaseBodyStream drains
+		// any unread bytes before the connection is reused. Clearing the stream
+		// here after reading maxBytes+1 would prevent that drain and leave the
+		// remaining chunk framing to be parsed as the next HTTP request.
+		return readBodyLimited(h.c.Request.BodyStream(), maxBytes)
+	}
+
+	bodyBytes := h.c.Request.BodyBytes()
+	if int64(len(bodyBytes)) > maxBytes {
+		return nil, ErrRequestBodyTooLarge
+	}
+	body := make([]byte, len(bodyBytes))
+	copy(body, bodyBytes)
+	return body, nil
+}
+
 func (h *hertzContext) SetResponseHeader(key, value string) {
 	h.c.Response.Header.Set(key, value)
 }
@@ -57,6 +82,13 @@ func (h *hertzContext) SetStatusCode(code int) {
 }
 
 func (h *hertzContext) Flush() {
+	// Hertz's SSE Writer flushes each event/comment while holding its own
+	// write mutex. Once the writer exists, a second raw RequestContext.Flush
+	// is redundant and can race Writer.Close during session/close. Keep this
+	// method active before SSE setup so response headers still flush promptly.
+	if h.writer != nil {
+		return
+	}
 	if err := h.c.Flush(); err != nil {
 		acplog.CtxDebug(h.Context(), "flush hertz response: %v", err)
 	}
@@ -89,12 +121,12 @@ func (h *hertzContext) CloseSSE() {
 		if err := h.writer.Close(); err != nil {
 			acplog.CtxDebug(h.Context(), "close hertz sse writer: %v", err)
 		}
-		h.writer = nil
 	}
 }
 
 // WriteHertzText writes a plain text HTTP response on a Hertz request context.
 func WriteHertzText(c *app.RequestContext, status int, body string) {
+	c.Response.Header.SetContentType("text/plain; charset=utf-8")
 	c.SetStatusCode(status)
 	c.SetBodyString(body)
 }

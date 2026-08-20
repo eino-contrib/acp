@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hertz-contrib/websocket"
 
 	"github.com/eino-contrib/acp/internal/connspi"
 	"github.com/eino-contrib/acp/internal/log"
 	"github.com/eino-contrib/acp/internal/safe"
+	"github.com/eino-contrib/acp/internal/wsconn"
 	"github.com/eino-contrib/acp/internal/wsutil"
 	"github.com/eino-contrib/acp/transport"
 )
@@ -77,22 +77,6 @@ type activeServerConnection struct {
 	once   sync.Once
 }
 
-// messageConn is the full set of *websocket.Conn methods the server transport
-// depends on. Keeping it as one interface (rather than a base interface plus a
-// handful of optional ones probed via type assertion at runtime) lets the
-// production *websocket.Conn and test fakes satisfy a single explicit contract,
-// and removes per-frame assertions from the hot read path.
-type messageConn interface {
-	ReadMessage() (int, []byte, error)
-	WriteMessage(int, []byte) error
-	Close() error
-	SetReadLimit(int64)
-	SetWriteDeadline(time.Time) error
-	SetReadDeadline(time.Time) error
-	SetPingHandler(h func(appData string) error)
-	WriteControl(messageType int, data []byte, deadline time.Time) error
-}
-
 var _ transport.Transport = (*Transport)(nil)
 
 // New creates a new WebSocket server transport.
@@ -117,7 +101,7 @@ func New(opts ...Option) *Transport {
 // A Transport serves at most one connection in its lifetime: repeated
 // ServeConn calls (concurrent or sequential) log an error and return
 // immediately. Callers must construct a fresh Transport per upgrade.
-func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
+func (t *Transport) ServeConn(ctx context.Context, ws wsconn.Conn) {
 	if !t.serving.CompareAndSwap(false, true) {
 		log.CtxError(ctx, "ws-server: ServeConn called more than once on the same Transport; construct a fresh Transport per upgrade")
 		return
@@ -155,7 +139,7 @@ func (t *Transport) ServeConn(ctx context.Context, ws messageConn) {
 // is created fresh per upgrade, never copied, and torn down via teardown.
 type serveSession struct {
 	t      *Transport
-	ws     messageConn
+	ws     wsconn.Conn
 	connID string
 	ctx    context.Context
 
@@ -229,7 +213,7 @@ func (s *serveSession) startWriter() {
 				if err := s.ws.SetWriteDeadline(time.Now().Add(defaultSocketWriteTimeout)); err != nil {
 					log.CtxDebug(s.ctx, "set websocket write deadline: %v", err)
 				}
-				if err := s.ws.WriteMessage(websocket.TextMessage, msg); err != nil {
+				if err := s.ws.WriteMessage(wsconn.TextMessage, msg); err != nil {
 					log.CtxError(s.ctx, "write websocket message: %v", err)
 					return
 				}
@@ -268,7 +252,7 @@ func (s *serveSession) runReadLoop() {
 			s.handleReadError(err, validatedFirstMessage)
 			return
 		}
-		if messageType != websocket.TextMessage {
+		if messageType != wsconn.TextMessage {
 			if !validatedFirstMessage {
 				// Per protocol, the first ACP message must be an initialize
 				// request, which is always a TextMessage. A non-text first
@@ -277,7 +261,7 @@ func (s *serveSession) runReadLoop() {
 				// rather than silently ignoring it and waiting for the
 				// initialize deadline to expire.
 				log.CtxWarn(s.ctx, "reject websocket connection: non-text first frame (type=%d)", messageType)
-				s.sendCloseFrame(websocket.ClosePolicyViolation, "invalid initialize request")
+				s.sendCloseFrame(wsconn.ClosePolicyViolation, "invalid initialize request")
 				return
 			}
 			continue // ignore binary frames per spec after initialize
@@ -289,7 +273,7 @@ func (s *serveSession) runReadLoop() {
 				// Use a fixed wire reason rather than echoing the peer's
 				// (untrusted) input back on the close frame; the detailed
 				// validation error is logged above for diagnosis.
-				s.sendCloseFrame(websocket.ClosePolicyViolation, "invalid initialize request")
+				s.sendCloseFrame(wsconn.ClosePolicyViolation, "invalid initialize request")
 				return
 			}
 			validatedFirstMessage = true
@@ -317,7 +301,7 @@ func (s *serveSession) runReadLoop() {
 // silent; unexpected errors are logged at debug.
 func (s *serveSession) handleReadError(err error, validatedFirstMessage bool) {
 	if errors.Is(err, io.EOF) ||
-		websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+		wsconn.IsCloseError(err, wsconn.CloseNormalClosure, wsconn.CloseGoingAway) {
 		return
 	}
 	// A pong write failure surfaces here because PingHandler's return value
@@ -337,7 +321,7 @@ func (s *serveSession) handleReadError(err error, validatedFirstMessage bool) {
 		s.sendCloseFrame(transport.WSCloseInitializeTimeout, "initialize timeout")
 	case isTimeout && validatedFirstMessage:
 		log.CtxWarn(s.ctx, "role=server conn_id=%s reason=read_timeout timeout=%v err=%v", s.connID, s.t.readTimeout, err)
-		s.sendCloseFrame(websocket.CloseGoingAway, "read timeout")
+		s.sendCloseFrame(wsconn.CloseGoingAway, "read timeout")
 	default:
 		log.CtxDebug(s.ctx, "read websocket message: %v", err)
 	}
@@ -358,8 +342,8 @@ func (s *serveSession) applyReadDeadlineAfterInit() {
 // the single path for every non-normal server-initiated close.
 func (s *serveSession) sendCloseFrame(code int, reason string) {
 	s.closeSent.Store(true)
-	_ = s.ws.WriteControl(websocket.CloseMessage,
-		websocket.FormatCloseMessage(code, reason),
+	_ = s.ws.WriteControl(wsconn.CloseMessage,
+		wsconn.FormatCloseMessage(code, reason),
 		time.Now().Add(wsutil.ControlWriteDeadline))
 }
 
@@ -369,8 +353,8 @@ func (s *serveSession) sendCloseFrame(code int, reason string) {
 func (s *serveSession) closeWS() {
 	s.closeOnce.Do(func() {
 		if !s.closeSent.Load() {
-			_ = s.ws.WriteControl(websocket.CloseMessage,
-				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+			_ = s.ws.WriteControl(wsconn.CloseMessage,
+				wsconn.FormatCloseMessage(wsconn.CloseNormalClosure, ""),
 				time.Now().Add(wsutil.ControlWriteDeadline))
 		}
 		if err := s.ws.Close(); err != nil {

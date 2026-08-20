@@ -3,6 +3,8 @@ package conn
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
 	acp "github.com/eino-contrib/acp"
@@ -10,6 +12,7 @@ import (
 	"github.com/eino-contrib/acp/internal/jsonrpc"
 	acplog "github.com/eino-contrib/acp/internal/log"
 	"github.com/eino-contrib/acp/internal/safe"
+	acptransport "github.com/eino-contrib/acp/transport"
 )
 
 // ClientConnection wraps a JSON-RPC connection for the client side.
@@ -52,7 +55,7 @@ func withJSONRPCClientConnectionOption(opt jsonrpc.ConnectionOption) ClientConne
 }
 
 // WithSessionListenerErrorHandler registers a callback invoked when a
-// session-creating RPC (NewSession/LoadSession) succeeds on the wire but the
+// session-establishing RPC (new/load/resume) succeeds on the wire but the
 // local GET SSE listener fails to start. This surfaces listener failures
 // without conflating them with the RPC error.
 //
@@ -160,7 +163,7 @@ func NewClientConnection(client acp.Client, transport jsonrpc.Transport, opts ..
 	return csc
 }
 
-// reportListenerError is invoked when a session-creating RPC succeeds but the
+// reportListenerError is invoked when a session-establishing RPC succeeds but the
 // local GET SSE listener fails to start. The failure is surfaced via the
 // registered handler or, if none is set, logged at warning level.
 func (c *ClientConnection) reportListenerError(sessionID string, err error) {
@@ -177,7 +180,7 @@ func (c *ClientConnection) reportListenerError(sessionID string, err error) {
 // are routed through reportListenerError so callers never observe them as
 // RPC errors.
 //
-// Called by the generated LoadSession/NewSession wrappers to keep session
+// Called by the generated new/load/resume wrappers to keep session
 // listener lifecycle owned by ClientConnection rather than the generated
 // call sites.
 func (c *ClientConnection) startSessionListener(ctx context.Context, sessionID string) {
@@ -188,6 +191,77 @@ func (c *ClientConnection) startSessionListener(ctx context.Context, sessionID s
 	if err := c.listenerHook.Start(ctx, sessionID, onFailure); err != nil {
 		c.reportListenerError(sessionID, err)
 	}
+}
+
+func (c *ClientConnection) beginSessionClose(sessionID string) bool {
+	if c.listenerHook != nil && c.listenerHook.BeginClose != nil && sessionID != "" {
+		return c.listenerHook.BeginClose(sessionID)
+	}
+	return false
+}
+
+func (c *ClientConnection) completeSessionClose(sessionID string) {
+	if c.listenerHook != nil && c.listenerHook.CompleteClose != nil && sessionID != "" {
+		c.listenerHook.CompleteClose(sessionID)
+	}
+}
+
+func (c *ClientConnection) forceSessionClose(sessionID string) {
+	if c.listenerHook != nil && c.listenerHook.ForceClose != nil && sessionID != "" {
+		c.listenerHook.ForceClose(sessionID)
+		return
+	}
+	c.completeSessionClose(sessionID)
+}
+
+func (c *ClientConnection) abortSessionClose(ctx context.Context, sessionID string, listenerExisted bool) {
+	if !listenerExisted || c.listenerHook == nil || c.listenerHook.AbortClose == nil || sessionID == "" {
+		return
+	}
+	if !c.listenerHook.AbortClose(sessionID) {
+		// The listener disconnected after terminal intent was set and therefore
+		// did not reconnect. An explicit RPC rejection keeps the session active,
+		// so restore its reverse channel now.
+		c.startSessionListener(ctx, sessionID)
+	}
+}
+
+// closeSession owns the Streamable HTTP listener transition around
+// session/close. BeginClose marks terminal intent without closing the current
+// stream, so the Agent's close handler can still make reverse calls. A stream
+// that disconnects while intent is set will not reconnect. A wire RPCError is
+// an explicit rejection, so intent is aborted and a lost listener is restored.
+// Transport errors, caller deadlines, connection shutdown, and malformed
+// success results are outcome-uncertain: the Agent may already have closed the
+// session, so they complete the local terminal state instead of reconnecting.
+func (c *ClientConnection) closeSession(ctx context.Context, params acp.CloseSessionRequest) (acp.CloseSessionResponse, error) {
+	var response acp.CloseSessionResponse
+	if err := ctx.Err(); err != nil {
+		return response, err
+	}
+	if _, err := json.Marshal(params); err != nil {
+		return response, fmt.Errorf("marshal params: %w", err)
+	}
+	sessionID := string(params.SessionID)
+	listenerExisted := c.beginSessionClose(sessionID)
+
+	raw, err := c.conn.SendRequest(ctx, acp.MethodAgentCloseSession, params)
+	if err != nil {
+		var rpcErr *acp.RPCError
+		if errors.As(err, &rpcErr) || errors.Is(err, acptransport.ErrConnNotStarted) {
+			c.abortSessionClose(ctx, sessionID, listenerExisted)
+		} else {
+			c.forceSessionClose(sessionID)
+		}
+		return response, err
+	}
+	if err := json.Unmarshal(raw, &response); err != nil {
+		c.forceSessionClose(sessionID)
+		acplog.CtxError(ctx, "unmarshal response error: %v, raw response length: %d", err, len(raw))
+		return response, acp.ErrInternalError("unmarshal response for "+acp.MethodAgentCloseSession, err)
+	}
+	c.completeSessionClose(sessionID)
+	return response, nil
 }
 
 // Start begins processing messages in the background. It spawns the read
@@ -206,8 +280,8 @@ func (c *ClientConnection) Start(ctx context.Context) error {
 // Close shuts down the connection. If the underlying transport supports
 // session listeners, any active GET SSE listeners are stopped first.
 func (c *ClientConnection) Close() error {
-	if c.listenerHook != nil {
-		c.listenerHook.Stop()
+	if c.listenerHook != nil && c.listenerHook.StopAll != nil {
+		c.listenerHook.StopAll()
 	}
 	return c.conn.Close()
 }

@@ -1,94 +1,110 @@
 package proxy
 
 import (
+	"context"
 	"time"
 
-	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/hertz-contrib/websocket"
-
-	"github.com/eino-contrib/acp/internal/endpoint"
 	"github.com/eino-contrib/acp/internal/wsutil"
 	acptransport "github.com/eino-contrib/acp/transport"
 )
 
+// WebSocketConn is the framework-neutral, already-upgraded WebSocket contract
+// accepted by Admission. Built-in Hertz and Gin adapters wrap their native
+// connections; custom adapters may implement the same method set.
+type WebSocketConn interface {
+	ReadMessage() (messageType int, payload []byte, err error)
+	WriteMessage(messageType int, payload []byte) error
+	WriteControl(messageType int, payload []byte, deadline time.Time) error
+	SetReadLimit(limit int64)
+	SetReadDeadline(deadline time.Time) error
+	SetWriteDeadline(deadline time.Time) error
+	SetPingHandler(handler func(appData string) error)
+	Close() error
+}
+
 const (
-	// DefaultMaxConcurrentConnections bounds how many active north-bound
-	// WebSocket connections the proxy will serve simultaneously. Past the
-	// cap, additional upgrade attempts are rejected with HTTP 503.
+	// DefaultEndpoint is the conventional route on which an ACP proxy is
+	// registered. The proxy core does not own a route; applications pass this
+	// value (or any other path) to their Hertz or Gin router.
+	DefaultEndpoint = acptransport.DefaultACPEndpointPath
+
+	// DefaultMaxConcurrentConnections bounds how many admitted north-bound
+	// WebSocket connections the proxy will serve simultaneously. Past the cap,
+	// additional attempts are rejected with HTTP 503.
 	DefaultMaxConcurrentConnections = 10000
 
-	// DefaultHandshakeTimeout bounds how long StreamerFactory.NewStreamer
-	// may block before the proxy gives up on a south-bound dial.
+	// DefaultHandshakeTimeout bounds how long StreamerFactory.NewStreamer may
+	// block before the proxy reports a downstream creation failure.
 	DefaultHandshakeTimeout = 15 * time.Second
 
-	// DefaultWebSocketWriteTimeout caps a single WS write on the north-bound
-	// side so a stalled Client cannot freeze the down-pump goroutine.
+	// DefaultWebSocketWriteTimeout caps a single north-bound WebSocket write or
+	// south-bound Streamer write.
 	DefaultWebSocketWriteTimeout = 30 * time.Second
 
-	// DefaultWebSocketReadTimeout bounds how long the proxy will wait on a
-	// silent north-bound socket before tearing the connection down. The read
-	// deadline is refreshed on every Ping and data frame. Default is 0
-	// (disabled) to avoid breaking old Clients that do not send Ping.
+	// DefaultWebSocketReadTimeout bounds how long the proxy waits on a silent
+	// north-bound socket after the first data frame. Zero disables it.
 	DefaultWebSocketReadTimeout = 0
 
-	// DefaultWebSocketFirstFrameTimeout bounds how long the proxy waits for
-	// the first data frame after downstream streamer creation. Prevents resource
-	// exhaustion from connections that only send Ping without business traffic.
+	// DefaultWebSocketFirstFrameTimeout bounds how long the proxy waits for the
+	// first data frame after the downstream Streamer has been created.
 	DefaultWebSocketFirstFrameTimeout = 15 * time.Second
 
-	// DefaultMaxMessageSize caps a single north-bound WebSocket message
-	// payload (and a single south-bound Streamer payload relayed back).
-	// Aligned with acptransport.DefaultMaxMessageSize so the proxy enforces
-	// the same ceiling as the rest of the SDK, preventing a hostile or
-	// broken peer from pushing arbitrary-size frames into memory at the
-	// entry layer.
+	// DefaultMaxMessageSize caps one north-bound WebSocket payload and one
+	// south-bound Streamer payload relayed back to the client.
 	DefaultMaxMessageSize = acptransport.DefaultMaxMessageSize
 )
 
-// HeaderForwarder selects which north-bound request headers propagate into
-// the meta map passed to StreamerFactory.NewStreamer. Return a nil or empty
-// map if no headers should be forwarded.
-//
-// The callback runs synchronously on the hertz handler goroutine; keep it
-// allocation-light. The returned map must not be retained or mutated by the
-// forwarder after return — the proxy owns it from that point.
-type HeaderForwarder func(c *app.RequestContext) map[string]string
+// HeaderGetter reads one request header without exposing a framework request
+// object. Hertz and Gin adapters construct a getter over their native request.
+// Header names are interpreted case-insensitively by the underlying framework.
+type HeaderGetter func(name string) string
 
-// ForwardHeaders returns a HeaderForwarder that copies the named request
-// headers (case-insensitive) into meta verbatim. Headers absent from the
-// request are omitted from the meta map.
-func ForwardHeaders(names ...string) HeaderForwarder {
+// Get returns the value for name. A nil getter behaves like an empty header
+// collection.
+func (g HeaderGetter) Get(name string) string {
+	if g == nil {
+		return ""
+	}
+	return g(name)
+}
+
+// MetadataExtractor builds the metadata passed to
+// stream.StreamerFactory.NewStreamer. It receives the request context and a
+// read-only, framework-neutral header accessor. The proxy takes an immediate
+// copy of the returned map; callers may therefore reuse their own storage.
+type MetadataExtractor func(context.Context, HeaderGetter) map[string]string
+
+// ForwardHeaders returns a MetadataExtractor that copies the named request
+// headers into downstream metadata. Missing or empty headers are omitted. The
+// supplied spelling is retained as the metadata key.
+func ForwardHeaders(names ...string) MetadataExtractor {
 	if len(names) == 0 {
 		return nil
 	}
-	snapshot := make([]string, len(names))
-	copy(snapshot, names)
-	return func(c *app.RequestContext) map[string]string {
+	snapshot := append([]string(nil), names...)
+	return func(_ context.Context, headers HeaderGetter) map[string]string {
 		var out map[string]string
 		for _, name := range snapshot {
-			v := string(c.GetHeader(name))
-			if v == "" {
+			value := headers.Get(name)
+			if value == "" {
 				continue
 			}
 			if out == nil {
-				// Lazy allocation: avoid paying map overhead on handshakes
-				// where none of the configured headers are present, since
-				// the proxy hot path runs on every WS upgrade.
 				out = make(map[string]string, len(snapshot))
 			}
-			out[name] = v
+			out[name] = value
 		}
 		return out
 	}
 }
 
-// Option configures an ACPProxy.
+// Option configures an ACPProxy. Framework-specific settings such as route
+// paths, origin checks, buffers, compression, and WebSocket upgraders belong
+// to proxy/hertz or proxy/gin rather than to the core.
 type Option func(*options)
 
 type options struct {
-	endpoint          string
-	upgrader          websocket.HertzUpgrader
-	headerForwarder   HeaderForwarder
+	metadataExtractor MetadataExtractor
 	maxConcurrent     int
 	handshakeTimeout  time.Duration
 	wsWriteTimeout    time.Duration
@@ -99,7 +115,6 @@ type options struct {
 
 func defaultOptions() options {
 	return options{
-		endpoint:          acptransport.DefaultACPEndpointPath,
 		maxConcurrent:     DefaultMaxConcurrentConnections,
 		handshakeTimeout:  DefaultHandshakeTimeout,
 		wsWriteTimeout:    DefaultWebSocketWriteTimeout,
@@ -109,40 +124,21 @@ func defaultOptions() options {
 	}
 }
 
-// WithEndpoint overrides the route path (default: "/acp"). The proxy's
-// default and server.ACPServer's default match on purpose — mounting both on
-// the same hertz router will hard-fail at route registration, enforcing the
-// "one role per process on /acp" deployment contract. The path is normalized
-// (leading '/' ensured, trailing '/' stripped) so it matches server.WithEndpoint
-// and the WS client transport exactly.
-func WithEndpoint(path string) Option {
-	return func(o *options) {
-		if path != "" {
-			o.endpoint = endpoint.NormalizePath(path)
-		}
-	}
+// WithMetadataExtractor installs the framework-neutral extractor used to
+// build metadata for StreamerFactory.NewStreamer.
+func WithMetadataExtractor(extractor MetadataExtractor) Option {
+	return func(o *options) { o.metadataExtractor = extractor }
 }
 
-// WithUpgrader overrides the WebSocket upgrader. The zero value is used
-// when this option is not set.
-func WithUpgrader(u websocket.HertzUpgrader) Option {
-	return func(o *options) { o.upgrader = u }
-}
-
-// WithHeaderForwarder installs the HeaderForwarder used to build the meta map
-// supplied to StreamerFactory.NewStreamer.
-func WithHeaderForwarder(f HeaderForwarder) Option {
-	return func(o *options) { o.headerForwarder = f }
-}
-
-// WithMaxConcurrentConnections sets the concurrent WS connection cap. Zero
-// or a negative value disables the cap (use with care). Default: 10000.
+// WithMaxConcurrentConnections sets the admitted connection cap. Zero or a
+// negative value disables the cap.
 func WithMaxConcurrentConnections(n int) Option {
 	return func(o *options) { o.maxConcurrent = n }
 }
 
 // WithHandshakeTimeout bounds StreamerFactory.NewStreamer. Zero disables the
-// timeout (only the connection-level ctx applies). Default: 15s.
+// timeout. A factory must observe its context; Shutdown reports its own
+// deadline if a factory ignores cancellation and never returns.
 func WithHandshakeTimeout(d time.Duration) Option {
 	return func(o *options) {
 		if d >= 0 {
@@ -151,13 +147,8 @@ func WithHandshakeTimeout(d time.Duration) Option {
 	}
 }
 
-// WithWebSocketWriteTimeout caps both north-bound WS writes (Streamer → Client)
-// and south-bound Streamer writes (Client → AgentServer). Specifically:
-//   - downPump: applied as SetWriteDeadline on the WebSocket connection;
-//   - upPump: applied as context timeout on Streamer.WritePayload.
-//
-// Zero disables both deadlines (unbounded wait on a blocked socket — not
-// recommended). Default: 30s.
+// WithWebSocketWriteTimeout caps both north-bound WebSocket writes and
+// south-bound Streamer writes. Zero disables both deadlines.
 func WithWebSocketWriteTimeout(d time.Duration) Option {
 	return func(o *options) {
 		if d >= 0 {
@@ -166,17 +157,8 @@ func WithWebSocketWriteTimeout(d time.Duration) Option {
 	}
 }
 
-// WithWebSocketReadTimeout bounds how long the proxy waits for any north-bound
-// frame (data or Ping) before tearing the connection down. This timeout only
-// takes effect after the first data frame has been received. Before that, the
-// connection is protected solely by WithWebSocketFirstFrameTimeout; if first-frame
-// timeout is disabled (zero), there is no deadline until the first data frame
-// arrives. Without this, a half-open socket holds its concurrency slot
-// indefinitely. Recommended: >= 2 × Client PingInterval (e.g. 75s for 30s
-// PingInterval). Enabling this when upstream clients do not send Ping or
-// periodic data frames will cause idle connections to be disconnected.
-// Zero disables the deadline. Default: 0 (disabled, to avoid breaking old
-// Clients).
+// WithWebSocketReadTimeout bounds north-bound inactivity after the first data
+// frame. Ping and data frames refresh it. Zero disables the deadline.
 func WithWebSocketReadTimeout(d time.Duration) Option {
 	return func(o *options) {
 		if !wsutil.ValidateDuration("proxy", "WithWebSocketReadTimeout", d, time.Second) {
@@ -186,10 +168,8 @@ func WithWebSocketReadTimeout(d time.Duration) Option {
 	}
 }
 
-// WithWebSocketFirstFrameTimeout bounds how long the proxy waits for the first
-// data frame after the downstream streamer is created and heartbeat is installed.
-// During streamer creation the connection is bounded by WithHandshakeTimeout.
-// Zero disables the timeout. Default: 15s.
+// WithWebSocketFirstFrameTimeout bounds the wait for the first data frame
+// after downstream Streamer creation. Zero disables the deadline.
 func WithWebSocketFirstFrameTimeout(d time.Duration) Option {
 	return func(o *options) {
 		if !wsutil.ValidateDuration("proxy", "WithWebSocketFirstFrameTimeout", d, time.Second) {
@@ -199,43 +179,27 @@ func WithWebSocketFirstFrameTimeout(d time.Duration) Option {
 	}
 }
 
-// WithWebSocketPingInterval is retained for source-compatibility with the
-// pre-heartbeat-refactor Proxy API.
+// WithWebSocketPingInterval is retained for source compatibility with the
+// pre-heartbeat-refactor runtime configuration. The proxy does not initiate
+// Ping frames, so this option only validates d and otherwise has no effect.
 //
-// Deprecated: the proxy no longer sends WebSocket Ping frames itself —
-// liveness is driven by the Client's Ping and the proxy's read deadline
-// (see WithWebSocketReadTimeout). This option has no runtime effect; it
-// only validates d so callers still get the standard warn log on a sub-1s
-// or negative value. Remove the call when migrating to the new heartbeat
-// model.
+// Deprecated: liveness is driven by client Ping frames and
+// WithWebSocketReadTimeout.
 func WithWebSocketPingInterval(d time.Duration) Option {
 	return func(_ *options) {
 		_ = wsutil.ValidateDuration("proxy", "WithWebSocketPingInterval", d, time.Second)
 	}
 }
 
-// WithWebSocketPongTimeout is retained for source-compatibility with the
-// pre-heartbeat-refactor Proxy API.
+// WithWebSocketPongTimeout aliases WithWebSocketReadTimeout.
 //
-// Deprecated: use WithWebSocketReadTimeout. The proxy no longer tracks Pong
-// arrival explicitly; the read deadline (refreshed on every Ping and data
-// frame) is the authoritative liveness check. This option is implemented as
-// a thin alias for WithWebSocketReadTimeout(d) so existing call sites keep
-// compiling, but runtime semantics differ from the old proxy-driven
-// Ping/Pong model: the proxy no longer sends Ping itself, so upstream
-// Clients must send WS Ping or periodic data frames to keep the read
-// deadline refreshed. Idle Clients that relied on the old proxy-driven
-// Ping for liveness will now hit ReadTimeout and be closed.
+// Deprecated: use WithWebSocketReadTimeout.
 func WithWebSocketPongTimeout(d time.Duration) Option {
 	return WithWebSocketReadTimeout(d)
 }
 
-// WithMaxMessageSize caps a single WebSocket payload in bytes (north-bound
-// inbound frames via SetReadLimit and south-bound Streamer payloads relayed
-// back). Zero or a negative value disables the cap — not recommended for
-// untrusted clients, as a single oversized frame could otherwise allocate
-// unbounded memory at the proxy layer. Default:
-// transport.DefaultMaxMessageSize (10MB).
+// WithMaxMessageSize caps a single payload in bytes. Zero or a negative value
+// disables the cap.
 func WithMaxMessageSize(size int) Option {
 	return func(o *options) { o.maxMessageSize = size }
 }

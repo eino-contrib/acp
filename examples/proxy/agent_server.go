@@ -22,8 +22,8 @@ import (
 // WebSocket endpoint at /acp-upstream that the Proxy dials. It demonstrates
 // the AgentServer-side wiring described in the proxy design notes:
 //
-//     wsStreamer  →  stream.NewPipe  →  stdio.NewTransport
-//                 →  acpconn.NewAgentConnectionFromTransport(agent, t)
+//	wsStreamer  →  stream.NewPipe  →  stdio.NewTransport
+//	            →  acpconn.NewAgentConnectionFromTransport(agent, t)
 //
 // The Agent implementation is identical in shape to examples/agent/agent.go.
 func runAgentServer(ctx context.Context, listen string) error {
@@ -46,26 +46,35 @@ func runAgentServer(ctx context.Context, listen string) error {
 		}
 	})
 
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
-	}()
-
 	fmt.Printf("[agent-server] listening on %s (path=/acp-upstream)\n", listen)
-	srv.Spin()
-	return nil
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Run() }()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), proxyShutdownTimeout)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shut down agent-server Hertz host: %w", err)
+		}
+		return nil
+	}
 }
 
 // serveAgentSession wires one upgraded WebSocket into the ACP stdio transport
 // and runs a fresh agent against it.
 func serveAgentSession(parent context.Context, wsConn *websocket.Conn) {
-	sessionCtx, cancel := context.WithCancel(context.WithoutCancel(parent))
+	sessionCtx, cancel := context.WithCancel(parent)
 	defer cancel()
 
 	s := newWSStreamer(wsConn, 30*time.Second)
 	defer func() { _ = s.Close("agent session ended") }()
+	go func() {
+		<-sessionCtx.Done()
+		_ = s.Close("agent server shutdown")
+	}()
 
 	// 1. Adapt the Streamer to io.Reader / io.Writer for the stdio transport.
 	r, w := stream.NewPipe(sessionCtx, s)

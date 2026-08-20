@@ -9,8 +9,8 @@
 `github.com/eino-contrib/acp` 是 [Agent Client Protocol](https://agentclientprotocol.com/) 的 Go 语言 SDK，提供：
 
 - **双向 RPC 封装**：`conn.ClientConnection` / `conn.AgentConnection` 屏蔽 JSON-RPC 2.0 细节；
-- **三套传输层**：`stdio`（子进程）、Streamable HTTP（POST + SSE）、WebSocket；HTTP/WS 服务端基于 [CloudWeGo Hertz](https://github.com/cloudwego/hertz) 实现；
-- **远端 Server**：`server.ACPServer` 一条路由同时支持 HTTP 和 WebSocket 升级；
+- **三套传输层**：`stdio`（子进程）、Streamable HTTP（POST + SSE）、WebSocket；HTTP/WS 服务端可接入 [CloudWeGo Hertz](https://github.com/cloudwego/hertz) 或 [Gin](https://github.com/gin-gonic/gin)；
+- **远端 Server**：框架无关的 `server.ACPServer` core 通过 Hertz 或 Gin adapter 暴露，在一条宿主拥有的路由上同时支持 Streamable HTTP 与 WebSocket；
 - **透明 Proxy**：`proxy.ACPProxy` 负责把外部 WS 流量透传到下游（用户自定义 RPC 实现的 AgentServer）；
 - **扩展协议**：支持 `_` 前缀的自定义 Request / Notification（[ACP Extensibility](https://agentclientprotocol.com/protocol/extensibility#custom-requests)）。
 
@@ -51,18 +51,27 @@ Agent / Client 是 **协议端点**（解析 JSON-RPC、处理方法调用），
 
 ```go
 import (
-	acp         "github.com/eino-contrib/acp"
-	acpconn     "github.com/eino-contrib/acp/conn"
-	acpserver   "github.com/eino-contrib/acp/server"
-	acpproxy    "github.com/eino-contrib/acp/proxy"
-	acpstream   "github.com/eino-contrib/acp/stream"
-	stdio       "github.com/eino-contrib/acp/transport/stdio"
-	acphttpclient "github.com/eino-contrib/acp/transport/http/client"
-	acpws       "github.com/eino-contrib/acp/transport/ws"
+	hertzserver      "github.com/cloudwego/hertz/pkg/app/server"
+	ginframework     "github.com/gin-gonic/gin"
+	gorillawebsocket "github.com/gorilla/websocket"
+	hertzwebsocket   "github.com/hertz-contrib/websocket"
+
+	acp            "github.com/eino-contrib/acp"
+	acpconn        "github.com/eino-contrib/acp/conn"
+	acpserver      "github.com/eino-contrib/acp/server"
+	acpservergin   "github.com/eino-contrib/acp/server/gin"
+	acpserverhertz "github.com/eino-contrib/acp/server/hertz"
+	acpproxy       "github.com/eino-contrib/acp/proxy"
+	acpproxygin    "github.com/eino-contrib/acp/proxy/gin"
+	acpproxyhertz "github.com/eino-contrib/acp/proxy/hertz"
+	acpstream      "github.com/eino-contrib/acp/stream"
+	stdio          "github.com/eino-contrib/acp/transport/stdio"
+	acphttpclient  "github.com/eino-contrib/acp/transport/http/client"
+	acpws          "github.com/eino-contrib/acp/transport/ws"
 )
 ```
 
-表格里写的 `conn.WithXxx` / `server.WithXxx` 等是裸包名，对应到代码示例里就是 `acpconn.WithXxx` / `acpserver.WithXxx`。Hertz 相关符号 `websocket` / `app` 直接沿用原包名（`github.com/hertz-contrib/websocket` 与 `github.com/cloudwego/hertz/pkg/app`）。
+表格里写的 `conn.WithXxx` / `server.WithXxx` 等是裸包名，对应到代码示例里就是 `acpconn.WithXxx` / `acpserver.WithXxx`。适配器专属 upgrader 类型分别来自 Hertz 的 `github.com/hertz-contrib/websocket` 与 Gin 使用的 `github.com/gorilla/websocket`。
 
 ## 4. 快速开始
 
@@ -79,11 +88,13 @@ import (
 make build
 ```
 
+HTTP 示例接受 `-http-framework=hertz|gin`。Makefile target 通过 `HTTP_FRAMEWORK` 传入相同选项（默认 `hertz`）；对 Proxy 示例而言，该选项只选择北向 adapter。
+
 ### 4.1 WebSocket 模式
 
 ```
 ┌──────────────────────┐                              ┌──────────────────────────┐
-│       Client         │                              │   ACPServer (Hertz)      │
+│       Client         │                              │  ACPServer + adapter     │
 │  ┌────────────────┐  │   ws://host:port/acp         │  ┌────────────────────┐  │
 │  │ acp.Client     │  │  ◄────── Upgrade ─────►      │  │ acp.Agent          │  │
 │  │ BaseClient     │  │                              │  │ BaseAgent          │  │
@@ -103,7 +114,7 @@ make build
 完整 Demo 直接看仓库示例：
 
 - Agent 实现：[`examples/agent/agent.go`](./examples/agent/agent.go)
-- Hertz 挂载与入口：[`examples/agent/main.go`](./examples/agent/main.go)
+- Hertz/Gin 宿主路由注册与入口：[`examples/agent/main.go`](./examples/agent/main.go)
 
 > ⚠️ **Hertz WebSocket 必须设置 `srv.NoHijackConnPool = true`**，否则 upgrade 后 Hertz 会回收连接导致 WS 立即断开。
 
@@ -118,24 +129,25 @@ make build
 
 ```bash
 # 终端 A：启动 Agent（HTTP + WS 同一路由 /acp，监听 :18080）
-./bin/agent -transport=http -listen=:18080
+./bin/agent -transport=http -http-framework=hertz -listen=:18080
 
 # 终端 B：Client 用 WebSocket 连上
 ./bin/client -transport=ws ws://127.0.0.1:18080
 
-# 一键跑（同进程串行起 agent + client，结束后自动清理）
+# 一条命令启动 Agent 与 Client 两个独立进程，结束后自动清理
 make run-ws
-# 自定义端口：make run-ws AGENT_ADDR=:9090
+# 选择 Gin：make run-ws HTTP_FRAMEWORK=gin
+# 自定义端口：make run-ws AGENT_ADDR=:9090 HTTP_FRAMEWORK=hertz
 ```
 
 ### 4.2 Streamable HTTP 模式
 
 ```
 ┌──────────────────────┐                                    ┌──────────────────────────┐
-│       Client         │                                    │   ACPServer (Hertz)      │
+│       Client         │                                    │  ACPServer + adapter     │
 │  ┌────────────────┐  │                                    │  ┌────────────────────┐  │
 │  │ acp.Client     │  │  ─── POST /acp  (JSON-RPC req) ──► │  │ acp.Agent          │  │
-│  │ BaseClient     │  │  ◄── 200 JSON / SSE response ────  │  │ BaseAgent          │  │
+│  │ BaseClient     │  │  ◄── 200 SSE response ───────────  │  │ BaseAgent          │  │
 │  └────────────────┘  │                                    │  └────────────────────┘  │
 │         ▲            │  ─── GET  /acp  (SSE listener) ──► │            ▲             │
 │         │ SSE recv   │  ◄═══ session/update  ═════════    │            │ reverse RPC │
@@ -153,12 +165,13 @@ make run-ws
 > Streamable HTTP 会同时使用：
 > - `POST /acp` 发送请求（以及回响应）
 > - `GET /acp` 建立 SSE 反向通道（用于接收 Agent→Client 的反向 Request/Notification）
+> - `DELETE /acp` 关闭 ACP 连接
 >
-> 如果你在负载均衡 / 反向代理后面部署，必须保证同一个 ACP 连接的 `POST /acp` 和 `GET /acp` 会命中**同一台**后端服务（例如基于 cookie 的 sticky、header hash、或按 `Acp-Connection-Id` 做一致性路由）。否则会出现连接状态不一致，导致反向消息收不到或请求失败。
+> 如果部署在负载均衡 / 反向代理之后，同一 `Acp-Connection-Id` 的所有 `POST`、`GET` 和 `DELETE` 都必须命中**同一台**后端（例如 cookie affinity、header hash 或其他 sticky 策略）。同时关闭 GET SSE 路由的响应缓冲，让事件立即 flush，并按预期长连接周期配置代理/宿主 write 与 idle timeout。否则可能出现消息延迟、连接被误断或连接状态不一致。
 
 #### 4.2.1 Agent（Server）
 
-`ACPServer` 同时支持 WebSocket 和 Streamable HTTP，两者复用同一条路由（默认 `/acp`），所以服务端实现无需改动，直接复用 [4.1.1 Agent（Server）](#411-agentserver) 的代码即可。
+同一个 adapter handler 在宿主注册的路由（约定为 `/acp`）上同时支持 WebSocket 与 Streamable HTTP，所以服务端实现无需改动，直接复用 [4.1.1 Agent（Server）](#411-agentserver) 的代码即可。
 
 #### 4.2.2 Client
 
@@ -171,13 +184,14 @@ make run-ws
 
 ```bash
 # 终端 A：Agent 照样起 HTTP（与 WS 共用同一个二进制）
-./bin/agent -transport=http -listen=:18080
+./bin/agent -transport=http -http-framework=gin -listen=:18080
 
 # 终端 B：Client 走 HTTP + SSE
 ./bin/client -transport=http http://127.0.0.1:18080
 
-# 一键跑
+# 一条命令启动独立的 Agent 与 Client 进程
 make run-http
+# 用 HTTP_FRAMEWORK=hertz 或 HTTP_FRAMEWORK=gin 选择宿主适配器。
 ```
 
 ### 4.3 stdio 子进程模式
@@ -237,13 +251,13 @@ make run-stdio
 │      Client        │            │    Proxy (ACPProxy)      │            │   Upstream AgentServer   │
 │                    │            │                          │            │                          │
 │  ┌──────────────┐  │            │  ┌────────────────────┐  │            │  ┌────────────────────┐  │
-│  │ acp.Client   │  │            │  │ Hertz /acp WS      │  │            │  │ user RPC           │  │
+│  │ acp.Client   │  │            │  │ Hertz/Gin /acp WS  │  │            │  │ user RPC           │  │
 │  │ BaseClient   │  │            │  │                    │  │            │  │ (gRPC / Kitex /    │  │
 │  └──────────────┘  │            │  │  up-pump           │  │            │  │  自建 WS / ...)    │  │
 │         ▲          │            │  │  down-pump         │  │            │  └────────────────────┘  │
 │         │          │  WS bytes  │  └────────────────────┘  │  Streamer  │            │             │
 │         │          ├───────────►│                          ├───────────►│            ▼             │
-│         │          │◄───────────┤  HeaderForwarder         │◄───────────┤  ┌────────────────────┐  │
+│         │          │◄───────────┤  metadata extractor      │◄───────────┤  ┌────────────────────┐  │
 │  ┌──────┴───────┐  │            │  WS keepalive            │            │  │ AgentConnection    │  │
 │  │ ws.Transport │  │            │  Max-conn cap            │            │  │ acp.Agent          │  │
 │  └──────────────┘  │            │                          │            │  │ BaseAgent          │  │
@@ -265,10 +279,12 @@ make run-stdio
 
 > ⚠️ 约束：
 > - Proxy **只支持 WebSocket** 作为北向入口（不支持 Streamable HTTP）。
-> - `ACPServer` 和 `ACPProxy` 默认都占用 `/acp`；如果要挂在同一套 Hertz 路由器上，必须显式改成不同 endpoint。
-> - 仍然需要 `srv.NoHijackConnPool = true`，否则 WebSocket 会被 Hertz 回收导致断连。
+> - `ACPServer` 和 `ACPProxy` 都约定使用 `/acp`；如果注册在同一宿主路由器上，请选择不同路由路径。
+> - Hertz 宿主仍需设置 `srv.NoHijackConnPool = true`，否则 WebSocket 会被 Hertz 回收导致断连。
 
 Proxy 的作用是「只看字节，不看协议」：它把外部 Client 的 WS 数据帧转发给下游（通常是你自建的 AgentServer），下游再把字节喂给 ACP 的 stdio 传输，最终由 `acpconn.NewAgentConnectionFromTransport(...)` 驱动你的 Agent。
+
+示例的 `-http-framework=hertz|gin` 只选择 Proxy 的**北向**适配器；南向 WebSocket `Streamer` 和示例 AgentServer 仍固定使用 Hertz，因此切换该参数不会改变下游传输。
 
 #### 4.4.1 下游 AgentServer（Upstream）
 
@@ -283,7 +299,7 @@ Proxy 的作用是「只看字节，不看协议」：它把外部 Client 的 WS
 启动 Proxy（北向路径固定为 `/acp`），把每条入站 Client WS 连接转发到 `ws://127.0.0.1:9090/acp-upstream`：
 
 ```bash
-./bin/proxy -role=proxy -listen=:8080 -upstream=ws://127.0.0.1:9090/acp-upstream
+./bin/proxy -role=proxy -http-framework=hertz -listen=:8080 -upstream=ws://127.0.0.1:9090/acp-upstream
 ```
 
 #### 4.4.3 Client（连接到 Proxy）
@@ -298,7 +314,7 @@ Client 侧仍然按 WebSocket 模式连接，只是把目标地址改成 Proxy�
 也可以一条命令本地跑全链路（同时起 upstream + proxy）：
 
 ```bash
-./bin/proxy -role=all
+./bin/proxy -role=all -http-framework=gin
 ```
 
 #### 4.4.4 运行 Demo
@@ -306,16 +322,17 @@ Client 侧仍然按 WebSocket 模式连接，只是把目标地址改成 Proxy�
 ```bash
 # 方式一：分别起上游 AgentServer 和 Proxy，再起 Client
 ./bin/proxy -role=agent-server -listen=:9090                                      # 终端 A
-./bin/proxy -role=proxy -listen=:8080 -upstream=ws://127.0.0.1:9090/acp-upstream  # 终端 B
+./bin/proxy -role=proxy -http-framework=gin -listen=:8080 -upstream=ws://127.0.0.1:9090/acp-upstream  # 终端 B
 ./bin/client -transport=ws ws://127.0.0.1:8080                                    # 终端 C
 
 # 方式二：同进程起 Proxy + 上游 AgentServer（role=all），再起 Client
-./bin/proxy -role=all -proxy-listen=:8080 -agent-listen=:9090                     # 终端 A
+./bin/proxy -role=all -http-framework=hertz -proxy-listen=:8080 -agent-listen=:9090  # 终端 A
 ./bin/client -transport=ws ws://127.0.0.1:8080                                    # 终端 B
 
-# 一键跑全链路（agent-server + proxy + client 同进程编排）
+# 一条命令跑全链路（Proxy + AgentServer 同进程，Client 为独立进程）
 make run-proxy
-# 自定义端口：make run-proxy PROXY_LISTEN=:8080 PROXY_AGENT_LISTEN=:9090
+# 选择 Gin：make run-proxy HTTP_FRAMEWORK=gin
+# 自定义端口：make run-proxy PROXY_LISTEN=:8080 PROXY_AGENT_LISTEN=:9090 HTTP_FRAMEWORK=hertz
 ```
 
 ## 5. 参数配置
@@ -448,7 +465,7 @@ _ = conn.Start(ctx)
 
 内部行为：
 
-- `conn.NewSession(...)` / `conn.LoadSession(...)` **自动启动 GET SSE listener**，业务不用关心反向通道何时就绪。
+- `conn.NewSession(...)`、`conn.LoadSession(...)` 与 `conn.ResumeSession(...)` 都会为结果 session **自动启动 GET SSE listener**，业务不用关心反向通道何时就绪。
 - Non-SSE JSON 响应上限 **8 MB**；SSE 单事件上限 **10 MB**；错误 body 只读前 **4 KB**（避免大 body 撑爆内存）。
 - `WithSSEReconnect()` 打开后采用指数退避（默认 1s → 30s）。失败时把错误交给 `conn.WithSessionListenerErrorHandler` 注册的 handler，**不会** 把它当作 RPC 错误抛给调用方。
 
@@ -518,21 +535,21 @@ _ = conn.Start(ctx)
 
 特点：
 
-- **基于 Hertz**：客户端用 `hclient.Client` + `websocket.ClientUpgrader`，与服务端同一套生态。
+- **基于 Hertz 的客户端传输**：客户端使用 `hclient.Client` + `websocket.ClientUpgrader`，可与 Hertz 或 Gin 服务端 adapter 互通。
 - **URL 归一化**：支持 `http://` / `https://` / `ws://` / `wss://` / 甚至 `host:port` 纯地址；SDK 会自动补全 scheme（默认 `ws://`）和 endpoint path。
 - **只用 origin**：`baseURL` 的 path / query / fragment 会被丢弃，最终 URL = `origin + endpointPath`。想改路径只能用 `WithEndpointPath`。
 - **Cookie Jar**：握手请求会附带内置 `cookiejar`，并把响应里的 `Set-Cookie` 写回 jar。WS 每个 transport 实例只握手一次，保留 jar 主要是为了接口一致性，实际作用有限。
-- **写超时兜底**：调用方未给 ctx deadline 时，单次写默认 **30s** deadline；`Close` 通过 `WriteControl` 发送 close frame（5s deadline），不经过应用层 `writePermit`，但仍与 data frame 写共享 websocket 库内部写锁；若底层写被阻塞，最多等待 5s 后失败并继续关闭流程。
+- **写超时兜底**：调用方未给 ctx deadline 时，单次写默认 **30s** deadline；`Close` 会通过 `WriteControl` 发送带 5s deadline 的 close frame，随后关闭 socket。
 - **Close 顺序**：`Close` 会先发送 close frame → 关 socket → 等 read loop 退出 → 释放 Hertz request/response 对象，保证无 use-after-free。
 - **不自动重连**：业务方按需自行重建 transport + connection。
 
 **服务端：**
 
-WebSocket 服务端是 `server.ACPServer` 内置能力，见 [5.3 服务端节点：ACPServer](#53-服务端节点acpserver)。ACPServer 在同一条 `/acp` 路由下根据 `Upgrade: websocket` header 自动路由到 WS 升级器。
+WebSocket 协议能力内置于 `server.ACPServer`，见 [5.3 服务端节点：ACPServer](#53-服务端节点acpserver)。所选 Hertz 或 Gin adapter 在宿主拥有的路由上识别 `Upgrade: websocket`，完成框架专属 upgrade 后再把连接交给 core。
 
 **常见坑位：**
 
-1. **`srv.NoHijackConnPool = true`**：Hertz 默认会把 hijack 的连接送回池子，这会把 WebSocket 连接断开。部署 ACPServer 时**一定要**设置这个标志。
+1. **仅 Hertz — `srv.NoHijackConnPool = true`**：Hertz 默认会把 hijack 的连接送回池子，这会把 WebSocket 连接断开。基于 `net/http` 的 Gin/Gorilla 不使用该 Hertz 设置。
 2. **超大帧**：服务端和客户端读限制均为 **10 MB**（`transport.DefaultMaxMessageSize`），超限直接关连接（1009 MessageTooBig）。
 3. **10 次连续解析失败**：WS 服务端连续 **10** 次 JSON-RPC 解析失败会主动关断连接，防止恶意 peer。
 4. **并发写安全**：ACP 的 `Transport` 接口要求 `WriteMessage` 并发安全；WS 客户端内部用 `writePermit` 信号量实现互斥，业务方放心并发调用即可。
@@ -545,6 +562,7 @@ WebSocket 客户端 Option / 默认值 (`transport/ws`)：
 | `WithCustomHeaders(m)` | 空 |
 | `WithPingInterval(d)` | 30 s（客户端主动 Ping 间隔；`0` 禁用 ping pump —— 仅高级/调试场景） |
 | `WithReadTimeout(d)` | 75 s（读 deadline；收到 Pong 或 ACP text data frame 刷新；BinaryMessage 会被忽略；`0` 禁用 —— 不推荐） |
+| `WithConnectTimeout(d)` | 30 s（传给 `Connect` 的 context 无 deadline 时使用的 dial/upgrade 兜底超时；`0` 禁用兜底） |
 | （内置）单次写 deadline（无 ctx deadline 时） | 30 s |
 | （内置）Close frame 通过 `WriteControl` 发送 | 5 s deadline |
 
@@ -552,37 +570,67 @@ WebSocket 客户端 Option / 默认值 (`transport/ws`)：
 
 #### 5.3.1 参数详解
 
-所有参数通过 `Option` 注入：
+`ACPServer` 是框架无关的核心：它拥有 ACP 协议状态和连接生命周期，路由与 HTTP server 由宿主负责。先创建 core，再用 Hertz 或 Gin 适配器生成原生 handler 并注册到宿主路由。`server.DefaultEndpoint` 是约定的 `/acp`；自定义路径直接传给宿主 router。
+
+**Hertz 宿主：**
 
 ```go
-remote, err := acpserver.NewACPServer(factory,
-	acpserver.WithEndpoint("/acp"),
+core, err := acpserver.NewACPServer(factory,
 	acpserver.WithRequestTimeout(5 * time.Minute),
 	acpserver.WithConnectionIdleTimeout(5 * time.Minute),
 	acpserver.WithMaxHTTPMessageSize(10 * 1024 * 1024),
 	acpserver.WithPendingQueueSize(1024),
 	acpserver.WithMaxInflightDispatch(0), // 0 = 使用默认值（4096）；负数 = 不限
-	acpserver.WithWebSocketUpgrader(websocket.HertzUpgrader{
-		CheckOrigin: func(ctx *app.RequestContext) bool { return true },
-	}),
 	acpserver.WithNotificationErrorHandler(func(method string, err error) {
 		metrics.Inc("acp_notify_err", method, err.Error())
 	}),
 )
+if err != nil { log.Fatal(err) }
+
+srv := hertzserver.New(
+	hertzserver.WithHostPorts(":8080"),
+	hertzserver.WithStreamBody(true),
+)
+srv.NoHijackConnPool = true
+srv.Any(acpserver.DefaultEndpoint, acpserverhertz.New(core))
 ```
 
-| Option | 默认 | 说明 |
+Hertz 宿主承载 Streamable HTTP 时，首选启用 `WithStreamBody(true)`。否则 Hertz 会先缓冲请求体，并在 ACP handler 运行前应用宿主级上限（默认 4 MiB），而 `server.WithMaxHTTPMessageSize` 的默认值是 10 MiB。启用流式 body 后，超过 Hertz 缓冲阈值的请求会以 stream 交给 adapter，SDK 因而能在读取 chunked 或未知长度 body 时执行自身配置的上限。如果无法启用流式 body，则把 `hertzserver.WithMaxRequestBodySize(...)` 设置为不小于 `server.WithMaxHTTPMessageSize`；这样可以避免 Hertz 提前拒绝请求，但最多可能把完整 body 缓冲到宿主上限。这些 Hertz 配置都是 server 级的；如果其他路由需要不同的行为，请为 ACP 路由使用独立宿主。
+
+两种 adapter 默认都使用底层 WebSocket 库的安全同源策略。只有在需要明确的 origin allowlist、压缩、buffer 或 subprotocol 时才传自定义 upgrader；浏览器可访问的服务不要使用无条件 `CheckOrigin: return true`。
+
+**Gin 宿主：**
+
+```go
+core, err := acpserver.NewACPServer(factory)
+if err != nil { log.Fatal(err) }
+
+router := ginframework.New()
+router.Any(acpserver.DefaultEndpoint, acpservergin.New(core))
+host := &http.Server{Addr: ":8080", Handler: router}
+```
+
+核心 Option 如下；origin、buffer、compression、subprotocol 和 upgrader 等框架配置属于 `server/hertz` 或 `server/gin`，不属于 `server.ACPServer`。
+
+| Core Option | 默认 | 说明 |
 | --- | --- | --- |
-| `server.WithEndpoint(path)` | `/acp` | 路由路径；自动规范化（补前导 `/`、去尾 `/`） |
 | `server.WithRequestTimeout(d)` | 5 min | 单个 inbound handler 的 ctx deadline，同时作用于 HTTP POST 的最终响应等待时间与 WS `AgentConnection` 的每个请求处理；0 = 不限 |
 | `server.WithConnectionIdleTimeout(d)` | 5 min | HTTP 连接空闲驱逐；0 或负值 = 不驱逐 |
 | `server.WithMaxHTTPMessageSize(n)` | 10 MB | POST body 上限；超过返回 413 |
 | `server.WithPendingQueueSize(n)` | 1024 | 会话创建后、GET SSE 建立前的消息缓冲 |
 | `server.WithMaxInflightDispatch(n)` | 4096 | 单条 HTTP 连接并发 dispatch 上限；超限返回 503；负数 = 不限 |
-| `server.WithWebSocketUpgrader(u)` | `websocket.HertzUpgrader{}` | 自定义 subprotocols / origin 校验 |
 | `server.WithWebSocketReadTimeout(d)` | 0（禁用） | 初始化完成后的读 deadline；Ping 和 data frame 都会刷新；超时按 `1001` 关闭 |
 | `server.WithWebSocketInitializeTimeout(d)` | 15 s | upgrade 后等待 initialize 请求的 deadline；超时按 `4000` 关闭 |
 | `server.WithNotificationErrorHandler(fn)` | 无 | WS 通知失败回调（HTTP 不触发——HTTP direct-dispatch 无读循环，通知错只会记日志） |
+
+| Adapter Option | 默认 | 说明 |
+| --- | --- | --- |
+| `server/hertz.WithUpgrader(u)` | 零值 `websocket.HertzUpgrader` | Hertz origin 校验、buffer、compression 与 subprotocol |
+| `server/gin.WithUpgrader(u)` | 零值 `gorilla/websocket.Upgrader` | Gin/Gorilla origin 校验、buffer、compression 与 subprotocol |
+
+**生命周期：**adapter 不拥有资源，也没有关闭方法。停机时先调用 `core.Close()` 拒绝新连接并取消活跃工作，再关闭 Hertz 或 `net/http` 宿主，让 pending handler/upgrade 得到真实结果，最后调用带 context 的 `core.Shutdown` 等待 registry 排空。只关闭宿主 server 不足以覆盖已 hijack 的 WebSocket。
+
+Hertz WebSocket 宿主必须设置 `NoHijackConnPool = true`；该要求与上面的 Hertz 请求体配置相互独立。Gin 使用标准 `net/http` 栈上的 Gorilla WebSocket，支持常规 HTTP/1.1 upgrade；本 SDK 不承诺 HTTP/2 extended CONNECT。Streamable HTTP 位于反向代理之后时，应关闭 SSE 路由的响应缓冲，让代理和宿主 write/idle timeout 长于预期 SSE 生命周期/keepalive 行为，并配置 sticky 路由，确保携带同一 `Acp-Connection-Id` 的请求命中同一后端。
 
 **WebSocket 心跳保活（Server）**
 
@@ -612,7 +660,7 @@ Server 依赖 **Client 主动发送 Ping** 作为心跳：
 
 #### 5.3.2 Streamable HTTP 路由规则
 
-ACPServer 内部根据 HTTP 方法和 header 做路由：
+adapter 将请求交给 `ACPServer`，后者根据 HTTP 方法和 header 做路由。下表路径仅作示意，实际路径是宿主注册的路由。
 
 | 方法 | 场景 | 行为 |
 | --- | --- | --- |
@@ -620,6 +668,8 @@ ACPServer 内部根据 HTTP 方法和 header 做路由：
 | `POST /acp` | 已有连接（带 `Acp-Connection-Id`） | 复用连接，将 body 直接投递给该连接 |
 | `GET /acp` | 带 `Acp-Connection-Id` 和 `Acp-Session-Id` | 开启该 Session 的 SSE listener，用于服务端推送反向 Request/Notification |
 | `DELETE /acp` | 带 `Acp-Connection-Id` | 关闭连接，释放资源 |
+
+POST 与 GET 有意采用不同的 `Accept` 兼容规则。为兼容已有调用方，POST 继续允许缺少 `Accept` header；但最终协商结果必须同时允许 `application/json` 和 `text/event-stream`。匹配媒体范围的 `q=0` 表示不可接受，且更具体的范围优先于通配符。GET 则严格遵循 Active RFD 契约：必须显式携带允许 `text/event-stream` 的 `Accept`。缺少该 header、只接受其他媒体类型，或 SSE 的最终质量值为 `q=0` 时，服务端会在查找 connection/session 或开始任何 SSE 输出之前返回 `406 Not Acceptable`。
 
 Pending queue（默认 1024）的作用：会话创建完成但客户端尚未开 GET SSE 前，服务端先把反向消息暂存，避免丢。客户端连上 GET 后会一次性下发。**超过 `WithPendingQueueSize` 配置的条数未消费**会关闭该 Session 并返回错误，而不是仅丢弃单条消息；业务方如果预期会有大量反向消息，请把 `WithPendingQueueSize` 调大。
 
@@ -631,35 +681,39 @@ Pending queue（默认 1024）的作用：会话创建完成但客户端尚未�
 
 #### 5.4.1 部署约束
 
-> **`server.ACPServer` 与 `proxy.ACPProxy` 默认都使用 `/acp`。**如果挂在同一 Hertz 路由器上而不改 endpoint，会在路由注册阶段冲突；如果确实要共存，请显式改成不同路径。
+> **`server` 与 `proxy` 包都导出 `DefaultEndpoint == "/acp"` 作为路由注册约定。**core 本身不拥有路由；两个 handler 共用同一 Hertz 或 Gin router 时，请把它们注册到不同路径。
 
 #### 5.4.2 基本用法
 
 ```go
-import hertzserver "github.com/cloudwego/hertz/pkg/app/server"
+factory := &MyStreamerFactory{...} // 实现 acpstream.StreamerFactory
 
-func main() {
-	factory := &MyStreamerFactory{...} // 实现 acpstream.StreamerFactory
+core, err := acpproxy.NewACPProxy(factory,
+	acpproxy.WithMetadataExtractor(
+		acpproxy.ForwardHeaders("Authorization", "X-Tenant-Id"),
+	),
+	acpproxy.WithMaxConcurrentConnections(10000),
+	acpproxy.WithHandshakeTimeout(15*time.Second),
+	acpproxy.WithWebSocketWriteTimeout(30*time.Second),
+	acpproxy.WithWebSocketFirstFrameTimeout(15*time.Second),
+	// 仅当所有上游 Client 都会发送 WS Ping 或周期性 data frame 后，再启用读超时。
+	// acpproxy.WithWebSocketReadTimeout(75*time.Second),
+	acpproxy.WithMaxMessageSize(10*1024*1024),
+)
+if err != nil { log.Fatal(err) }
 
-	p, err := acpproxy.NewACPProxy(factory,
-		acpproxy.WithEndpoint("/acp"),
-		acpproxy.WithHeaderForwarder(acpproxy.ForwardHeaders("Authorization", "X-Tenant-Id")),
-		acpproxy.WithMaxConcurrentConnections(10000),
-		acpproxy.WithHandshakeTimeout(15*time.Second),
-		acpproxy.WithWebSocketWriteTimeout(30*time.Second),
-		acpproxy.WithWebSocketFirstFrameTimeout(15*time.Second),
-		// 仅当所有上游 Client 都会发送 WS Ping 或周期性 data frame 后，再启用读超时。
-		// acpproxy.WithWebSocketReadTimeout(75*time.Second),
-		acpproxy.WithMaxMessageSize(10*1024*1024),
-	)
-	if err != nil { log.Fatal(err) }
+// Hertz 宿主
+srv := hertzserver.New(hertzserver.WithHostPorts(":8080"))
+srv.NoHijackConnPool = true
+srv.Any(acpproxy.DefaultEndpoint, acpproxyhertz.New(core))
 
-	srv := hertzserver.New(hertzserver.WithHostPorts(":8080"))
-	srv.NoHijackConnPool = true
-	p.Mount(srv)
-	srv.Spin()
-}
+// 或使用标准 net/http server 上的 Gin
+router := ginframework.New()
+router.Any(acpproxy.DefaultEndpoint, acpproxygin.New(core))
+host := &http.Server{Addr: ":8080", Handler: router}
 ```
+
+实际进程只选择其中一段宿主代码。需要自定义 origin、buffer、compression 或 subprotocol 时，分别传 `proxy/hertz.WithUpgrader(...)` 或 `proxy/gin.WithUpgrader(...)`。与 `ACPServer` 一样，应先调用 `core.Close()`，再关闭所选宿主，最后调用 `core.Shutdown(ctx)` 等待下游 factory、Streamer、pump 与 pending upgrade outcome 全部退出 registry。
 
 #### 5.4.3 Streamer 接口
 
@@ -686,31 +740,31 @@ type StreamerFactory interface {
 - **不要自己加超时**：ctx 只约束当前调用；长连接生命周期完全依赖 `Close`。
 - **clean close 返回 `io.EOF`**：Streamer 调用方可用 `errors.Is(err, io.EOF)` 识别。
 
-#### 5.4.4 HeaderForwarder
+#### 5.4.4 Metadata 提取
 
 Proxy 自己不解析 ACP 协议，但需要转发鉴权 / 租户 / traceId 等 HTTP header 到下游：
 
 ```go
-acpproxy.WithHeaderForwarder(acpproxy.ForwardHeaders("Authorization", "X-Tenant-Id", "X-Request-Id"))
+acpproxy.WithMetadataExtractor(
+	acpproxy.ForwardHeaders("Authorization", "X-Tenant-Id", "X-Request-Id"),
+)
 ```
 
 或自定义：
 
 ```go
-acpproxy.WithHeaderForwarder(func(c *app.RequestContext) map[string]string {
+acpproxy.WithMetadataExtractor(func(ctx context.Context, headers acpproxy.HeaderGetter) map[string]string {
 	meta := map[string]string{
-		"trace_id": genTraceID(c),
+		"trace_id": traceIDFromContext(ctx),
 	}
-	if tok := string(c.GetHeader("Authorization")); tok != "" {
+	if tok := headers.Get("Authorization"); tok != "" {
 		meta["token"] = tok
 	}
 	return meta
 })
 ```
 
-注意：
-- 回调运行在 Hertz handler 同 goroutine，**不要做耗时操作**。
-- 返回的 map 之后归 Proxy 所有，回调方不要再修改。
+extractor 与框架无关，接收保留 request-context values 的连接级 context 和只读 header accessor；Proxy 会立即复制返回的 map。提取逻辑应保持轻量；middleware 中需要传入的值，应在进入 ACP handler 前写入 handler 的标准 request context 或请求头。
 
 #### 5.4.5 Keepalive & 连接健康
 
@@ -738,6 +792,8 @@ Proxy 依赖 **Client 主动 Ping** 实现心跳（不再由 Proxy 主动发 Pin
 
 Proxy 的关键不变量：**一条 Client WS ↔ 一个 Streamer**，独立的 up/down 两条 pump goroutine，跨连接互不影响。
 
+这里的透明保证是 **payload 字节透明**，不是 WebSocket frame type 透明：北向 text 与 binary data frame 都会被接受，其 payload 原样交给 `Streamer`；由于 `Streamer` 接口不携带 frame type，下游 `Streamer` payload 统一写成 WebSocket text frame。Ping、Pong、Close 保留在 WebSocket 边界。
+
 #### 5.4.7 北向仅 WS，不支持 HTTP
 
 Proxy 刻意**不支持** Streamable HTTP 作为北向入口：Streamable HTTP 由多个独立 HTTP 请求（POST / GET / DELETE）组成，需要按 `Acp-Connection-Id` header 做 sticky 路由到同一后端；Proxy 在不解析协议的前提下无法保证这种亲和性，与**只搬字节、不看协议**的定位冲突。非 WS 请求会直接返回 `400 Bad Request`：
@@ -747,6 +803,23 @@ proxy endpoint only supports WebSocket
 ```
 
 如果你需要既支持 HTTP 又要有代理能力，让下游直接对接 ACPServer；Proxy 只负责 WS 这一条路。
+
+### 5.5 迁移到宿主路由适配器
+
+Hertz/Gin 重构移除了下列旧入口。左栏名称仅用于帮助现有调用方迁移，新代码不要继续使用。
+
+| 已移除 API | 当前 API |
+| --- | --- |
+| `(*server.ACPServer).Handler()` | `acpserverhertz.New(core)` 或 `acpservergin.New(core)` |
+| `(*server.ACPServer).Mount(router)` | `router.Any(path, acpserverhertz.New(core))` 或 `router.Any(path, acpservergin.New(core))` |
+| `server.WithEndpoint(path)` | 把 adapter handler 注册到 `path`；约定的 `/acp` 使用 `server.DefaultEndpoint` |
+| `server.WithWebSocketUpgrader(u)` | 构造 adapter 时使用 `server/hertz.WithUpgrader(u)` 或 `server/gin.WithUpgrader(u)` |
+| `(*proxy.ACPProxy).Handler()` | `acpproxyhertz.New(core)` 或 `acpproxygin.New(core)` |
+| `(*proxy.ACPProxy).Mount(router)` | `router.Any(path, acpproxyhertz.New(core))` 或 `router.Any(path, acpproxygin.New(core))` |
+| `proxy.WithEndpoint(path)` | 把 adapter handler 注册到 `path`；约定的 `/acp` 使用 `proxy.DefaultEndpoint` |
+| `proxy.WithHeaderForwarder(f)` / `proxy.HeaderForwarder` | `proxy.WithMetadataExtractor(f)` / `proxy.MetadataExtractor`；按名称复制 header 时使用 `proxy.WithMetadataExtractor(proxy.ForwardHeaders(...))` |
+
+上表中的 adapter `New` 函数返回框架原生 handler，并不会再创建一套 Server/Proxy runtime。框架无关 core 继续负责运行时状态和 `Close`/`Shutdown`；adapter 只负责框架 handler 与 upgrader 配置，宿主负责路由注册和 HTTP server 的关闭。
 
 ## 6. 其他
 
@@ -931,10 +1004,17 @@ acp/
 │   ├── stdio/                                     // newline-delimited JSON
 │   ├── http/client/                               // Streamable HTTP 客户端
 │   └── ws/                                        // WebSocket 客户端
-├── server/                                        // Hertz 服务端 (HTTP + WS)
-├── proxy/                                         // 透明 WS 代理
+├── server/                                        // 框架无关的 ACPServer core
+│   ├── hertz/                                     // Hertz handler + upgrader option
+│   └── gin/                                       // Gin/net/http + Gorilla adapter
+├── proxy/                                         // 框架无关的透明 WS proxy core
+│   ├── hertz/                                     // Hertz 北向 adapter
+│   └── gin/                                       // Gin/Gorilla 北向 adapter
 ├── stream/                                        // Proxy ↔ AgentServer 的 Streamer 抽象
-├── examples/                                      // agent / client / proxy 三个可运行示例
+├── examples/
+│   ├── agent/                                     // stdio 或 Hertz/Gin 宿主 ACPServer
+│   ├── client/                                    // stdio、Streamable HTTP 或 WS Client
+│   └── proxy/                                     // 北向 Hertz/Gin；南向 Hertz 示例
 └── cmd/generate/                                  // Schema 驱动代码生成
 ```
 
@@ -942,6 +1022,8 @@ acp/
 
 - **「请求超时但 Agent 其实已经处理完了」**：检查服务端 `WithRequestTimeout`（默认 HTTP 5min）和客户端 ctx deadline；HTTP 长任务把 server 超时调大即可。
 - **「session/update 丢失」**：多半是 HTTP GET SSE 未建立就发了通知；SDK 会先走 pendingQueue（默认 1024）。如果堆满，不是简单丢一条消息，而是会关闭该 Session 并返回错误。调大 `WithPendingQueueSize` 或确保先 `NewSession` 再推送。
-- **「WebSocket 建连就断」**：99% 是 Hertz 没设 `NoHijackConnPool = true`。
+- **「WebSocket 建连就断」**：Hertz 先检查 `NoHijackConnPool = true`；Gin 则确认宿主使用标准 `net/http` HTTP/1.1 upgrade，且反向代理透传 WebSocket 握手头。
+- **「SSE 事件成批到达或 listener 被断开」**：关闭 SSE 路由的反向代理缓冲，延长代理/宿主 write 与 idle timeout，并让同一 `Acp-Connection-Id` 的请求始终命中同一后端。
+- **「进程停止但 ACP 连接仍未退出」**：需要协调两层生命周期——调用 `ACPServer.Shutdown(ctx)` 或 `ACPProxy.Shutdown(ctx)`，同时关闭 Hertz 或 `net/http` 宿主。
 - **「Close 后 goroutine 泄漏」**：确保调用了 `conn.Close()`；stdio 额外要确保底层 reader/writer 被关（`cmd.Wait()` 回收子进程管道）。
 - **「扩展消息路由错到别的 session」**：HTTP 下务必在 params 里带 `sessionId`。

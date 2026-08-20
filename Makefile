@@ -4,6 +4,7 @@ GO ?= go
 AGENT_ADDR ?= :18080
 PROXY_LISTEN ?= :8080
 PROXY_AGENT_LISTEN ?= :9090
+HTTP_FRAMEWORK ?= hertz
 
 # gen regenerates the SDK from the checked-in schema snapshots under
 # cmd/generate/schema/. This is deterministic and offline — CI and local
@@ -44,7 +45,7 @@ build:
 	$(GO) build -o bin/proxy ./examples/proxy
 
 run-agent: build
-	./bin/agent -transport=http -listen=$(AGENT_ADDR)
+	./bin/agent -transport=http -http-framework=$(HTTP_FRAMEWORK) -listen=$(AGENT_ADDR)
 
 run-client: build
 	./bin/client -transport=ws ws://localhost$(AGENT_ADDR)
@@ -54,26 +55,28 @@ run-stdio: build
 	@./bin/client -transport=spawn ./bin/agent
 
 run-http: build
-	@-lsof -t -i $(AGENT_ADDR) | xargs -r kill -9 2>/dev/null
-	@echo "Starting agent on $(AGENT_ADDR) ..."
-	@./bin/agent -transport=http -listen=$(AGENT_ADDR) &
-	@sleep 1
-	@echo "Starting client ..."
-	@./bin/client -transport=http http://localhost$(AGENT_ADDR); \
-	EXIT_CODE=$$?; \
-	kill %1 2>/dev/null; \
-	exit $$EXIT_CODE
+	@set -e; \
+		agent_pid=; \
+		cleanup() { status=$$?; trap - EXIT INT TERM; if [ -n "$$agent_pid" ]; then kill "$$agent_pid" 2>/dev/null || true; wait "$$agent_pid" 2>/dev/null || true; fi; exit $$status; }; \
+		trap cleanup EXIT INT TERM; \
+		echo "Starting agent on $(AGENT_ADDR) ..."; \
+		./bin/agent -transport=http -http-framework=$(HTTP_FRAMEWORK) -listen=$(AGENT_ADDR) & \
+		agent_pid=$$!; \
+		sleep 1; \
+		echo "Starting client ..."; \
+		./bin/client -transport=http http://localhost$(AGENT_ADDR)
 
 run-ws: build
-	@-lsof -t -i $(AGENT_ADDR) | xargs -r kill -9 2>/dev/null
-	@echo "Starting agent on $(AGENT_ADDR) ..."
-	@./bin/agent -transport=http -listen=$(AGENT_ADDR) &
-	@sleep 1
-	@echo "Starting client ..."
-	@./bin/client -transport=ws ws://localhost$(AGENT_ADDR); \
-	EXIT_CODE=$$?; \
-	kill %1 2>/dev/null; \
-	exit $$EXIT_CODE
+	@set -e; \
+		agent_pid=; \
+		cleanup() { status=$$?; trap - EXIT INT TERM; if [ -n "$$agent_pid" ]; then kill "$$agent_pid" 2>/dev/null || true; wait "$$agent_pid" 2>/dev/null || true; fi; exit $$status; }; \
+		trap cleanup EXIT INT TERM; \
+		echo "Starting agent on $(AGENT_ADDR) ..."; \
+		./bin/agent -transport=http -http-framework=$(HTTP_FRAMEWORK) -listen=$(AGENT_ADDR) & \
+		agent_pid=$$!; \
+		sleep 1; \
+		echo "Starting client ..."; \
+		./bin/client -transport=ws ws://localhost$(AGENT_ADDR)
 
 # run-proxy brings up the full Client → Proxy → AgentServer → Agent chain in
 # one shot. The proxy binary runs with -role=all so both the proxy (on
@@ -81,13 +84,13 @@ run-ws: build
 # the same process. The example client then connects to the proxy at /acp,
 # completely unaware of the agent-server's existence.
 run-proxy: build
-	@-lsof -t -i $(PROXY_LISTEN) | xargs -r kill -9 2>/dev/null
-	@-lsof -t -i $(PROXY_AGENT_LISTEN) | xargs -r kill -9 2>/dev/null
-	@echo "Starting proxy (role=all) on $(PROXY_LISTEN); upstream agent-server on $(PROXY_AGENT_LISTEN) ..."
-	@./bin/proxy -role=all -proxy-listen=$(PROXY_LISTEN) -agent-listen=$(PROXY_AGENT_LISTEN) &
-	@sleep 1
-	@echo "Starting client ..."
-	@./bin/client -transport=ws ws://localhost$(PROXY_LISTEN); \
-	EXIT_CODE=$$?; \
-	kill %1 2>/dev/null; \
-	exit $$EXIT_CODE
+	@set -e; \
+		proxy_pid=; \
+		cleanup() { status=$$?; trap - EXIT INT TERM; if [ -n "$$proxy_pid" ]; then kill "$$proxy_pid" 2>/dev/null || true; wait "$$proxy_pid" 2>/dev/null || true; fi; exit $$status; }; \
+		trap cleanup EXIT INT TERM; \
+		echo "Starting proxy (role=all) on $(PROXY_LISTEN); upstream agent-server on $(PROXY_AGENT_LISTEN) ..."; \
+		./bin/proxy -role=all -http-framework=$(HTTP_FRAMEWORK) -proxy-listen=$(PROXY_LISTEN) -agent-listen=$(PROXY_AGENT_LISTEN) & \
+		proxy_pid=$$!; \
+		sleep 1; \
+		echo "Starting client ..."; \
+		./bin/client -transport=ws ws://localhost$(PROXY_LISTEN)

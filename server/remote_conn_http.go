@@ -14,6 +14,7 @@ import (
 	acphttpserver "github.com/eino-contrib/acp/internal/httpserver"
 	"github.com/eino-contrib/acp/internal/jsonrpc"
 	acplog "github.com/eino-contrib/acp/internal/log"
+	"github.com/eino-contrib/acp/internal/safe"
 	acptransport "github.com/eino-contrib/acp/transport"
 )
 
@@ -24,6 +25,7 @@ type httpRemoteConnection struct {
 	done       chan struct{}
 	once       sync.Once
 	closeErr   error // cached error from the first Close call
+	release    func()
 
 	httpConn     *acphttpserver.Connection
 	pendingReqs  *acphttpserver.PendingRequests
@@ -61,15 +63,26 @@ func (c *httpRemoteConnection) Close() error {
 			}
 		}
 
-		if err := c.conn.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("close agent connection %s: %w", c.id, err))
-		}
-
-		if c.httpConn != nil {
-			acphttpserver.CloseConnection(c.httpConn)
+		if c.conn != nil {
+			if err := c.conn.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("close agent connection %s: %w", c.id, err))
+			}
 		}
 
 		c.closeErr = errors.Join(errs...)
+		if c.release != nil {
+			release := c.release
+			safe.Go(func() {
+				if c.httpConn != nil {
+					acphttpserver.CloseConnection(c.httpConn)
+					c.httpConn.WaitHandlers()
+					c.httpConn.WaitClosed()
+				}
+				release()
+			})
+		} else if c.httpConn != nil {
+			safe.Go(func() { acphttpserver.CloseConnection(c.httpConn) })
+		}
 	})
 	return c.closeErr
 }

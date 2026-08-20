@@ -54,6 +54,14 @@ func TestWebSocketOptionDefaults(t *testing.T) {
 	}
 }
 
+func TestNewACPServerIgnoresNilOption(t *testing.T) {
+	srv, err := NewACPServer(func(context.Context) acp.Agent { return &acp.BaseAgent{} }, nil)
+	if err != nil {
+		t.Fatalf("NewACPServer: %v", err)
+	}
+	defer srv.Close()
+}
+
 func TestWebSocketOptionNegativeIgnored(t *testing.T) {
 	factory := func(ctx context.Context) acp.Agent {
 		return &acp.BaseAgent{}

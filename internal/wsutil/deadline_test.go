@@ -10,7 +10,7 @@ import (
 )
 
 // fakeNetError is a net.Error stub used to drive IsControlWriteContention
-// without depending on hertz-contrib/websocket internals.
+// without depending on either adapter's WebSocket library internals.
 type fakeNetError struct {
 	msg     string
 	timeout bool
@@ -40,23 +40,23 @@ func TestIsControlWriteContention(t *testing.T) {
 		}
 	})
 
-	// The hertz-contrib/websocket library returns errWriteTimeout (a
+	// Both supported Gorilla-family WebSocket libraries return errWriteTimeout (a
 	// net.Error with msg="websocket: write timeout") only when WriteControl
 	// could not acquire the connection's shared internal write lock within
 	// the deadline. The connection is still usable in that case, so this
 	// is the only Timeout() path we are willing to swallow.
-	t.Run("hertz_write_lock_timeout_is_contention", func(t *testing.T) {
+	t.Run("websocket_write_lock_timeout_is_contention", func(t *testing.T) {
 		err := &fakeNetError{msg: "websocket: write timeout", timeout: true}
 		if !IsControlWriteContention(err) {
-			t.Fatal("hertz write-lock timeout must be classified as contention")
+			t.Fatal("websocket write-lock timeout must be classified as contention")
 		}
 	})
 
-	t.Run("hertz_write_lock_timeout_wrapped", func(t *testing.T) {
+	t.Run("websocket_write_lock_timeout_wrapped", func(t *testing.T) {
 		inner := &fakeNetError{msg: "websocket: write timeout", timeout: true}
 		err := fmt.Errorf("ping write: %w", inner)
 		if !IsControlWriteContention(err) {
-			t.Fatal("wrapped hertz write-lock timeout must still be classified as contention")
+			t.Fatal("wrapped websocket write-lock timeout must still be classified as contention")
 		}
 	})
 
@@ -80,7 +80,7 @@ func TestIsControlWriteContention(t *testing.T) {
 	})
 
 	t.Run("generic_timeout_message_is_not_contention", func(t *testing.T) {
-		// Anything that is Timeout() but does not carry the hertz lock-wait
+		// Anything that is Timeout() but does not carry the lock-wait
 		// sentinel is treated as a real failure.
 		err := &fakeNetError{msg: "i/o timeout", timeout: true}
 		if IsControlWriteContention(err) {
@@ -88,14 +88,14 @@ func TestIsControlWriteContention(t *testing.T) {
 		}
 	})
 
-	t.Run("timeout_message_with_hertz_prefix_is_not_contention", func(t *testing.T) {
+	t.Run("timeout_message_with_prefix_is_not_contention", func(t *testing.T) {
 		err := &fakeNetError{msg: "wrapped: websocket: write timeout", timeout: true}
 		if IsControlWriteContention(err) {
 			t.Fatal("prefixed timeout message must not be classified as contention")
 		}
 	})
 
-	t.Run("timeout_message_with_hertz_suffix_is_not_contention", func(t *testing.T) {
+	t.Run("timeout_message_with_suffix_is_not_contention", func(t *testing.T) {
 		err := &fakeNetError{msg: "websocket: write timeout: socket write failed", timeout: true}
 		if IsControlWriteContention(err) {
 			t.Fatal("suffixed timeout message must not be classified as contention")

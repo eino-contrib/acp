@@ -449,7 +449,19 @@ func (t *ClientTransport) SessionListenerHook(connspi.SessionListenerHookKey) *c
 			}
 			return t.startListener(ctx, sessionID, onFailure)
 		},
-		Stop: func() {
+		BeginClose: func(sessionID string) bool {
+			return t.listeners.BeginClose(sessionID)
+		},
+		CompleteClose: func(sessionID string) {
+			t.listeners.CompleteClose(sessionID)
+		},
+		ForceClose: func(sessionID string) {
+			closeClientListener(t.listeners.ForceClose(sessionID))
+		},
+		AbortClose: func(sessionID string) bool {
+			return t.listeners.AbortClose(sessionID)
+		},
+		StopAll: func() {
 			t.listeners.StopAll()
 		},
 	}
@@ -551,9 +563,17 @@ func (t *ClientTransport) readSSELoopWithReconnect(ctx context.Context, cancel c
 	if transportClosed {
 		return
 	}
+	if listener := t.listeners.DetachIfClosing(sessionID, body); listener != nil {
+		closeClientListener(listener)
+		return
+	}
 
 	cfg := t.reconnect
 	if cfg == nil {
+		if listener := t.listeners.DetachIfClosing(sessionID, body); listener != nil {
+			closeClientListener(listener)
+			return
+		}
 		// No reconnect configured. The stream ended and we have no way to
 		// recover, so surface it by tearing down this session's listener.
 		// The transport stays usable for other sessions and POSTs; see
@@ -564,6 +584,10 @@ func (t *ClientTransport) readSSELoopWithReconnect(ctx context.Context, cancel c
 
 	delay := cfg.baseDelay
 	for attempt := 0; cfg.maxRetries < 0 || attempt < cfg.maxRetries; attempt++ {
+		if listener := t.listeners.DetachIfClosing(sessionID, currentBody); listener != nil {
+			closeClientListener(listener)
+			return
+		}
 		// Check for cancellation / transport shutdown before sleeping.
 		select {
 		case <-ctx.Done():
@@ -580,6 +604,10 @@ func (t *ClientTransport) readSSELoopWithReconnect(ctx context.Context, cancel c
 		case <-ctx.Done():
 			return
 		case <-t.done:
+			return
+		}
+		if listener := t.listeners.DetachIfClosing(sessionID, currentBody); listener != nil {
+			closeClientListener(listener)
 			return
 		}
 
@@ -612,6 +640,10 @@ func (t *ClientTransport) readSSELoopWithReconnect(ctx context.Context, cancel c
 		if transportClosed {
 			return
 		}
+		if listener := t.listeners.DetachIfClosing(sessionID, newBody); listener != nil {
+			closeClientListener(listener)
+			return
+		}
 	}
 
 	t.failListener(ctx, sessionID, sseDisconnectReason(readErr, fmt.Sprintf("max reconnect retries (%d) exhausted", cfg.maxRetries)))
@@ -630,9 +662,15 @@ func (t *ClientTransport) failListener(ctx context.Context, sessionID string, ca
 	if ctx.Err() != nil || t.isClosed() {
 		return
 	}
-	acplog.CtxWarn(ctx, "GET SSE listener for session %s permanently failed: %v; server-initiated messages for this session will stop", sessionID, cause)
+	closing := t.listeners.IsClosing(sessionID)
 	listener := t.listeners.DetachSession(sessionID)
 	closeClientListener(listener)
+	if closing {
+		// A disconnect after session/close intent is an expected terminal event,
+		// not a listener failure. Suppress both reconnect and the user callback.
+		return
+	}
+	acplog.CtxWarn(ctx, "GET SSE listener for session %s permanently failed: %v; server-initiated messages for this session will stop", sessionID, cause)
 	if listener != nil && listener.onFailure != nil {
 		// Run user-supplied callback in a separate goroutine so a slow or
 		// panicking handler never blocks or crashes the SSE reader tear-down.
@@ -861,11 +899,13 @@ func (t *ClientTransport) applyCustomHeaders(req *http.Request) {
 type clientListenerRegistry struct {
 	mu        sync.Mutex
 	listeners map[string]*clientListener
+	closing   map[string]bool
 }
 
 func newClientListenerRegistry() clientListenerRegistry {
 	return clientListenerRegistry{
 		listeners: make(map[string]*clientListener),
+		closing:   make(map[string]bool),
 	}
 }
 
@@ -877,10 +917,73 @@ func (r *clientListenerRegistry) Replace(sessionID string, listener *clientListe
 	return replaced
 }
 
+func (r *clientListenerRegistry) BeginClose(sessionID string) bool {
+	r.mu.Lock()
+	listener := r.listeners[sessionID]
+	if listener != nil {
+		r.closing[sessionID] = true
+	}
+	r.mu.Unlock()
+	return listener != nil
+}
+
+func (r *clientListenerRegistry) AbortClose(sessionID string) bool {
+	r.mu.Lock()
+	listener := r.listeners[sessionID]
+	delete(r.closing, sessionID)
+	r.mu.Unlock()
+	return listener != nil
+}
+
+// CompleteClose commits terminal intent without force-closing the current GET
+// body. The server drains accepted SSE messages and then ends the stream;
+// letting the reader consume through EOF prevents a close response racing the
+// final notification on a different TCP connection from discarding that
+// notification locally. DetachIfClosing owns the eventual body cleanup.
+func (r *clientListenerRegistry) CompleteClose(sessionID string) {
+	r.mu.Lock()
+	listener := r.listeners[sessionID]
+	if listener == nil {
+		delete(r.closing, sessionID)
+	} else {
+		r.closing[sessionID] = true
+	}
+	r.mu.Unlock()
+}
+
+func (r *clientListenerRegistry) ForceClose(sessionID string) *clientListener {
+	r.mu.Lock()
+	listener := r.listeners[sessionID]
+	delete(r.listeners, sessionID)
+	delete(r.closing, sessionID)
+	r.mu.Unlock()
+	return listener
+}
+
+func (r *clientListenerRegistry) DetachIfClosing(sessionID string, body io.Closer) *clientListener {
+	r.mu.Lock()
+	listener := r.listeners[sessionID]
+	if listener != nil && listener.body == body && r.closing[sessionID] {
+		delete(r.listeners, sessionID)
+	} else {
+		listener = nil
+	}
+	r.mu.Unlock()
+	return listener
+}
+
+func (r *clientListenerRegistry) IsClosing(sessionID string) bool {
+	r.mu.Lock()
+	closing := r.closing[sessionID]
+	r.mu.Unlock()
+	return closing
+}
+
 func (r *clientListenerRegistry) StopAll() {
 	r.mu.Lock()
 	all := r.listeners
 	r.listeners = make(map[string]*clientListener)
+	r.closing = make(map[string]bool)
 	r.mu.Unlock()
 
 	for _, listener := range all {

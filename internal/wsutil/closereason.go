@@ -19,13 +19,13 @@ const MaxCloseReasonBytes = 123
 // non-ASCII input (Chinese, emoji, ...) can silently corrupt the close
 // handshake. Always route outbound reason strings through this helper.
 func SafeCloseReason(s string) string {
-	if len(s) <= MaxCloseReasonBytes {
+	if len(s) <= MaxCloseReasonBytes && utf8.ValidString(s) {
 		return s
 	}
 	const suffix = "..."
 	limit := MaxCloseReasonBytes - len(suffix)
 	end := 0
-	for end < limit {
+	for end < len(s) && end < limit {
 		r, size := utf8.DecodeRuneInString(s[end:])
 		if size == 0 {
 			break
@@ -40,6 +40,9 @@ func SafeCloseReason(s string) string {
 			break
 		}
 		end += size
+	}
+	if end == len(s) {
+		return s
 	}
 	return s[:end] + suffix
 }
