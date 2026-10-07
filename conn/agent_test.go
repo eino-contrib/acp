@@ -1,14 +1,19 @@
 package conn
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	acp "github.com/eino-contrib/acp"
+	acplog "github.com/eino-contrib/acp/internal/log"
 )
 
 type channelTransport struct {
@@ -127,5 +132,143 @@ func TestAgentSideConnectionReportsUnimplementedSessionCancel(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected session/cancel to report unimplemented handler")
+	}
+}
+
+// agentWireCanary is planted in the probe agent's error; the wire JSON must
+// never contain it when sanitization is enabled.
+const agentWireCanary = "agent-wire-canary-6e2d"
+
+type optionProbeAgent struct {
+	acp.BaseAgent
+}
+
+func (optionProbeAgent) Prompt(context.Context, acp.PromptRequest) (acp.PromptResponse, error) {
+	return acp.PromptResponse{}, errors.New(agentWireCanary)
+}
+
+// captureLogger records formatted log lines so tests can assert on them.
+type captureLogger struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *captureLogger) record(format string, v ...any) {
+	l.mu.Lock()
+	l.lines = append(l.lines, fmt.Sprintf(format, v...))
+	l.mu.Unlock()
+}
+
+func (l *captureLogger) Debug(format string, v ...any) { l.record(format, v...) }
+func (l *captureLogger) Info(format string, v ...any)  { l.record(format, v...) }
+func (l *captureLogger) Warn(format string, v ...any)  { l.record(format, v...) }
+func (l *captureLogger) Error(format string, v ...any) { l.record(format, v...) }
+func (l *captureLogger) CtxDebug(_ context.Context, format string, v ...any) {
+	l.record(format, v...)
+}
+func (l *captureLogger) CtxInfo(_ context.Context, format string, v ...any) {
+	l.record(format, v...)
+}
+func (l *captureLogger) CtxWarn(_ context.Context, format string, v ...any) {
+	l.record(format, v...)
+}
+func (l *captureLogger) CtxError(_ context.Context, format string, v ...any) {
+	l.record(format, v...)
+}
+
+func (l *captureLogger) contains(substr string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, line := range l.lines {
+		if strings.Contains(line, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestAgentConnectionOptionsApplyAndSanitize drives a session/prompt frame
+// through NewAgentConnectionFromTransport with every agent option set. It
+// asserts the wire error is opaque (sanitization plumbed through), that the
+// connection label reaches the handler-error log line, and that the
+// notification-error handler is invoked.
+func TestAgentConnectionOptionsApplyAndSanitize(t *testing.T) {
+	prevLogger := acplog.Get()
+	prevLevel := acplog.GetLevel()
+	capture := &captureLogger{}
+	acplog.Set(capture)
+	acplog.SetLevel(acplog.LevelDebug)
+	t.Cleanup(func() {
+		acplog.Set(prevLogger)
+		acplog.SetLevel(prevLevel)
+	})
+
+	transport := newChannelTransport()
+	notifyErrors := make(chan error, 1)
+	conn := NewAgentConnectionFromTransport(optionProbeAgent{}, transport,
+		WithAgentMaxConsecutiveParseErrors(10),
+		WithAgentRequestTimeout(2*time.Second),
+		WithAgentRequestWorkers(4),
+		WithAgentMaxPendingDispatch(64),
+		WithAgentShutdownTimeout(2*time.Second),
+		WithAgentConnectionLabel("agent-options-test"),
+		WithAgentNotificationErrorHandler(func(_ string, err error) {
+			notifyErrors <- err
+		}),
+		WithAgentSanitizedErrors(),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := conn.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	transport.inbox <- json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{"sessionId":"session-1","prompt":[{"type":"text","text":"hi"}]}}`)
+
+	select {
+	case raw := <-transport.outbox:
+		var msg struct {
+			Error *acp.RPCError `json:"error"`
+		}
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		if msg.Error == nil {
+			t.Fatalf("expected error response, got %s", string(raw))
+		}
+		if msg.Error.Message != "internal error" {
+			t.Fatalf("wire error message = %q, want %q", msg.Error.Message, "internal error")
+		}
+		if len(msg.Error.Data) != 0 {
+			t.Fatalf("sanitized wire error carried data: %s", msg.Error.Data)
+		}
+		if bytes.Contains(raw, []byte(agentWireCanary)) {
+			t.Fatalf("sanitized wire JSON leaks handler error: %s", raw)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for prompt response")
+	}
+
+	// The connection label must appear on the handler-error log line
+	// (local logging keeps the original cause even when the wire is opaque).
+	deadline := time.Now().Add(2 * time.Second)
+	for !capture.contains("conn=agent-options-test") || !capture.contains(agentWireCanary) {
+		if time.Now().After(deadline) {
+			t.Fatal("handler-error log line missing connection label or original cause")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// The notification-error handler must receive notification failures.
+	transport.inbox <- json.RawMessage(`{"jsonrpc":"2.0","method":"session/unknown","params":{"sessionId":"session-1"}}`)
+	select {
+	case err := <-notifyErrors:
+		if err == nil || !strings.Contains(err.Error(), "session/unknown") {
+			t.Fatalf("notification error = %v, want unsupported notification for session/unknown", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for notification error handler")
 	}
 }

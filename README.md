@@ -350,10 +350,13 @@ The following `conn.With...` options are the **public options of `conn.NewClient
 | `conn.WithOrderedNotificationMatcher(fn)` | built-in `session/update` | specify which notifications must be delivered in **strict order** |
 | `conn.WithSessionListenerErrorHandler(fn)` | built-in warn log | callback for HTTP GET SSE listener failures (HTTP only) |
 | `conn.WithNotificationErrorHandler(fn)` | built-in error log | callback when a notification handler returns an error or panics |
+| `conn.WithMaxPendingDispatch(n)` | 4096 | cap each dispatch queue depth; negative = unbounded |
+| `conn.WithShutdownTimeout(d)` | 30s | bound how long `Close`/`Start` wait for queued handlers to drain; negative = wait forever |
+| `conn.WithSanitizedErrors()` | off | strip host internals (`originError`, panic text/stack) from wire errors; deliberately returned `*RPCError` data is kept |
 
 > Notes:
 > - `conn.WithSessionListenerErrorHandler` and `conn.WithOrderedNotificationMatcher` are **ClientConnection-only**.
-> - `conn.NewAgentConnectionFromTransport(...)` does **not currently expose** options publicly: its `opts ...jsonrpc.ConnectionOption` parameter type lives in an `internal/` package and cannot be constructed externally, so the agent side can only use defaults. If your agent is served through `server.ACPServer`, use the `server.With...` options from [5.3 ACPServer](#53-acpserver) instead; request timeout and notification error handling are configured there.
+> - `conn.NewAgentConnectionFromTransport(...)` accepts `conn.AgentConnectionOption` values: the `WithAgent*` aliases of the shared options above (`WithAgentRequestTimeout`, `WithAgentMaxPendingDispatch`, `WithAgentShutdownTimeout`, `WithAgentConnectionLabel`, `WithAgentNotificationErrorHandler`, `WithAgentSanitizedErrors`, ...). If your agent is served through `server.ACPServer`, use the `server.With...` options from [5.3 ACPServer](#53-acpserver) instead; request timeout and notification error handling are configured there.
 
 Shared defaults (`transport` package constants):
 

@@ -350,10 +350,13 @@ make run-proxy
 | `conn.WithOrderedNotificationMatcher(fn)` | 内置 `session/update` | 指定哪些通知要**严格顺序**投递 |
 | `conn.WithSessionListenerErrorHandler(fn)` | 内置 warn 日志 | HTTP GET SSE listener 失败回调（仅 HTTP） |
 | `conn.WithNotificationErrorHandler(fn)` | 内置 error 日志 | 通知 handler 报错/panic 时的回调 |
+| `conn.WithMaxPendingDispatch(n)` | 4096 | 限制每个派发队列的深度；负数 = 不限制 |
+| `conn.WithShutdownTimeout(d)` | 30s | `Close`/`Start` 等待队列中 handler 排空的上限；负数 = 永远等待 |
+| `conn.WithSanitizedErrors()` | 关 | wire 错误脱敏：不携带 `originError` / panic 文本 / 堆栈；显式返回的 `*RPCError` data 保留 |
 
 > 注意：
 > - `conn.WithSessionListenerErrorHandler` / `conn.WithOrderedNotificationMatcher` 是 **ClientConnection 专属**。
-> - `conn.NewAgentConnectionFromTransport(...)` 目前**未对外暴露** option：其 `opts ...jsonrpc.ConnectionOption` 参数类型位于 `internal/` 包，外部无法构造，Agent 侧只能使用默认值。如果是通过 `server.ACPServer` 提供 Agent，请改用 [5.3 服务端节点：ACPServer](#53-服务端节点acpserver) 的 `server.With...` option（请求超时、通知错误回调等都在那里）。
+> - `conn.NewAgentConnectionFromTransport(...)` 现接受 `conn.AgentConnectionOption`（上表共享选项的 `WithAgent*` 别名：`WithAgentRequestTimeout`、`WithAgentMaxPendingDispatch`、`WithAgentShutdownTimeout`、`WithAgentConnectionLabel`、`WithAgentNotificationErrorHandler`、`WithAgentSanitizedErrors` 等）。如果是通过 `server.ACPServer` 提供 Agent，请改用 [5.3 服务端节点：ACPServer](#53-服务端节点acpserver) 的 `server.With...` option（请求超时、通知错误回调等都在那里）。
 
 共享默认值（`transport` 包常量）：
 

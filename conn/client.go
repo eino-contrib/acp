@@ -110,6 +110,31 @@ func WithNotificationErrorHandler(fn func(method string, err error)) ClientConne
 	return withJSONRPCClientConnectionOption(jsonrpc.WithNotificationErrorHandler(fn))
 }
 
+// WithMaxPendingDispatch caps the depth of each dispatch queue (the shared
+// request/notification intake and the ordered-notification queue). Exceeding
+// the cap terminates the connection with a ServerBusy error.
+//
+// Default is an internal safe ceiling; pass a positive value to tune, or a
+// negative value to explicitly disable the cap (unbounded).
+func WithMaxPendingDispatch(n int) ClientConnectionOption {
+	return withJSONRPCClientConnectionOption(jsonrpc.WithMaxPendingDispatch(n))
+}
+
+// WithShutdownTimeout bounds how long Close/Start wait for queued
+// notification handlers to drain after shutdown. A positive duration sets the
+// timeout; zero selects the default; a negative value waits forever.
+func WithShutdownTimeout(d time.Duration) ClientConnectionOption {
+	return withJSONRPCClientConnectionOption(jsonrpc.WithShutdownTimeout(d))
+}
+
+// WithSanitizedErrors opts into wire error sanitization: generic handler
+// errors, handler panics, and response marshal failures are sent without host
+// internals (no originError data, panic text, or stack). Deliberately returned
+// *acp.RPCError values keep their data, and local logging is unchanged.
+func WithSanitizedErrors() ClientConnectionOption {
+	return withJSONRPCClientConnectionOption(jsonrpc.WithSanitizedErrors())
+}
+
 // NewClientConnection creates a new client-side connection.
 //
 // client and transport must be non-nil. Passing nil panics at construction

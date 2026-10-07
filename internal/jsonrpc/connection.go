@@ -135,6 +135,22 @@ func WithShutdownTimeout(d time.Duration) ConnectionOption {
 	}
 }
 
+// WithSanitizedErrors opts the connection into wire error sanitization. When
+// enabled:
+//   - generic (non-RPCError) handler errors respond with the opaque internal
+//     error and no originError data;
+//   - handler panics respond without the panic text or goroutine stack;
+//   - response marshal failures respond without the marshal error.
+//
+// Deliberately returned *acp.RPCError values keep their data. Local logging
+// and OnError reporting are unchanged — only the wire payload is sanitized.
+// Disabled by default; the default wire behavior is unchanged.
+func WithSanitizedErrors() ConnectionOption {
+	return func(c *Connection) {
+		c.sanitizedErrors = true
+	}
+}
+
 // WithConnectionLabel tags panic and handler-error logs with an identifier
 // (e.g. a connection ID) so operators can correlate log lines to the
 // originating connection.
@@ -244,6 +260,12 @@ type Connection struct {
 	// the drain context is cancelled and wg.Wait is abandoned. Zero selects
 	// defaultShutdownTimeout; a negative value disables the bound.
 	shutdownTimeout time.Duration
+	// sanitizedErrors, when true, replaces the peer-visible error detail for
+	// host-internal failures (generic handler errors, handler panics, response
+	// marshal failures) with the opaque generic message. Deliberate
+	// *acp.RPCError values returned by handlers are always sent as-is. Local
+	// logging and OnError reporting are unaffected.
+	sanitizedErrors bool
 
 	// drainCtxOnce guards the lazy creation of drainCtx/drainCancel. The
 	// drain context is created the first time a worker observes c.ctx as
@@ -723,7 +745,7 @@ func (c *Connection) handleRequest(ctx context.Context, msg *Message, respond fu
 
 	result, err := c.requestHandler(ctx, msg.Method, msg.Params)
 	if err != nil {
-		rpcErr := ToResponseError(err)
+		rpcErr := c.toResponseError(err)
 		if IsHiddenInternalError(rpcErr) {
 			c.logf("jsonrpc handler error on method %q: %v", msg.Method, err)
 		}
@@ -734,7 +756,7 @@ func (c *Connection) handleRequest(ctx context.Context, msg *Message, respond fu
 	resp, err := NewResponse(msg.ID, result)
 	if err != nil {
 		c.logf("jsonrpc response error on method %q: marshal result: %v", msg.Method, err)
-		respond(NewErrorResponse(msg.ID, acp.ErrInternalError(genericInternalErrorMessage, err)))
+		respond(NewErrorResponse(msg.ID, c.internalWireError(err)))
 		return
 	}
 	respond(resp)
@@ -747,7 +769,7 @@ func (c *Connection) handleRequestSafely(ctx context.Context, msg *Message, resp
 		if r := recover(); r != nil {
 			panicErr := fmt.Errorf("request handler panic: method=%q %s: %v\n%s", msg.Method, c.panicContext(msg), r, safe.TruncatedStack())
 			c.reportError(msg.Method, panicErr)
-			respond(NewErrorResponse(msg.ID, acp.ErrInternalError(genericInternalErrorMessage, panicErr)))
+			respond(NewErrorResponse(msg.ID, c.internalWireError(panicErr)))
 		}
 	}()
 
@@ -1048,6 +1070,33 @@ func ToResponseError(err error) *acp.RPCError {
 // original err when this is true so the underlying cause isn't lost.
 func IsHiddenInternalError(rpcErr *acp.RPCError) bool {
 	return rpcErr != nil && rpcErr.Message == genericInternalErrorMessage
+}
+
+// toResponseError converts a handler error to the RPCError sent to the peer,
+// honoring WithSanitizedErrors. Deliberate *acp.RPCError values returned by
+// the handler always keep their data; only the opaque internal-error fallback
+// is stripped of its origin detail.
+func (c *Connection) toResponseError(err error) *acp.RPCError {
+	rpcErr := ToResponseError(err)
+	if !c.sanitizedErrors || !IsHiddenInternalError(rpcErr) {
+		return rpcErr
+	}
+	var deliberate *acp.RPCError
+	if errors.As(err, &deliberate) {
+		return rpcErr
+	}
+	return acp.ErrInternalError(genericInternalErrorMessage, nil)
+}
+
+// internalWireError renders a host-side internal failure (handler panic or
+// response marshal failure) for the wire. With WithSanitizedErrors enabled the
+// peer receives only the opaque generic message; otherwise the cause is
+// attached as originError data for diagnosis.
+func (c *Connection) internalWireError(err error) *acp.RPCError {
+	if c.sanitizedErrors {
+		return acp.ErrInternalError(genericInternalErrorMessage, nil)
+	}
+	return acp.ErrInternalError(genericInternalErrorMessage, err)
 }
 
 // RequestSender abstracts the ability to send a JSON-RPC request and receive

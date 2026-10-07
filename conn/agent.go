@@ -3,12 +3,94 @@ package conn
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	acp "github.com/eino-contrib/acp"
 	"github.com/eino-contrib/acp/internal/connspi"
 	"github.com/eino-contrib/acp/internal/jsonrpc"
 	"github.com/eino-contrib/acp/internal/safe"
 )
+
+// AgentConnectionOption configures an AgentConnection at construction time.
+type AgentConnectionOption interface {
+	applyAgentConnectionOption(*agentConnectionConfig)
+}
+
+type agentConnectionConfig struct {
+	rpcOpts []jsonrpc.ConnectionOption
+}
+
+type agentConnectionOptionFunc func(*agentConnectionConfig)
+
+func (f agentConnectionOptionFunc) applyAgentConnectionOption(cfg *agentConnectionConfig) {
+	f(cfg)
+}
+
+func withJSONRPCAgentConnectionOption(opt jsonrpc.ConnectionOption) AgentConnectionOption {
+	return agentConnectionOptionFunc(func(cfg *agentConnectionConfig) {
+		cfg.rpcOpts = append(cfg.rpcOpts, opt)
+	})
+}
+
+// WithAgentMaxConsecutiveParseErrors terminates the connection after n
+// consecutive invalid messages. Zero keeps the default unlimited behavior.
+func WithAgentMaxConsecutiveParseErrors(n int) AgentConnectionOption {
+	return withJSONRPCAgentConnectionOption(jsonrpc.WithMaxConsecutiveParseErrors(n))
+}
+
+// WithAgentRequestTimeout sets a per-request timeout applied to inbound
+// handler contexts. Zero keeps the default disabled behavior.
+func WithAgentRequestTimeout(d time.Duration) AgentConnectionOption {
+	return withJSONRPCAgentConnectionOption(jsonrpc.WithRequestTimeout(d))
+}
+
+// WithAgentRequestWorkers overrides the per-connection worker pool size used
+// for requests and unordered notifications.
+func WithAgentRequestWorkers(n int) AgentConnectionOption {
+	return withJSONRPCAgentConnectionOption(jsonrpc.WithRequestWorkers(n))
+}
+
+// WithAgentMaxPendingDispatch caps the depth of each dispatch queue (the
+// shared request/notification intake and the ordered-notification queue).
+// Exceeding the cap terminates the connection with a ServerBusy error.
+//
+// Default is an internal safe ceiling; pass a positive value to tune, or a
+// negative value to explicitly disable the cap (unbounded).
+func WithAgentMaxPendingDispatch(n int) AgentConnectionOption {
+	return withJSONRPCAgentConnectionOption(jsonrpc.WithMaxPendingDispatch(n))
+}
+
+// WithAgentShutdownTimeout bounds how long Close/Start wait for queued
+// notification handlers to drain after shutdown. A positive duration sets the
+// timeout; zero selects the default; a negative value waits forever.
+func WithAgentShutdownTimeout(d time.Duration) AgentConnectionOption {
+	return withJSONRPCAgentConnectionOption(jsonrpc.WithShutdownTimeout(d))
+}
+
+// WithAgentConnectionLabel tags JSON-RPC diagnostic logs with an identifier.
+func WithAgentConnectionLabel(label string) AgentConnectionOption {
+	return withJSONRPCAgentConnectionOption(jsonrpc.WithConnectionLabel(label))
+}
+
+// WithAgentNotificationErrorHandler registers a callback invoked when a
+// notification handler returns an error (or panics). Since notifications
+// have no response, failures would otherwise be visible only in SDK logs.
+// Use this hook to feed metrics, alerts, or custom recovery policies.
+//
+// The callback runs synchronously from the dispatch goroutine; keep it
+// short (emit a metric, enqueue to a channel, etc.). Panics inside the
+// callback are recovered and logged by the SDK.
+func WithAgentNotificationErrorHandler(fn func(method string, err error)) AgentConnectionOption {
+	return withJSONRPCAgentConnectionOption(jsonrpc.WithNotificationErrorHandler(fn))
+}
+
+// WithAgentSanitizedErrors opts into wire error sanitization: generic handler
+// errors, handler panics, and response marshal failures are sent without host
+// internals (no originError data, panic text, or stack). Deliberately returned
+// *acp.RPCError values keep their data, and local logging is unchanged.
+func WithAgentSanitizedErrors() AgentConnectionOption {
+	return withJSONRPCAgentConnectionOption(jsonrpc.WithSanitizedErrors())
+}
 
 // AgentConnection wraps a send-capable endpoint for the agent side.
 // It dispatches incoming requests to the Agent implementation, and provides
@@ -26,19 +108,30 @@ type AgentConnection struct {
 //
 // agent and transport must be non-nil. Passing nil panics at construction time
 // with a clear message; this is a programmer error, not a runtime condition.
-func NewAgentConnectionFromTransport(agent acp.Agent, transport jsonrpc.Transport, opts ...jsonrpc.ConnectionOption) *AgentConnection {
+//
+// AgentConnectionOption values configure the underlying JSON-RPC connection
+// (dispatch queue limits, shutdown wait, per-request timeout and workers,
+// connection label, notification-error handler, wire error sanitization).
+func NewAgentConnectionFromTransport(agent acp.Agent, transport jsonrpc.Transport, opts ...AgentConnectionOption) *AgentConnection {
 	if agent == nil {
 		panic("acp: NewAgentConnectionFromTransport called with nil agent")
 	}
 	if transport == nil {
 		panic("acp: NewAgentConnectionFromTransport called with nil transport")
 	}
+	cfg := agentConnectionConfig{}
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		opt.applyAgentConnectionOption(&cfg)
+	}
 	asc := &AgentConnection{
 		agent: agent,
 	}
 	asc.requestHandlers = newAgentRequestHandlers(agent, asc)
 	asc.notificationHandlers = newAgentNotificationHandlers(asc)
-	conn := jsonrpc.NewConnection(transport, asc.handleRequest, asc.handleNotification, opts...)
+	conn := jsonrpc.NewConnection(transport, asc.handleRequest, asc.handleNotification, cfg.rpcOpts...)
 	asc.jsonrpcConn = conn
 	asc.sender = conn // *jsonrpc.Connection satisfies connspi.Sender
 	return asc

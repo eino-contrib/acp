@@ -9,7 +9,6 @@ import (
 
 	acpconn "github.com/eino-contrib/acp/conn"
 	"github.com/eino-contrib/acp/internal/connspi"
-	"github.com/eino-contrib/acp/internal/jsonrpc"
 	acplog "github.com/eino-contrib/acp/internal/log"
 	"github.com/eino-contrib/acp/internal/wsconn"
 	"github.com/eino-contrib/acp/internal/wsserver"
@@ -51,15 +50,15 @@ func (s *ACPServer) newWSConn(connCtx context.Context, connCancel context.Cancel
 	if err != nil {
 		return nil, err
 	}
-	opts := []jsonrpc.ConnectionOption{
-		jsonrpc.WithMaxConsecutiveParseErrors(10),
-		jsonrpc.WithConnectionLabel(connID),
+	opts := []acpconn.AgentConnectionOption{
+		acpconn.WithAgentMaxConsecutiveParseErrors(10),
+		acpconn.WithAgentConnectionLabel(connID),
 	}
 	if s.requestTimeout > 0 {
-		opts = append(opts, jsonrpc.WithRequestTimeout(s.requestTimeout))
+		opts = append(opts, acpconn.WithAgentRequestTimeout(s.requestTimeout))
 	}
 	if s.notificationErrorHandler != nil {
-		opts = append(opts, jsonrpc.WithNotificationErrorHandler(s.notificationErrorHandler))
+		opts = append(opts, acpconn.WithAgentNotificationErrorHandler(s.notificationErrorHandler))
 	}
 	agentConn := acpconn.NewAgentConnectionFromTransport(agent, wsTransport, opts...)
 	if err := setClientConnection(agent, agentConn); err != nil {
